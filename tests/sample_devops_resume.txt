@@ -1,0 +1,24 @@
+Marcus Vance
+Senior DevOps & Infrastructure Engineer
+Email: marcus.vance@example.com | Phone: +1 (555) 321-9876 | Austin, TX
+LinkedIn: linkedin.com/in/marcus-vance-devops
+
+PROFESSIONAL SUMMARY
+Senior DevOps Engineer with 7+ years of experience automating, securing, and scaling cloud infrastructure across AWS and Kubernetes environments. Expert in continuous integration and continuous delivery (CI/CD), infrastructure as code (Terraform), and microservice container orchestration.
+
+TECHNICAL SKILLS
+- Cloud & Infrastructure: AWS, Docker, Kubernetes, Terraform, Linux, Ansible, Helm
+- CI/CD & DevOps: Jenkins, GitHub Actions, GitLab CI, CI/CD Pipelines, Git
+- Monitoring & Observability: Prometheus, Grafana, Datadog, ELK Stack
+- Scripting & Languages: Python, Bash, Go, Shell Scripting
+- Security & Networking: IAM, VPC, TLS, Security Compliance, DevSecOps
+
+EXPERIENCE
+Senior DevOps Engineer | CloudScale Tech (2021 – Present)
+- Architected and managed production Kubernetes clusters on AWS using Terraform.
+- Built automated end-to-end CI/CD pipelines reducing deployment failure rate by 80%.
+- Implemented cluster observability with Prometheus and Grafana dashboards.
+
+DevOps Systems Specialist | NetOps Solutions (2018 – 2021)
+- Automated cloud provisioning and configuration with Terraform and Ansible.
+- Containerized legacy microservices using Docker and deployed on Kubernetes.

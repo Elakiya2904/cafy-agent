@@ -1,0 +1,96 @@
+platforms:
+  greenhouse:
+    name: "Greenhouse"
+    color: "#00B259"
+    companies:
+      - token: "stripe"
+        name: "Stripe"
+      - token: "figma"
+        name: "Figma"
+      - token: "reddit"
+        name: "Reddit"
+      - token: "databricks"
+        name: "Databricks"
+      - token: "cloudflare"
+        name: "Cloudflare"
+      - token: "twitch"
+        name: "Twitch"
+
+  ashby:
+    name: "Ashby"
+    color: "#6366F1"
+    companies:
+      - token: "ramp"
+        name: "Ramp"
+      - token: "notion"
+        name: "Notion"
+      - token: "linear"
+        name: "Linear"
+      - token: "zapier"
+        name: "Zapier"
+      - token: "docker"
+        name: "Docker"
+
+  workday:
+    name: "Workday"
+    color: "#F58220"
+    companies:
+      - tenant: "nvidia"
+        name: "NVIDIA"
+        host: "nvidia.wd5.myworkdayjobs.com"
+        site: "NVIDIAExternalCareerSite"
+      - tenant: "target"
+        name: "Target"
+        host: "target.wd5.myworkdayjobs.com"
+        site: "targetcareers"
+      - tenant: "salesforce"
+        name: "Salesforce"
+        host: "salesforce.wd12.myworkdayjobs.com"
+        site: "External_Career_Site"
+
+  lever:
+    name: "Lever"
+    color: "#0A66C2"
+    companies:
+      - token: "spotify"
+        name: "Spotify"
+
+  workable:
+    name: "Workable"
+    color: "#00877C"
+    companies:
+      - token: "cloudtalk"
+        name: "Cloudtalk"
+
+  oracle_cloud:
+    name: "Oracle Cloud"
+    color: "#C74634"
+    companies:
+      - token: "oracle"
+        name: "Oracle Corporation"
+        host: "eeho.fa.us2.oraclecloud.com"
+        site_id: "CX_45001"
+        careers_url: "https://careers.oracle.com/en/sites/jobsearch"
+
+  breezyhr:
+    name: "BreezyHR"
+    color: "#1DA1F2"
+    companies:
+      - token: "freeeup"
+        name: "FreeUp"
+      - token: "embraer"
+        name: "Embraer"
+      - token: "webox-jobs"
+        name: "WeBox"
+      - token: "switchboard"
+        name: "Switchboard"
+
+  pinpoint:
+    name: "Pinpoint"
+    color: "#8B5CF6"
+    companies:
+      - token: "cfc"
+        name: "CFC"
+      - token: "article"
+        name: "Article"
+
