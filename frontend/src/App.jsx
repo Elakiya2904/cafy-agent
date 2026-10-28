@@ -575,13 +575,21 @@ const QUICK_ACTIONS = [
 ];
 
 function renderCareerAnswer(content) {
-  const lines = String(content || "").split(/\r?\n/);
+  const lines = String(content || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\u200b/g, "")
+    .replace(/\r/g, "")
+    .split(/\n/);
+
   const blocks = [];
   let index = 0;
   let key = 0;
 
   const renderInline = (text, prefix) => {
-    const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter(Boolean);
+    const safeText = String(text || "").replace(/\s+/g, " ").trim();
+    if (!safeText) return null;
+
+    const parts = safeText.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter(Boolean);
     return parts.map((part, partIndex) => {
       if (part.startsWith("**") && part.endsWith("**")) {
         return <strong key={`${prefix}-${partIndex}`}>{part.slice(2, -2)}</strong>;
@@ -593,10 +601,11 @@ function renderCareerAnswer(content) {
     });
   };
 
-  const isTableRow = (line) => /^\s*\|.*\|\s*$/.test(line);
+  const isTableRow = (line) => /^[\s\u00a0]*\|.*\|\s*$/.test(line);
   const parseTableRow = (line) => line.trim().replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim());
   const isTableDivider = (line) => isTableRow(line) && parseTableRow(line).every((cell) => /^:?-{3,}:?$/.test(cell));
-  const isListItem = (line) => /^\s*(?:[-*+]|\d+[.)])\s+/.test(line);
+  const isListItem = (line) => /^[\s\u00a0]*(?:[-*+]|\d+[.)])\s+/.test(line);
+  const isHeading = (line) => /^[\s\u00a0]*#{1,6}\s+.+$/.test(line);
 
   while (index < lines.length) {
     if (!lines[index].trim()) {
@@ -633,20 +642,24 @@ function renderCareerAnswer(content) {
       continue;
     }
 
-    const heading = lines[index].match(/^\s{0,3}(#{1,3})\s+(.+)$/);
+    const heading = lines[index].match(/^[\s\u00a0]*(#{1,3})\s+(.+)$/);
     if (heading) {
-      const HeadingTag = `h${heading[1].length}`;
-      blocks.push(<HeadingTag key={`heading-${key++}`}>{renderInline(heading[2], `heading-${key}`)}</HeadingTag>);
+      const HeadingTag = `h${Math.min(heading[1].length, 3)}`;
+      blocks.push(
+        <HeadingTag key={`heading-${key++}`}>
+          {renderInline(heading[2], `heading-${key}`)}
+        </HeadingTag>
+      );
       index += 1;
       continue;
     }
 
     if (isListItem(lines[index])) {
-      const ordered = /^\s*\d+[.)]\s+/.test(lines[index]);
+      const ordered = /^[\s\u00a0]*\d+[.)]\s+/.test(lines[index]);
       const ListTag = ordered ? "ol" : "ul";
       const items = [];
       while (index < lines.length && isListItem(lines[index])) {
-        items.push(lines[index].replace(/^\s*(?:[-*+]|\d+[.)])\s+/, ""));
+        items.push(lines[index].replace(/^[\s\u00a0]*(?:[-*+]|\d+[.)])\s+/, ""));
         index += 1;
       }
       blocks.push(
@@ -662,13 +675,22 @@ function renderCareerAnswer(content) {
       index < lines.length &&
       lines[index].trim() &&
       !isListItem(lines[index]) &&
-      !/^\s{0,3}#{1,3}\s+/.test(lines[index]) &&
+      !isHeading(lines[index]) &&
       !(isTableRow(lines[index]) && isTableDivider(lines[index + 1] || ""))
     ) {
       paragraph.push(lines[index].trim());
       index += 1;
     }
-    blocks.push(<p key={`paragraph-${key++}`}>{renderInline(paragraph.join(" "), `paragraph-${key}`)}</p>);
+    const text = paragraph.join(" ").trim();
+    if (text) {
+      blocks.push(<p key={`paragraph-${key++}`}>{renderInline(text, `paragraph-${key}`)}</p>);
+    } else {
+      index += 1;
+    }
+  }
+
+  if (blocks.length === 0 && content) {
+    return <p>{renderInline(String(content), "fallback")}</p>;
   }
 
   return blocks;

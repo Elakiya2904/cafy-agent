@@ -333,7 +333,8 @@ class CareerChatService:
             "5. For match explanation, distinguish listing skills from skills detected on the resume; do not claim a gap is a job requirement unless the evidence says so.\n"
             "6. Counts in database_summary describe only the supplied analyzed job set, not the entire database or market. For skill gaps and market questions, never extrapolate these counts or add employers not present in the evidence.\n"
             "7. Keep responses clean, insightful, professional, and concise. Use Markdown tables only when they materially improve readability.\n"
-            "8. Do not repeat full card JSON in text because the UI automatically renders interactive job cards below your answer."
+            "8. Never emit Markdown heading markers like #, ##, or ### in the final answer. Use plain text labels or bold text instead.\n"
+            "9. Do not repeat full card JSON in text because the UI automatically renders interactive job cards below your answer."
         )
 
         messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
