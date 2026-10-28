@@ -2,7 +2,7 @@ import os
 import logging
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Literal
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -15,6 +15,7 @@ from .resume_service import ResumeService
 from .recommendation_service import RecommendationService
 from .sponsor_service import VisaSponsorRegistry
 from .career_chat_service import CareerChatError, CareerChatService, build_career_context
+from .company_profiles import enrich_jobs_with_company_profiles
 
 logger = logging.getLogger("cafy.api")
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -47,6 +48,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def disable_frontend_html_caching(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path == "/" or request.url.path.endswith(".html"):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return response
+
 
 # Services initialization
 db = JobDatabase()
@@ -149,7 +159,7 @@ def get_jobs(
 ):
     """Retrieve stored jobs from database with optional filters."""
     jobs = db.get_jobs(platform=platform, search=search, remote_only=remote_only, limit=limit, offset=offset)
-    jobs = sponsor_registry.annotate_jobs(jobs)
+    jobs = enrich_jobs_with_company_profiles(sponsor_registry.annotate_jobs(jobs))
     return {
         "count": len(jobs),
         "jobs": jobs
@@ -166,7 +176,7 @@ async def upload_resume(file: UploadFile = File(...)):
         # Query database across all platforms (up to 3000 jobs)
         stored_jobs = db.get_jobs(limit=3000)
         recommendations = rec_svc.recommend_jobs(parsed, stored_jobs, min_score=85)
-        recommendations = sponsor_registry.annotate_jobs(recommendations)
+        recommendations = enrich_jobs_with_company_profiles(sponsor_registry.annotate_jobs(recommendations))
         ACTIVE_SESSION["last_matched_jobs"] = recommendations
 
         return {
@@ -226,7 +236,7 @@ Managed production Kubernetes clusters on AWS with Terraform and automated CI/CD
 
     stored_jobs = db.get_jobs(limit=3000)
     recommendations = rec_svc.recommend_jobs(parsed, stored_jobs, min_score=85)
-    recommendations = sponsor_registry.annotate_jobs(recommendations)
+    recommendations = enrich_jobs_with_company_profiles(sponsor_registry.annotate_jobs(recommendations))
     ACTIVE_SESSION["last_matched_jobs"] = recommendations
 
     return {
@@ -244,11 +254,11 @@ def get_current_resume():
     if ACTIVE_SESSION["last_matched_jobs"]:
         return {
             "resume": ACTIVE_SESSION["resume"],
-            "matched_jobs": ACTIVE_SESSION["last_matched_jobs"]
+            "matched_jobs": enrich_jobs_with_company_profiles(ACTIVE_SESSION["last_matched_jobs"])
         }
     stored_jobs = db.get_jobs(limit=3000)
-    recs = rec_svc.recommend_jobs(ACTIVE_SESSION["resume"], stored_jobs, min_score=50)
-    recs = sponsor_registry.annotate_jobs(recs)
+    recs = rec_svc.recommend_jobs(ACTIVE_SESSION["resume"], stored_jobs, min_score=85)
+    recs = enrich_jobs_with_company_profiles(sponsor_registry.annotate_jobs(recs))
     ACTIVE_SESSION["last_matched_jobs"] = recs
     return {
         "resume": ACTIVE_SESSION["resume"],
@@ -262,7 +272,7 @@ def recommend_filtered(platform: str = "all", min_score: int = 85):
         raise HTTPException(status_code=400, detail="No résumé uploaded yet.")
     stored_jobs = db.get_jobs(platform=platform, limit=3000)
     recs = rec_svc.recommend_jobs(ACTIVE_SESSION["resume"], stored_jobs, min_score=min_score, platform_filter=platform)
-    recs = sponsor_registry.annotate_jobs(recs)
+    recs = enrich_jobs_with_company_profiles(sponsor_registry.annotate_jobs(recs))
     return {
         "count": len(recs),
         "matched_jobs": recs
@@ -312,7 +322,7 @@ def career_chat(request: CareerChatRequest):
     resume = request.resume_data
 
     # Cap at 1500 jobs for chat context — enough signal, avoids TF-IDF timeout
-    jobs = sponsor_registry.annotate_jobs(db.get_jobs(limit=1500))
+    jobs = enrich_jobs_with_company_profiles(sponsor_registry.annotate_jobs(db.get_jobs(limit=1500)))
 
     matched_jobs = []
     if resume:
@@ -328,9 +338,9 @@ def career_chat(request: CareerChatRequest):
             matched_jobs = rec_svc.recommend_jobs(
                 resume,
                 [dict(job) for job in jobs],
-                min_score=50,
+                min_score=85,
             )
-            matched_jobs = sponsor_registry.annotate_jobs(matched_jobs)
+            matched_jobs = enrich_jobs_with_company_profiles(sponsor_registry.annotate_jobs(matched_jobs))
             ACTIVE_SESSION["last_matched_jobs"] = matched_jobs
 
     context, job_cards, intent = build_career_context(
@@ -361,7 +371,11 @@ def career_chat(request: CareerChatRequest):
         },
     }
 
-# Mount static frontend
-FRONTEND_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
-if os.path.exists(FRONTEND_PATH):
-    app.mount("/", StaticFiles(directory=FRONTEND_PATH, html=True), name="frontend")
+# Mount static frontend: prefer the Vite production build when present, otherwise
+# fall back to the source frontend directory during local development.
+FRONTEND_PATH = PROJECT_ROOT / "frontend" / "dist"
+if not FRONTEND_PATH.exists():
+    FRONTEND_PATH = PROJECT_ROOT / "frontend"
+
+if FRONTEND_PATH.exists():
+    app.mount("/", StaticFiles(directory=str(FRONTEND_PATH), html=True), name="frontend")

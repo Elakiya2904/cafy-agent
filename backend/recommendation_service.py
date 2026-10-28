@@ -78,10 +78,18 @@ class RecommendationService:
         resume_skills_set = {s.lower() for s in candidate_skills}
         target_roles = [r.lower() for r in resume_data.get("target_roles", [])]
         seniority = resume_data.get("seniority_level", "Mid-Level").lower()
+        raw_years = resume_data.get("years_of_experience")
         try:
-            candidate_years = max(0, int(resume_data.get("years_of_experience", 0)))
+            candidate_years = max(0, int(raw_years)) if raw_years is not None else 0
         except (TypeError, ValueError):
             candidate_years = 0
+        # A manually supplied seniority level is useful when a resume does not
+        # contain a numeric years-of-experience value.
+        if raw_years is None:
+            if any(level in seniority for level in ("principal", "lead")):
+                candidate_years = 7
+            elif "senior" in seniority:
+                candidate_years = 5
 
         # Build candidate TF-IDF representation
         resume_corpus = (

@@ -153,6 +153,34 @@ Experience: 6+ years building microservices and web apps.
         self.assertTrue(all(job["match_score"] >= 85 for job in recommendations))
         self.assertTrue(all(len(job["matched_skills"]) >= 4 for job in recommendations))
 
+    def test_candidate_years_must_fit_explicit_experience_range(self):
+        resume = {
+            "skills": ["Python", "React", "AWS", "Docker"],
+            "target_roles": ["Software Engineer"],
+            "seniority_level": "Mid-Level",
+            "years_of_experience": 2,
+            "summary": "Software engineer with 2 years of experience",
+        }
+        shared_skills = ["Python", "React", "AWS", "Docker"]
+        jobs = [
+            {
+                "id": "matching-range",
+                "title": "Software Engineer",
+                "description": "Requires 2-4 years of experience. Python React AWS Docker",
+                "extracted_skills": shared_skills,
+            },
+            {
+                "id": "too-senior",
+                "title": "Software Engineer",
+                "description": "Requires 3-5 years of experience. Python React AWS Docker",
+                "extracted_skills": shared_skills,
+            },
+        ]
+
+        recommendations = self.rec_svc.recommend_jobs(resume, jobs)
+
+        self.assertEqual([job["id"] for job in recommendations], ["matching-range"])
+
     def test_experienced_candidate_is_matched_using_years_not_fresher_roles(self):
         resume = {
             "skills": ["Python", "React", "AWS", "Docker"],

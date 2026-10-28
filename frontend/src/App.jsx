@@ -2,7 +2,7 @@
 // CAFY AGENT • REACT APPLICATION
 // ==========================================================================
 
-const { useState, useEffect, useCallback, useMemo, useRef } = React;
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 
 const API_BASE = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") && window.location.port && window.location.port !== "8000"
   ? "http://127.0.0.1:8000"
@@ -381,6 +381,9 @@ function App() {
       {selectedJob && (
         <JobDetailModal
           job={selectedJob}
+          resume={currentResume}
+          inPipeline={pipelineJobIds.has(selectedJob.id)}
+          onTogglePipeline={() => togglePipeline(selectedJob.id)}
           onClose={() => setSelectedJob(null)}
         />
       )}
@@ -574,11 +577,147 @@ const QUICK_ACTIONS = [
   },
 ];
 
-function renderCareerAnswer(content) {
-  const lines = String(content || "")
+function sanitizeDisplayText(value) {
+  if (value == null) return "";
+  let text = String(value)
     .replace(/\u00a0/g, " ")
     .replace(/\u200b/g, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\|{2,}/g, " ")
     .replace(/\r/g, "")
+    .replace(/(^|\n)\s*#{1,6}\s*/g, "$1")
+    .replace(/(^|\n)\s*>\s*/g, "$1")
+    .replace(/[<>]/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  return text;
+}
+
+function StructuredJobDetailCard({ job }) {
+  const [activeTab, setActiveTab] = useState("overview");
+  const tabs = [
+    { key: "overview", label: "Overview" },
+    { key: "requirements", label: "Requirements" },
+    { key: "company", label: "Company" },
+    { key: "application", label: "Application" },
+  ];
+
+  const requirements = [
+    ...(Array.isArray(job.matched_skills) ? job.matched_skills : []),
+    ...(Array.isArray(job.missing_skills) ? job.missing_skills : []),
+  ].slice(0, 8);
+
+  const overviewBullets = Array.isArray(job.bullets) && job.bullets.length > 0
+    ? job.bullets.slice(0, 4)
+    : [
+        job.location ? `Location: ${job.location}` : "Location: Not listed",
+        job.employment_type ? `Employment type: ${job.employment_type}` : "Employment type: Not listed",
+        job.recommendation ? `Recommendation: ${job.recommendation}` : "Recommendation: Review against your profile",
+      ];
+
+  return (
+    <div className="career-chat-structured-card">
+      <div className="career-chat-structured-header">
+        <div className="career-chat-structured-logo-wrap">
+          <CompanyBrandLogo company={job.company} />
+        </div>
+        <div className="career-chat-structured-header-copy">
+          <div className="career-chat-structured-role">{job.title || "Role"}</div>
+          <div className="career-chat-structured-company">{job.company || "Unknown employer"} · {job.location || "Location not listed"}</div>
+        </div>
+        {Number.isFinite(job.match_score) && (
+          <span className="career-chat-structured-match">{job.match_score}% match</span>
+        )}
+      </div>
+
+      <div className="career-chat-structured-tabs" role="tablist" aria-label="Job detail tabs">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            className={`career-chat-structured-tab ${activeTab === tab.key ? "active" : ""}`}
+            onClick={() => setActiveTab(tab.key)}
+            role="tab"
+            aria-selected={activeTab === tab.key}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="career-chat-structured-panel">
+        {activeTab === "overview" && (
+          <div className="career-chat-structured-section">
+            <ul className="career-chat-structured-list">
+              {overviewBullets.map((item, idx) => (
+                <li key={idx}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {activeTab === "requirements" && (
+          <div className="career-chat-structured-section">
+            {requirements.length > 0 ? (
+              <div className="career-chat-skill-pills">
+                {requirements.map((item, idx) => (
+                  <span key={idx} className="career-chat-skill-pill">
+                    {String(item).replace(/^[-*•\s]+/, "")}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="career-chat-structured-empty">No detailed skill list available for this role.</p>
+            )}
+          </div>
+        )}
+
+        {activeTab === "company" && (
+          <div className="career-chat-structured-section">
+            <div className="career-chat-company-metadata">
+              <div>
+                <span className="career-chat-meta-label">Company</span>
+                <strong>{job.company || "Company not listed"}</strong>
+              </div>
+              <div>
+                <span className="career-chat-meta-label">Location</span>
+                <strong>{job.location || "Location not listed"}</strong>
+              </div>
+              <div>
+                <span className="career-chat-meta-label">Visa status</span>
+                <strong>{job.sponsorship_status || "Unknown"}</strong>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "application" && (
+          <div className="career-chat-structured-section">
+            <ol className="career-chat-application-steps">
+              <li>Review the job summary and match score.</li>
+              <li>Tailor your résumé to the key responsibilities and tools.</li>
+              <li>Apply through the ATS or company portal with a strong cover note.</li>
+              <li>Track follow-up steps and recruiter contact within your pipeline.</li>
+            </ol>
+          </div>
+        )}
+      </div>
+
+      <div className="career-chat-structured-actions">
+        <button type="button" className="career-chat-structured-btn secondary">+ Add to pipeline</button>
+        {job.url && /^https?:\/\//i.test(job.url) && (
+          <a href={job.url} target="_blank" rel="noopener noreferrer" className="career-chat-structured-btn primary">Apply →</a>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function renderCareerAnswer(content) {
+  const lines = sanitizeDisplayText(content)
     .split(/\n/);
 
   const blocks = [];
@@ -601,9 +740,20 @@ function renderCareerAnswer(content) {
     });
   };
 
-  const isTableRow = (line) => /^[\s\u00a0]*\|.*\|\s*$/.test(line);
-  const parseTableRow = (line) => line.trim().replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim());
-  const isTableDivider = (line) => isTableRow(line) && parseTableRow(line).every((cell) => /^:?-{3,}:?$/.test(cell));
+  const parseTableRow = (line) => line
+    .trim()
+    .replace(/^\||\|$/g, "")
+    .split("|")
+    .map((cell) => cell.trim());
+  const isTableRow = (line) => {
+    if (!line || !line.includes("|")) return false;
+    const cells = parseTableRow(line);
+    return cells.length >= 2 && cells.some(Boolean);
+  };
+  const isTableDivider = (line) => {
+    if (!isTableRow(line)) return false;
+    return parseTableRow(line).every((cell) => /^:?-{3,}:?$/.test(cell.replace(/\s+/g, "")));
+  };
   const isListItem = (line) => /^[\s\u00a0]*(?:[-*+]|\d+[.)])\s+/.test(line);
   const isHeading = (line) => /^[\s\u00a0]*#{1,6}\s+.+$/.test(line);
 
@@ -733,9 +883,18 @@ function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipe
   const threadRef = useRef(null);
 
   useEffect(() => {
-    if (threadRef.current) {
-      threadRef.current.scrollTop = threadRef.current.scrollHeight;
-    }
+    const thread = threadRef.current;
+    if (!thread) return undefined;
+
+    const scrollToLatestMessage = () => {
+      thread.scrollTo({
+        top: thread.scrollHeight,
+        behavior: "smooth",
+      });
+    };
+
+    const frame = requestAnimationFrame(scrollToLatestMessage);
+    return () => cancelAnimationFrame(frame);
   }, [messages, busy]);
 
   const resetChat = () => {
@@ -797,7 +956,6 @@ function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipe
           content: data.answer,
           job_cards: cards,
           evidence: data.evidence || null,
-          followUp: cards.length > 0 ? "Would you like me to explain the match in more detail or suggest a learning plan to improve your chances?" : null,
         },
       ]);
     } catch (error) {
@@ -970,12 +1128,6 @@ function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipe
                     </div>
                   )}
 
-                  {/* Follow-up question bubble */}
-                  {message.followUp && (
-                    <div className="career-chat-bubble assistant follow-up" style={{ marginTop: "12px" }}>
-                      <p style={{ margin: 0 }}>{message.followUp}</p>
-                    </div>
-                  )}
                 </div>
               </div>
             ))}
@@ -1456,10 +1608,86 @@ function formatJobAge(dateStr) {
   }
 }
 
+function buildTailoredResumeText(resume, job) {
+  const candidateName = resume?.candidate_name || "Candidate";
+  const email = resume?.email || "your.email@example.com";
+  const location = resume?.location || "Open to work";
+  const skills = Array.isArray(resume?.skills) ? resume.skills : [];
+  const matchedSkills = Array.isArray(job?.matched_skills) ? job.matched_skills : [];
+  const missingSkills = Array.isArray(job?.missing_skills) ? job.missing_skills : [];
+  const roleTitle = job?.title || "Target role";
+  const companyName = job?.company || "Target company";
+
+  const prioritySkills = matchedSkills.length ? matchedSkills : skills.slice(0, 6);
+  const weightedSkills = [...new Set([...prioritySkills, ...missingSkills].slice(0, 8))];
+
+  return [
+    `${candidateName}`,
+    `${email}`,
+    `${location}`,
+    "",
+    `Application for: ${roleTitle} | ${companyName}`,
+    "",
+    "Professional Summary",
+    `${candidateName} is a motivated professional with experience aligned to ${roleTitle}. This tailored profile highlights the most relevant skills for ${companyName}, including ${weightedSkills.join(", ") || "core domain expertise"}.`,
+    "",
+    "Core Skills",
+    weightedSkills.map((skill) => `- ${skill}`).join("\n"),
+    "",
+    "Experience Highlights",
+    `- Delivered work focused on ${weightedSkills.slice(0, 3).join(", ") || "core technical delivery"}.`,
+    `- Collaborated across product, engineering, and stakeholder teams to deliver business-critical outcomes in fast-moving environments.`,
+    `- Applied strong communication, problem solving, and execution skills to deliver measurable impact and improve operational efficiency.`,
+    "",
+    "Application Notes",
+    `- Tailored for the ${roleTitle} opportunity at ${companyName}.`,
+    `- Emphasises relevant skills, measurable impact, and role-specific strengths.`,
+    `- Prepared to discuss experience in ${weightedSkills.slice(0, 3).join(", ") || "the target domain"}.`
+  ].join("\n");
+}
+
+function getCompanySummary(job) {
+  const providedSummary = job.company_description || job.company_overview || job.about_company;
+  if (typeof providedSummary === "string" && providedSummary.trim()) {
+    return sanitizeDisplayText(providedSummary);
+  }
+
+  const companyProfiles = {
+    amazon: "Amazon is a global technology and commerce company that builds online retail, cloud computing, logistics, digital streaming, and consumer technology products. Its teams work across customer-facing services and large-scale infrastructure.",
+    google: "Google is a technology company best known for Search, online advertising, Android, YouTube, and Google Cloud. Its teams build products and infrastructure used by people and organisations around the world.",
+    microsoft: "Microsoft develops software, cloud services, devices, and productivity tools, including Azure, Microsoft 365, Windows, and GitHub. Its engineering teams work across enterprise and consumer technology.",
+    meta: "Meta builds social and communication platforms including Facebook, Instagram, WhatsApp, and Messenger, alongside virtual and augmented reality products. Its teams focus on connecting people and developing large-scale technology.",
+    apple: "Apple designs consumer hardware, software, and services including iPhone, Mac, iOS, macOS, and Apple services. Its teams combine product design, engineering, and privacy-focused technology.",
+    netflix: "Netflix is a global entertainment company that provides streaming films, series, and games. Its technology teams support content delivery, recommendations, experimentation, and reliable customer experiences.",
+    "shopify": "Shopify provides commerce tools that help businesses start, grow, market, and manage online and in-person stores. Its teams build software and infrastructure for merchants around the world.",
+    "salesforce": "Salesforce provides cloud-based customer relationship management software and business applications. Its products help organisations manage sales, service, marketing, analytics, and collaboration.",
+    databricks: "Databricks is a data and artificial intelligence company that provides the Data Intelligence Platform. The platform brings together data engineering, analytics, machine learning, and generative AI so organisations can build and operate data-driven applications at scale.",
+    reddit: "Reddit operates a community platform where people share, discuss, and discover content across thousands of interest-based communities. Its teams build large-scale conversation, discovery, advertising, and community tools.",
+  };
+  const companyKey = String(job.company || "").trim().toLowerCase();
+  if (companyProfiles[companyKey]) return companyProfiles[companyKey];
+
+  return "A company overview was not included in this job feed. Use the official company website and the original job posting to verify the organisation, its products, and its team before applying.";
+}
+
+function getCompanyProfile(job) {
+  const companyKey = String(job.company || "").trim().toLowerCase();
+  const profiles = {
+    databricks: {
+      industry: "Data, cloud software, and artificial intelligence",
+      website: "https://www.databricks.com",
+    },
+    reddit: {
+      industry: "Social media and online communities",
+      website: "https://www.redditinc.com",
+    },
+  };
+  return profiles[companyKey] || {};
+}
+
 function JobCard({ job, inPipeline, onTogglePipeline, onViewDetails }) {
   const plat = (job.platform || "ATS").toLowerCase();
 
-  // Matched keyword for display (e.g. "devops", "kubernetes", "python", "aws")
   let matchedKeyword = "devops";
   if (job.matched_skills && job.matched_skills.length > 0) {
     matchedKeyword = job.matched_skills[0].toLowerCase();
@@ -1479,7 +1707,6 @@ function JobCard({ job, inPipeline, onTogglePipeline, onViewDetails }) {
 
   return (
     <div className="job-card-uploaded-style">
-      {/* Header Row: Circular Avatar + Title with Link + Subtitle */}
       <div className="card-header-row">
         <div className="company-avatar-circle" title={job.company || "Company"}>
           <svg width="24" height="24" viewBox="0 0 28 28" fill="none">
@@ -1517,15 +1744,9 @@ function JobCard({ job, inPipeline, onTogglePipeline, onViewDetails }) {
               UK Sponsor Listed
             </span>
           )}
-          {job.visa_sponsored && job.visa_sponsor_registered_names?.length > 0 && (
-            <span className="visa-sponsor-match-name">
-              UK register: {job.visa_sponsor_registered_names.join(", ")}
-            </span>
-          )}
         </div>
       </div>
 
-      {/* Meta Row: [Lever] 2d ago · matched devops */}
       <div className="card-meta-row">
         <span className="platform-tag-pill">{plat}</span>
         <span className="meta-age-text">{postingAge}</span>
@@ -1534,7 +1755,6 @@ function JobCard({ job, inPipeline, onTogglePipeline, onViewDetails }) {
         </span>
       </div>
 
-      {/* Action Row: + Add to pipeline / In pipeline & Evaluate button */}
       <div className="card-action-row">
         <button
           type="button"
@@ -1549,85 +1769,308 @@ function JobCard({ job, inPipeline, onTogglePipeline, onViewDetails }) {
               <span>In pipeline</span>
             </>
           ) : (
-            <>
-              <span>+ Add to pipeline</span>
-            </>
+            <><span>+ Add to pipeline</span></>
           )}
         </button>
 
         <button
           type="button"
-          className="btn-evaluate"
+          className="btn-apply-job"
           onClick={onViewDetails}
         >
-          <span>Evaluate</span>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
-            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
-          </svg>
+          Apply
         </button>
       </div>
     </div>
   );
 }
 
-function JobDetailModal({ job, onClose }) {
-  const plat = (job.platform || "ATS").toLowerCase();
+function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline }) {
+  const [activeTab, setActiveTab] = useState("overview");
+  const [isGeneratingResume, setIsGeneratingResume] = useState(false);
+  const [resumeDraft, setResumeDraft] = useState(() => buildTailoredResumeText(resume, job));
+  const [resumeError, setResumeError] = useState("");
+  const [resumeReady, setResumeReady] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [applicationStatus, setApplicationStatus] = useState("Not started");
+
+  useEffect(() => {
+    setResumeDraft(buildTailoredResumeText(resume, job));
+    setResumeReady(false);
+    setResumeError("");
+    setSubmitted(false);
+    setApplicationStatus("Not started");
+  }, [job?.id, resume]);
+
+  const tabs = [
+    { key: "overview", label: "Overview" },
+    { key: "requirements", label: "Requirements" },
+    { key: "company", label: "Company" },
+    { key: "application", label: "Application" },
+  ];
+
+  const summaryText = sanitizeDisplayText(job.description) || "No full description text available.";
+  const requirementItems = [
+    ...(job.matched_skills || []).slice(0, 6),
+    ...(job.missing_skills || []).slice(0, 4),
+  ];
+
+  const handleGenerateResume = () => {
+    if (!resume) {
+      setResumeError("Upload a résumé before generating a tailored version.");
+      return;
+    }
+
+    setResumeError("");
+    setIsGeneratingResume(true);
+
+    setTimeout(() => {
+      const generated = buildTailoredResumeText(resume, job);
+      setResumeDraft(generated);
+      setResumeReady(true);
+      setApplicationStatus("Tailored resume ready");
+      setIsGeneratingResume(false);
+    }, 900);
+  };
+
+  const handleDownloadResume = () => {
+    if (!resumeDraft) return;
+    const blob = new Blob([resumeDraft], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${(job.title || "job").replace(/\s+/g, "-").toLowerCase()}-tailored-resume.txt`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleContinueToApplication = () => {
+    if (job.url) {
+      window.open(job.url, "_blank", "noopener,noreferrer");
+      setApplicationStatus("Application opened");
+    } else {
+      setApplicationStatus("No external application URL available");
+    }
+  };
+
+  const handleSubmitApplication = () => {
+    if (!submitted) {
+      setSubmitted(true);
+      setApplicationStatus("Submitted");
+      if (!inPipeline) {
+        onTogglePipeline(job.id);
+      }
+    }
+  };
+
+  const isApplicationDone = submitted || inPipeline;
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <div className="modal-company-info">
-            <span className={`modal-ats-badge ${plat}`}>{plat.toUpperCase()}</span>
-            <h2 className="modal-title">{job.title}</h2>
-            <p className="modal-subtitle">
-              {job.company} • {job.location || "Remote"} • {job.employment_type || "Full-time"}
-            </p>
+    <div className="modal-overlay side-panel-overlay" onClick={onClose}>
+      <div className="modal-card modal-drawer" onClick={(e) => e.stopPropagation()}>
+        <div className="drawer-header">
+          <div className="drawer-topline">
+            <div className="drawer-company-pill">{(job.platform || "ATS").toUpperCase()}</div>
+            <span className="drawer-status">{applicationStatus}</span>
           </div>
-          <button type="button" className="modal-close-btn" onClick={onClose}>
-            &times;
-          </button>
+          <div className="drawer-title-wrap">
+            <div className="drawer-company-badge">{job.company || "Company"}</div>
+            <h2 className="drawer-title">{job.title}</h2>
+            <p className="drawer-subtitle">{job.location || "Remote"} · {job.employment_type || "Full-time"}</p>
+          </div>
+          <button type="button" className="drawer-close-btn" onClick={onClose} aria-label="Close job drawer">×</button>
         </div>
 
-        <div className="modal-body">
-          {job.match_score && (
-            <div style={{ background: "#ECFDF5", border: "1px solid #A7F3D0", padding: "14px", borderRadius: "12px", marginBottom: "18px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
-                <strong style={{ color: "#065F46", fontSize: "0.95rem" }}>
-                  Match Score: {job.match_score}% ({job.fit_level})
-                </strong>
-                <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#047857" }}>Based on your Résumé</span>
-              </div>
-              <p style={{ fontSize: "0.82rem", color: "#065F46", marginBottom: "6px" }}>
-                <strong>Matching Skills:</strong> {(job.matched_skills || []).join(", ") || "General role match"}
-              </p>
-              {job.missing_skills && job.missing_skills.length > 0 && (
-                <p style={{ fontSize: "0.82rem", color: "#4B5563" }}>
-                  <strong>Skills to Highlight:</strong> {job.missing_skills.join(", ")}
-                </p>
+        <div className="job-modal-tabs drawer-tabs" role="tablist" aria-label="Job details tabs">
+          {tabs.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              className={`job-modal-tab ${activeTab === tab.key ? "active" : ""}`}
+              onClick={() => setActiveTab(tab.key)}
+              role="tab"
+              aria-selected={activeTab === tab.key}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="modal-body modal-body-tabs drawer-body">
+          {activeTab === "overview" && (
+            <div className="job-detail-panel">
+              {job.match_score && (
+                <div className="job-match-banner">
+                  <div className="job-match-banner-top">
+                    <strong>Match score: {job.match_score}%</strong>
+                    <span>Based on your résumé</span>
+                  </div>
+                  <p><strong>Matching skills:</strong> {(job.matched_skills || []).join(", ") || "General role match"}</p>
+                  {job.missing_skills && job.missing_skills.length > 0 && (
+                    <p><strong>Skills to highlight:</strong> {job.missing_skills.join(", ")}</p>
+                  )}
+                </div>
               )}
+
+              <div className="drawer-section-block">
+                <h4 className="modal-section-heading">Overview</h4>
+                <div className="overview-grid">
+                  <div><span className="muted-label">Experience</span><strong>{job.experience_level || "Not listed"}</strong></div>
+                  <div><span className="muted-label">Employment type</span><strong>{job.employment_type || "Full-time"}</strong></div>
+                  <div><span className="muted-label">Location</span><strong>{job.location || "Remote"}</strong></div>
+                  <div><span className="muted-label">Sponsor status</span><strong>{job.visa_sponsored ? "UK Sponsor Listed" : "Not specified"}</strong></div>
+                </div>
+              </div>
+
+              <div className="drawer-section-block">
+                <h4 className="modal-section-heading">Role description</h4>
+                <div className="modal-job-description">{summaryText}</div>
+              </div>
             </div>
           )}
 
-          <h4 className="modal-section-heading">Job Description</h4>
-          <div className="modal-job-description">
-            {job.description || "No full description text available."}
-          </div>
+          {activeTab === "requirements" && (
+            <div className="job-detail-panel">
+              <div className="drawer-section-block">
+                <h4 className="modal-section-heading">Required & preferred skills</h4>
+                <div className="skill-tag-list">
+                  {(requirementItems.length ? requirementItems : ["Role requirements not listed"]).map((item, index) => (
+                    <span
+                      key={`${item}-${index}`}
+                      className={`skill-tag ${index < (job.matched_skills || []).length ? "matched" : "missing"}`}
+                    >
+                      {item}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="drawer-section-block">
+                <h4 className="modal-section-heading">Resume comparison</h4>
+                <div className="resume-comparison-box">
+                  <div className="compare-header-row">
+                    <span>Your skills</span>
+                    <span>Role needs</span>
+                  </div>
+                  <div className="compare-list">
+                    {(job.matched_skills || []).slice(0, 6).map((skill) => (
+                      <span className="compare-pill matched" key={skill}>{skill}</span>
+                    ))}
+                    {(job.missing_skills || []).slice(0, 6).map((skill) => (
+                      <span className="compare-pill missing" key={skill}>{skill}</span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "company" && (
+            <div className="job-detail-panel">
+              <div className="drawer-section-block">
+                <h4 className="modal-section-heading">Company</h4>
+                <p className="company-description">{getCompanySummary(job)}</p>
+                {(() => {
+                  const companyProfile = getCompanyProfile(job);
+                  return (
+                <div className="company-summary-box">
+                  <div className="company-summary-row"><span className="company-summary-label">Company</span><strong>{job.company || "Company not listed"}</strong></div>
+                  <div className="company-summary-row"><span className="company-summary-label">Industry</span><span>{job.industry || companyProfile.industry || "Not listed"}</span></div>
+                  <div className="company-summary-row"><span className="company-summary-label">Location</span><span>{job.location || "Remote"}</span></div>
+                  <div className="company-summary-row"><span className="company-summary-label">Headquarters</span><span>{job.company_headquarters || "Not listed"}</span></div>
+                  <div className="company-summary-row"><span className="company-summary-label">Company size</span><span>{job.company_size || "Not listed"}</span></div>
+                  <div className="company-summary-row">
+                    <span className="company-summary-label">Website</span>
+                    {(job.company_website || companyProfile.website) ? (
+                      <a href={job.company_website || companyProfile.website} target="_blank" rel="noopener noreferrer">{job.company_website || companyProfile.website}</a>
+                    ) : (
+                      <span>Not listed</span>
+                    )}
+                  </div>
+                  <div className="company-summary-row"><span className="company-summary-label">Sponsorship</span><span>{job.visa_sponsored ? "UK Sponsor Listed" : "Not specified"}</span></div>
+                </div>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+
+          {activeTab === "application" && (
+            <div className="job-detail-panel">
+              <div className="drawer-section-block">
+                <h4 className="modal-section-heading">Application workflow</h4>
+                <ol className="job-step-list drawer-step-list">
+                  <li className={`job-step-item ${job ? "active" : ""}`}>
+                    <span className="step-number">1</span>
+                    <div><strong>Job selected</strong><p>{job.title} · {job.company}</p></div>
+                  </li>
+
+                  <li className={`job-step-item ${resumeReady || isGeneratingResume ? "active" : ""}`}>
+                    <span className="step-number">2</span>
+                    <div>
+                      <strong>Generating tailored resume</strong>
+                      <p>Use the uploaded résumé and the role requirements to build a focused version.</p>
+                      {resumeError && <div className="drawer-inline-error">{resumeError}</div>}
+                      <button type="button" className="primary-cta" onClick={handleGenerateResume} disabled={isGeneratingResume}>
+                        {isGeneratingResume ? "Generating..." : "Generate Tailored Resume"}
+                      </button>
+                    </div>
+                  </li>
+
+                  <li className={`job-step-item ${resumeReady ? "active" : ""}`}>
+                    <span className="step-number">3</span>
+                    <div>
+                      <strong>Tailored resume ready</strong>
+                      {resumeReady ? (
+                        <>
+                          <textarea
+                            className="resume-preview-area"
+                            value={resumeDraft}
+                            onChange={(e) => setResumeDraft(e.target.value)}
+                            rows={10}
+                          />
+                          <div className="task-actions-row">
+                            <button type="button" className="secondary-cta" onClick={handleDownloadResume}>Download</button>
+                          </div>
+                        </>
+                      ) : (
+                        <p>Generate your tailored resume to continue.</p>
+                      )}
+                    </div>
+                  </li>
+
+                  <li className={`job-step-item ${job.url ? "active" : ""}`}>
+                    <span className="step-number">4</span>
+                    <div>
+                      <strong>Continue to application</strong>
+                      <p>Open the company application page in a new tab when it is available.</p>
+                      <button type="button" className="secondary-cta" onClick={handleContinueToApplication} disabled={!job.url}>
+                        {job.url ? "Open application" : "No URL available"}
+                      </button>
+                    </div>
+                  </li>
+
+                  <li className={`job-step-item ${isApplicationDone ? "active" : ""}`}>
+                    <span className="step-number">5</span>
+                    <div>
+                      <strong>Submit application</strong>
+                      <p>Confirm the application after reviewing the tailored résumé and job requirements.</p>
+                      <button type="button" className="primary-cta submit-cta" onClick={handleSubmitApplication} disabled={submitted}>
+                        {submitted ? "Application submitted" : "Submit application"}
+                      </button>
+                    </div>
+                  </li>
+                </ol>
+              </div>
+            </div>
+          )}
         </div>
 
-        <div className="modal-footer">
-          <button type="button" className="btn-secondary" onClick={onClose}>
-            Close
+        <div className="modal-footer drawer-footer">
+          <button type="button" className="btn-secondary" onClick={onClose}>Close</button>
+          <button type="button" className="btn-primary-apply" onClick={() => { if (!inPipeline) onTogglePipeline(job.id); onClose(); }}>
+            {inPipeline ? "In pipeline" : "Add to pipeline"}
           </button>
-          <a href={job.url} target="_blank" rel="noopener noreferrer" className="btn-primary-apply">
-            <span>Apply on {job.company} Career Portal</span>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-              <polyline points="15 3 21 3 21 9"></polyline>
-              <line x1="10" y1="14" x2="21" y2="3"></line>
-            </svg>
-          </a>
         </div>
       </div>
     </div>
@@ -1791,7 +2234,11 @@ function DirectoryView({
   // When a resume is present, strictly show jobs matching >= 85%
   const sourcePool = useMemo(() => {
     if (resume) {
-      return (matchedJobs || []).filter((j) => (j.match_score || 0) >= 85);
+      return (matchedJobs || []).filter((j) => (
+        (j.match_score || 0) >= 85
+        && Array.isArray(j.matched_skills)
+        && j.matched_skills.length >= 4
+      ));
     }
     return jobs;
   }, [resume, matchedJobs, jobs]);
@@ -2735,9 +3182,4 @@ function AddCompanyModal({ onClose, onSuccess }) {
   );
 }
 
-// Render React App
-const rootElement = document.getElementById("root");
-if (rootElement) {
-  const root = ReactDOM.createRoot(rootElement);
-  root.render(<App />);
-}
+export default App;
