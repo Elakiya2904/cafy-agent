@@ -100,6 +100,34 @@ class TestCareerChatService(unittest.TestCase):
 
         self.assertFalse(cards[0]["visa_sponsored"])
 
+    def test_strategy_does_not_recommend_unmatched_jobs_without_a_resume(self):
+        _, cards, _ = build_career_context(
+            "Which jobs should I prioritise this week?",
+            "opportunities",
+            None,
+            self.jobs,
+            [],
+            [],
+        )
+
+        self.assertEqual(cards, [])
+
+    def test_unmatched_listing_has_no_invented_score_or_resume_gaps(self):
+        context, cards, _ = build_career_context(
+            "What graduate roles are available?",
+            "market",
+            None,
+            self.jobs,
+            [],
+            [],
+        )
+
+        self.assertTrue(cards)
+        self.assertIsNone(cards[0]["match_score"])
+        self.assertEqual(cards[0]["recommendation"], "Not scored")
+        self.assertFalse(any("resume" in bullet.casefold() for bullet in cards[0]["bullets"]))
+        self.assertEqual(context["top_skill_gaps"], [])
+
     def test_groq_request_uses_server_key_and_evidence(self):
         response = MagicMock()
         response.status_code = 200
@@ -118,14 +146,31 @@ class TestCareerChatService(unittest.TestCase):
         self.assertEqual(request["headers"]["Authorization"], "Bearer test-server-key")
         self.assertIn("Example AI", request["json"]["messages"][-1]["content"])
 
-    def test_missing_groq_key_returns_deterministic_fallback(self):
+    def test_missing_groq_key_returns_configuration_error(self):
         with patch.dict(os.environ, {"groq_api_key": "", "GROQ_API_KEY": ""}, clear=True), patch(
             "backend.career_chat_service.requests.post"
         ) as post:
             cards = [{"title": "AI Engineer", "company": "Example AI", "match_score": 89}]
-            answer = CareerChatService().answer("Which jobs should I apply to?", "opportunities", {}, cards, "strategy")
+            with self.assertRaisesRegex(CareerChatError, "not configured"):
+                CareerChatService().answer("Which jobs should I apply to?", "opportunities", {}, cards, "strategy")
         post.assert_not_called()
-        self.assertIn("recommend you apply", answer)
+
+    def test_groq_http_error_does_not_return_a_fallback(self):
+        response = MagicMock(status_code=401)
+        with patch.dict(os.environ, {"GROQ_API_KEY": "test-server-key"}), patch(
+            "backend.career_chat_service.requests.post", return_value=response
+        ):
+            with self.assertRaisesRegex(CareerChatError, "could not complete"):
+                CareerChatService().answer("Which job fits?", "opportunities", {}, [], "strategy")
+
+    def test_invalid_groq_response_does_not_return_a_fallback(self):
+        response = MagicMock(status_code=200)
+        response.json.side_effect = ValueError("invalid json")
+        with patch.dict(os.environ, {"GROQ_API_KEY": "test-server-key"}), patch(
+            "backend.career_chat_service.requests.post", return_value=response
+        ):
+            with self.assertRaisesRegex(CareerChatError, "invalid response"):
+                CareerChatService().answer("Which job fits?", "opportunities", {}, [], "strategy")
 
 
 if __name__ == "__main__":

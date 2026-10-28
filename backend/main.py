@@ -70,11 +70,6 @@ def startup_event():
     # Start the background scraping worker
     scheduler.start()
     logger.info("[Main] Background scheduler initiated.")
-    try:
-        load_sample_resume("dhanush")
-        logger.info("[Main] Preloaded default profile for Dhanush D.")
-    except Exception as e:
-        logger.warning(f"[Main] Default profile preload warning: {e}")
 
 @app.on_event("shutdown")
 def shutdown_event():
@@ -314,7 +309,7 @@ def career_chat(request: CareerChatRequest):
     if not query:
         raise HTTPException(status_code=422, detail="Enter a question for the Career Analyst.")
 
-    resume = request.resume_data or ACTIVE_SESSION.get("resume")
+    resume = request.resume_data
 
     # Cap at 1500 jobs for chat context — enough signal, avoids TF-IDF timeout
     jobs = sponsor_registry.annotate_jobs(db.get_jobs(limit=1500))
@@ -360,8 +355,8 @@ def career_chat(request: CareerChatRequest):
         "job_cards": job_cards,
         "evidence": {
             "profile_loaded": bool(resume),
-            "verified_match_count": len(matched_jobs),
-            "active_job_count": len(jobs),
+            "profile_match_count": len(matched_jobs),
+            "analyzed_job_count": len(jobs),
             "pipeline_job_count": len(request.pipeline_job_ids),
         },
     }

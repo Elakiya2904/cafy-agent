@@ -574,6 +574,125 @@ const QUICK_ACTIONS = [
   },
 ];
 
+function renderCareerAnswer(content) {
+  const lines = String(content || "").split(/\r?\n/);
+  const blocks = [];
+  let index = 0;
+  let key = 0;
+
+  const renderInline = (text, prefix) => {
+    const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter(Boolean);
+    return parts.map((part, partIndex) => {
+      if (part.startsWith("**") && part.endsWith("**")) {
+        return <strong key={`${prefix}-${partIndex}`}>{part.slice(2, -2)}</strong>;
+      }
+      if (part.startsWith("`") && part.endsWith("`")) {
+        return <code key={`${prefix}-${partIndex}`}>{part.slice(1, -1)}</code>;
+      }
+      return part;
+    });
+  };
+
+  const isTableRow = (line) => /^\s*\|.*\|\s*$/.test(line);
+  const parseTableRow = (line) => line.trim().replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim());
+  const isTableDivider = (line) => isTableRow(line) && parseTableRow(line).every((cell) => /^:?-{3,}:?$/.test(cell));
+  const isListItem = (line) => /^\s*(?:[-*+]|\d+[.)])\s+/.test(line);
+
+  while (index < lines.length) {
+    if (!lines[index].trim()) {
+      index += 1;
+      continue;
+    }
+
+    if (isTableRow(lines[index]) && isTableDivider(lines[index + 1] || "")) {
+      const headers = parseTableRow(lines[index]);
+      index += 2;
+      const rows = [];
+      while (index < lines.length && isTableRow(lines[index])) {
+        rows.push(parseTableRow(lines[index]));
+        index += 1;
+      }
+      blocks.push(
+        <div className="career-chat-table-wrap" key={`table-${key++}`}>
+          <table className="career-chat-table">
+            <thead>
+              <tr>{headers.map((cell, cellIndex) => <th key={cellIndex}>{renderInline(cell, `th-${key}-${cellIndex}`)}</th>)}</tr>
+            </thead>
+            <tbody>
+              {rows.map((row, rowIndex) => (
+                <tr key={rowIndex}>
+                  {headers.map((_, cellIndex) => (
+                    <td key={cellIndex}>{renderInline(row[cellIndex] || "", `td-${key}-${rowIndex}-${cellIndex}`)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+      continue;
+    }
+
+    const heading = lines[index].match(/^\s{0,3}(#{1,3})\s+(.+)$/);
+    if (heading) {
+      const HeadingTag = `h${heading[1].length}`;
+      blocks.push(<HeadingTag key={`heading-${key++}`}>{renderInline(heading[2], `heading-${key}`)}</HeadingTag>);
+      index += 1;
+      continue;
+    }
+
+    if (isListItem(lines[index])) {
+      const ordered = /^\s*\d+[.)]\s+/.test(lines[index]);
+      const ListTag = ordered ? "ol" : "ul";
+      const items = [];
+      while (index < lines.length && isListItem(lines[index])) {
+        items.push(lines[index].replace(/^\s*(?:[-*+]|\d+[.)])\s+/, ""));
+        index += 1;
+      }
+      blocks.push(
+        <ListTag key={`list-${key++}`}>
+          {items.map((item, itemIndex) => <li key={itemIndex}>{renderInline(item, `list-${key}-${itemIndex}`)}</li>)}
+        </ListTag>
+      );
+      continue;
+    }
+
+    const paragraph = [];
+    while (
+      index < lines.length &&
+      lines[index].trim() &&
+      !isListItem(lines[index]) &&
+      !/^\s{0,3}#{1,3}\s+/.test(lines[index]) &&
+      !(isTableRow(lines[index]) && isTableDivider(lines[index + 1] || ""))
+    ) {
+      paragraph.push(lines[index].trim());
+      index += 1;
+    }
+    blocks.push(<p key={`paragraph-${key++}`}>{renderInline(paragraph.join(" "), `paragraph-${key}`)}</p>);
+  }
+
+  return blocks;
+}
+
+function getCareerChatErrorMessage(detail) {
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (!item || typeof item !== "object") return "";
+        const message = typeof item.msg === "string" ? item.msg : "";
+        const location = Array.isArray(item.loc)
+          ? item.loc.filter((part) => typeof part === "string" || typeof part === "number").join(".")
+          : "";
+        return message ? (location ? `${location}: ${message}` : message) : "";
+      })
+      .filter(Boolean);
+    if (messages.length) return messages.join("; ");
+  }
+  return "The analyst could not answer right now. Please try again.";
+}
+
 function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipelineJobIds, focusJob }) {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -582,7 +701,7 @@ function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipe
   const createInitialMessages = () => [
     {
       role: "assistant",
-      content: "Hi! 👋\nYour resume is already uploaded. I can help you analyse jobs, explain match scores, find opportunities, track your applications, and suggest skills to improve.\n\nWhat would you like to do?",
+      content: "Hi! 👋\nI can help you explore current job listings and application strategies. Upload your resume to get evidence-based match scores, skill comparisons, and personalized recommendations.\n\nWhat would you like to do?",
       showQuickActions: true,
       job_cards: [],
     },
@@ -607,9 +726,13 @@ function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipe
     if (!query || busy) return;
 
     const history = messages
-      .filter((m) => m.role === "user" || m.role === "assistant")
-      .slice(-8)
-      .map(({ role, content }) => ({ role, content }));
+      .filter((message) =>
+        (message.role === "user" || message.role === "assistant") &&
+        !message.isError &&
+        typeof message.content === "string"
+      )
+      .slice(-6)
+      .map(({ role, content }) => ({ role, content: content.slice(0, 1000) }));
 
     setMessages((prev) => [...prev, { role: "user", content: query, job_cards: [] }]);
     setDraft("");
@@ -628,8 +751,21 @@ function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipe
           focus_job_id: focusJob?.id || null,
         }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "The analyst could not answer right now.");
+      const responseText = await response.text();
+      let data;
+      try {
+        data = responseText ? JSON.parse(responseText) : {};
+      } catch {
+        throw new Error(
+          response.ok
+            ? "Career Analyst returned an unreadable response. Please try again."
+            : `Career Analyst service error (${response.status}). Please try again shortly.`
+        );
+      }
+      if (!response.ok) throw new Error(getCareerChatErrorMessage(data.detail));
+      if (typeof data.answer !== "string" || !data.answer.trim()) {
+        throw new Error("Career Analyst returned an empty response. Please try again.");
+      }
       
       const cards = data.job_cards || [];
       setMessages((prev) => [
@@ -647,7 +783,9 @@ function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipe
         ...prev,
         {
           role: "assistant",
-          content: error.message || "The analyst could not answer right now.",
+          content: error instanceof Error
+            ? error.message
+            : "The analyst could not answer right now. Please try again.",
           job_cards: [],
           isError: true,
         },
@@ -728,7 +866,17 @@ function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipe
                 
                 <div className="career-chat-bubble-container">
                   <div className={`career-chat-bubble ${message.role}`}>
-                    <p style={{ whiteSpace: "pre-wrap", margin: 0 }}>{message.content}</p>
+                    {message.role === "assistant"
+                      ? <div className="career-chat-answer">{renderCareerAnswer(message.content)}</div>
+                      : <p style={{ whiteSpace: "pre-wrap", margin: 0 }}>{message.content}</p>}
+                    {message.evidence && !message.isError && (
+                      <div className="career-chat-evidence">
+                        <span>{message.evidence.analyzed_job_count} listings analyzed</span>
+                        {message.evidence.profile_loaded && (
+                          <span>{message.evidence.profile_match_count} profile matches</span>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {/* 2x3 Quick Action Grid on greeting */}
@@ -752,14 +900,7 @@ function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipe
                   {message.job_cards && message.job_cards.length > 0 && (
                     <div className="career-chat-cards-column">
                       {message.job_cards.map((job) => {
-                        const bullets = (job.bullets && job.bullets.length > 0)
-                          ? job.bullets
-                          : [
-                              job.matched_skills?.length > 0 ? `Strong match for your skills (${job.matched_skills.slice(0, 3).join(", ")})` : "Matches your core skills",
-                              job.experience_signal || "Accepts freshers",
-                              `Location: ${job.location || "London, UK"}`,
-                              `Sponsorship: ${job.visa_sponsored ? "Yes" : (job.sponsorship_status || "Not verified")}`
-                            ];
+                        const bullets = job.bullets || [];
 
                         return (
                           <article className="career-chat-exact-card" key={job.id}>
@@ -768,7 +909,7 @@ function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipe
                                 <CompanyBrandLogo company={job.company} />
                                 <div className="career-chat-card-titles">
                                   <h4 className="career-chat-card-title">{job.title}</h4>
-                                  <span className="career-chat-card-company">{job.company || "Google"}</span>
+                                  <span className="career-chat-card-company">{job.company || "Unknown employer"}</span>
                                 </div>
                               </div>
                               {Number.isFinite(job.match_score) && (
@@ -778,25 +919,29 @@ function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipe
                               )}
                             </div>
 
-                            <ul className="career-chat-card-bullets">
-                              {bullets.map((b, i) => (
-                                <li key={i}>
-                                  <span className="bullet-dot">•</span>
-                                  <span>{b.replace(/^[•\s]+/, "")}</span>
-                                </li>
-                              ))}
-                            </ul>
+                            {bullets.length > 0 && (
+                              <ul className="career-chat-card-bullets">
+                                {bullets.map((b, i) => (
+                                  <li key={i}>
+                                    <span className="bullet-dot">•</span>
+                                    <span>{b.replace(/^[•\s]+/, "")}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
 
-                            <div className="career-chat-card-bottom">
-                              <a
-                                href={job.url || "#"}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="career-chat-card-btn"
-                              >
-                                View job →
-                              </a>
-                            </div>
+                            {job.url && /^https?:\/\//i.test(job.url) && (
+                              <div className="career-chat-card-bottom">
+                                <a
+                                  href={job.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="career-chat-card-btn"
+                                >
+                                  View job →
+                                </a>
+                              </div>
+                            )}
                           </article>
                         );
                       })}

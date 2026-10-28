@@ -110,6 +110,84 @@ Experience: 6+ years building microservices and web apps.
             self.assertGreaterEqual(job["match_score"], 85)
             self.assertGreaterEqual(len(job["matched_skills"]), 4)
 
+    def test_fresher_only_gets_experience_appropriate_matches(self):
+        resume = {
+            "skills": ["Python", "React", "AWS", "Docker"],
+            "target_roles": ["Software Engineer"],
+            "seniority_level": "Junior / Entry",
+            "years_of_experience": 0,
+            "summary": "Graduate software engineer",
+        }
+        shared_skills = ["Python", "React", "AWS", "Docker"]
+        jobs = [
+            {
+                "id": "graduate",
+                "title": "Graduate Software Engineer",
+                "description": "0-2 years of experience. Python React AWS Docker",
+                "extracted_skills": shared_skills,
+            },
+            {
+                "id": "junior",
+                "title": "Junior Software Engineer",
+                "description": "Python React AWS Docker",
+                "extracted_skills": shared_skills,
+            },
+            {
+                "id": "experienced",
+                "title": "Software Engineer",
+                "description": "Requires 3+ years of experience. Python React AWS Docker",
+                "extracted_skills": shared_skills,
+            },
+            {
+                "id": "senior",
+                "title": "Senior Software Engineer",
+                "description": "5+ years of professional experience. Python React AWS Docker",
+                "extracted_skills": shared_skills,
+            },
+        ]
+
+        recommendations = self.rec_svc.recommend_jobs(resume, jobs)
+        recommendation_ids = {job["id"] for job in recommendations}
+
+        self.assertEqual(recommendation_ids, {"graduate", "junior"})
+        self.assertTrue(all(job["match_score"] >= 85 for job in recommendations))
+        self.assertTrue(all(len(job["matched_skills"]) >= 4 for job in recommendations))
+
+    def test_experienced_candidate_is_matched_using_years_not_fresher_roles(self):
+        resume = {
+            "skills": ["Python", "React", "AWS", "Docker"],
+            "target_roles": ["Software Engineer"],
+            "seniority_level": "Mid-Level",
+            "years_of_experience": 4,
+            "summary": "Software engineer with 4 years of experience",
+        }
+        shared_skills = ["Python", "React", "AWS", "Docker"]
+        jobs = [
+            {
+                "id": "matching-years",
+                "title": "Software Engineer",
+                "description": "3-5 years of experience. Python React AWS Docker",
+                "extracted_skills": shared_skills,
+            },
+            {
+                "id": "too-many-years",
+                "title": "Software Engineer",
+                "description": "5+ years of experience. Python React AWS Docker",
+                "extracted_skills": shared_skills,
+            },
+            {
+                "id": "graduate-role",
+                "title": "Graduate Software Engineer",
+                "description": "Python React AWS Docker",
+                "extracted_skills": shared_skills,
+            },
+        ]
+
+        recommendations = self.rec_svc.recommend_jobs(resume, jobs)
+
+        self.assertEqual([job["id"] for job in recommendations], ["matching-years"])
+        self.assertIn("Listing asks for 3-5 years of experience", recommendations[0]["match_reasons"])
+
     def test_empty_database_returns_empty_recommendations(self):
         resume_text = "Software Engineer with Python skills."
         parsed_resume = self.resume_svc.analyze_text(resume_text, "Dev.pdf")
