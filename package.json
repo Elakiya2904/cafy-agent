@@ -2,5 +2,8 @@
   "name": "cafy-agent",
   "version": "1.0.0",
   "private": true,
-  "description": "Cafy Agent static frontend and Python API"
+  "description": "Cafy Agent static frontend and Python API",
+  "scripts": {
+    "build": "npm --prefix frontend run build"
+  }
 }
