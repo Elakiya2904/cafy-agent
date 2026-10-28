@@ -1,7 +1,5 @@
 import re
 from typing import List, Dict, Any, Optional
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 from .resume_service import ResumeService
 
 class RecommendationService:
@@ -13,7 +11,6 @@ class RecommendationService:
 
     def __init__(self):
         self.resume_service = ResumeService()
-        self.vectorizer = TfidfVectorizer(stop_words="english", max_features=1500)
 
     def recommend_jobs(
         self,
