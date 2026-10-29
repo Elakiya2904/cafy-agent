@@ -1,6 +1,69 @@
+from __future__ import annotations
+import math
 import re
-from typing import List, Dict, Any, Optional
+from collections import Counter
+from typing import List, Dict, Any, Optional, Tuple
 from .resume_service import ResumeService
+
+try:
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.metrics.pairwise import cosine_similarity
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    TfidfVectorizer = None  # type: ignore
+    cosine_similarity = None  # type: ignore
+    SKLEARN_AVAILABLE = False
+
+
+def _pure_python_cosine_similarities(query_text: str, doc_texts: List[str]) -> List[float]:
+    """
+    Computes TF-IDF cosine similarities between query_text and each document in doc_texts
+    using only Python standard library (no external dependencies required).
+    """
+    if not doc_texts:
+        return []
+
+    def tokenize(text: str) -> List[str]:
+        return [w for w in re.findall(r"[a-zA-Z0-9+#.-]+", (text or "").lower()) if len(w) > 1]
+
+    query_tokens = tokenize(query_text)
+    docs_tokens = [tokenize(d) for d in doc_texts]
+    all_docs = [query_tokens] + docs_tokens
+    num_docs = len(all_docs)
+
+    # Document frequency
+    df = Counter()
+    for doc in all_docs:
+        df.update(set(doc))
+
+    # IDF with standard smoothing
+    idf = {term: math.log((num_docs + 1) / (count + 1)) + 1.0 for term, count in df.items()}
+
+    def get_tfidf_vec(tokens: List[str]) -> Dict[str, float]:
+        tf = Counter(tokens)
+        total = len(tokens) or 1
+        vec = {term: (count / total) * idf.get(term, 1.0) for term, count in tf.items()}
+        norm = math.sqrt(sum(v * v for v in vec.values()))
+        if norm > 0:
+            return {k: v / norm for k, v in vec.items()}
+        return {}
+
+    query_vec = get_tfidf_vec(query_tokens)
+    if not query_vec:
+        return [0.0] * len(doc_texts)
+
+    results = []
+    for doc_toks in docs_tokens:
+        d_vec = get_tfidf_vec(doc_toks)
+        if not d_vec:
+            results.append(0.0)
+            continue
+        # Cosine similarity of unit vectors is their dot product
+        score = sum(query_vec[term] * val for term, val in d_vec.items() if term in query_vec)
+        results.append(max(0.0, min(1.0, float(score))))
+
+    return results
+
 
 EXPERIENCE_REQUIREMENT_PATTERN = re.compile(
     r"\b(?:(?P<range_min>\d+)\s*(?:-|–|to)\s*(?P<range_max>\d+)"
@@ -11,15 +74,19 @@ EXPERIENCE_REQUIREMENT_PATTERN = re.compile(
 )
 
 
-def _job_experience_requirement(job: Dict[str, Any]) -> tuple[Optional[int], Optional[int]]:
+def _job_experience_requirement(job: Dict[str, Any]) -> Tuple[Optional[int], Optional[int]]:
     text = f"{job.get('title', '')} {job.get('description', '')}"
     requirements = list(EXPERIENCE_REQUIREMENT_PATTERN.finditer(text))
     if not requirements:
         return None, None
 
     match = requirements[0]
-    minimum = int(match.group("range_min") or match.group("minimum") or match.group("stated_minimum"))
-    maximum = int(match.group("range_max")) if match.group("range_max") else None
+    min_raw = match.group("range_min") or match.group("minimum") or match.group("stated_minimum")
+    if not min_raw:
+        return None, None
+    minimum = int(min_raw)
+    max_raw = match.group("range_max")
+    maximum = int(max_raw) if max_raw else None
     return minimum, maximum
 
 
@@ -60,6 +127,11 @@ class RecommendationService:
 
     def __init__(self):
         self.resume_service = ResumeService()
+        self.vectorizer = (
+            TfidfVectorizer(stop_words="english")
+            if SKLEARN_AVAILABLE and TfidfVectorizer is not None
+            else None
+        )
 
     def recommend_jobs(
         self,
@@ -121,12 +193,18 @@ class RecommendationService:
         # Calculate TF-IDF cosine similarities
         tfidf_scores = [0.0] * len(filtered_jobs)
         try:
-            corpus = [resume_corpus] + job_texts
-            matrix = self.vectorizer.fit_transform(corpus)
-            sims = cosine_similarity(matrix[0:1], matrix[1:]).flatten()
-            tfidf_scores = [float(s) for s in sims]
+            if SKLEARN_AVAILABLE and self.vectorizer is not None and cosine_similarity is not None:
+                corpus = [resume_corpus] + job_texts
+                matrix = self.vectorizer.fit_transform(corpus)
+                sims = cosine_similarity(matrix[0:1], matrix[1:]).flatten()
+                tfidf_scores = [float(s) for s in sims]
+            else:
+                tfidf_scores = _pure_python_cosine_similarities(resume_corpus, job_texts)
         except Exception:
-            tfidf_scores = [0.0] * len(filtered_jobs)
+            try:
+                tfidf_scores = _pure_python_cosine_similarities(resume_corpus, job_texts)
+            except Exception:
+                tfidf_scores = [0.0] * len(filtered_jobs)
 
         recommendations = []
 

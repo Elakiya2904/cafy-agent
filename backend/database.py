@@ -3,7 +3,7 @@ import json
 import os
 import logging
 from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger("cafy.database")
 DB_PATH = os.path.join(os.path.dirname(__file__), "cafy_jobs.db")
@@ -71,6 +71,19 @@ class JobDatabase:
             )
             """)
 
+            # 3. Tailored Resumes Persistence
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tailored_resumes (
+                id TEXT PRIMARY KEY,
+                job_id TEXT NOT NULL,
+                resume_id TEXT NOT NULL,
+                structured_data TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_tailored_resumes_job_id ON tailored_resumes(job_id)")
+
             conn.commit()
             logger.info(f"[JobDatabase] Initialized SQLite schema at {self.db_path}")
 
@@ -82,7 +95,7 @@ class JobDatabase:
         if not jobs:
             return {"new": 0, "updated": 0, "total": 0}
 
-        now_iso = datetime.utcnow().isoformat()
+        now_iso = datetime.now(timezone.utc).isoformat()
         new_count = 0
         updated_count = 0
 
@@ -226,6 +239,78 @@ class JobDatabase:
                     "status": r["status"]
                 })
             return results
+
+    def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT * FROM jobs WHERE id = ? LIMIT 1", (job_id,)).fetchone()
+        if not row:
+            return None
+        try:
+            skills = json.loads(row["extracted_skills"]) if row["extracted_skills"] else []
+        except Exception:
+            skills = []
+        return {
+            "id": row["id"],
+            "source_job_id": row["source_job_id"],
+            "title": row["title"],
+            "company": row["company"],
+            "platform": row["platform"],
+            "location": row["location"],
+            "is_remote": bool(row["is_remote"]),
+            "url": row["url"],
+            "description": row["description"],
+            "department": row["department"],
+            "employment_type": row["employment_type"],
+            "posted_at": row["posted_at"],
+            "extracted_skills": skills,
+            "first_seen": row["first_seen"],
+            "last_checked": row["last_checked"],
+            "status": row["status"],
+        }
+
+    def save_tailored_resume(self, job_id: str, resume_id: str, structured_data: Dict[str, Any]) -> str:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        serialized = json.dumps(structured_data, ensure_ascii=False)
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM tailored_resumes WHERE job_id = ?", (job_id,))
+            row = cursor.fetchone()
+            if row:
+                rec_id = row["id"]
+                cursor.execute("""
+                    UPDATE tailored_resumes
+                    SET resume_id = ?, structured_data = ?, updated_at = ?
+                    WHERE id = ?
+                """, (resume_id, serialized, now_iso, rec_id))
+            else:
+                import uuid
+                rec_id = uuid.uuid4().hex
+                cursor.execute("""
+                    INSERT INTO tailored_resumes (id, job_id, resume_id, structured_data, updated_at, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (rec_id, job_id, resume_id, serialized, now_iso, now_iso))
+            conn.commit()
+            return rec_id
+
+    def get_tailored_resume(self, job_id: str) -> Optional[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM tailored_resumes WHERE job_id = ? ORDER BY updated_at DESC LIMIT 1", (job_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            try:
+                data = json.loads(row["structured_data"])
+            except Exception:
+                data = {}
+            return {
+                "id": row["id"],
+                "job_id": row["job_id"],
+                "resume_id": row["resume_id"],
+                "resume": data,
+                "updated_at": row["updated_at"],
+                "created_at": row["created_at"],
+            }
 
     def record_scraper_run(
         self,

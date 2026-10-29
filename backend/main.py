@@ -1,10 +1,12 @@
 import os
+import uuid
 import logging
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Literal
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
@@ -16,6 +18,7 @@ from .recommendation_service import RecommendationService
 from .sponsor_service import VisaSponsorRegistry
 from .career_chat_service import CareerChatError, CareerChatService, build_career_context
 from .company_profiles import enrich_jobs_with_company_profiles
+from .resume_generation_service import ResumeGenerationError, ResumeGenerationService
 
 logger = logging.getLogger("cafy.api")
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -34,6 +37,24 @@ class CareerChatRequest(BaseModel):
     resume_data: Optional[Dict[str, Any]] = None
     pipeline_job_ids: List[str] = Field(default_factory=list)
     focus_job_id: Optional[str] = None
+
+
+class ResumeGenerationRequest(BaseModel):
+    job_id: str
+    resume_data: Optional[Dict[str, Any]] = None
+
+
+class ResumeSaveRequest(BaseModel):
+    job_id: str
+    resume_id: Optional[str] = None
+    resume: Dict[str, Any]
+
+
+class ResumeRewriteSectionRequest(BaseModel):
+    job_id: str
+    section: str
+    content: str
+    resume_data: Optional[Dict[str, Any]] = None
 
 app = FastAPI(
     title="Cafy Agent API",
@@ -68,6 +89,7 @@ sponsor_registry = VisaSponsorRegistry.from_directory(
     PROJECT_ROOT / "sponsor-data"
 )
 career_chat_svc = CareerChatService()
+resume_generation_svc = ResumeGenerationService(PROJECT_ROOT)
 
 # In-memory session store for uploaded résumé
 ACTIVE_SESSION = {
@@ -264,6 +286,104 @@ def get_current_resume():
         "resume": ACTIVE_SESSION["resume"],
         "matched_jobs": recs
     }
+
+
+@app.post("/api/resumes/generate")
+def generate_resume(request: ResumeGenerationRequest):
+    resume = request.resume_data or ACTIVE_SESSION.get("resume")
+    job = db.get_job(request.job_id)
+    if job:
+        job = enrich_jobs_with_company_profiles(sponsor_registry.annotate_jobs([job]))[0]
+    try:
+        result = resume_generation_svc.generate(resume or {}, job or {})
+        if result.get("resume_id") and result.get("resume"):
+            db.save_tailored_resume(request.job_id, result["resume_id"], result["resume"])
+        return result
+    except ResumeGenerationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.get("/api/resumes/job/{job_id}")
+def get_job_tailored_resume(job_id: str):
+    rec = db.get_tailored_resume(job_id)
+    if not rec:
+        return {"status": "not_found", "tailored_resume": None}
+    resume_id = rec.get("resume_id")
+    tex_path = resume_generation_svc.output_dir / f"{resume_id}.tex"
+    pdf_path = resume_generation_svc.output_dir / f"{resume_id}.pdf"
+    docx_path = resume_generation_svc.output_dir / f"{resume_id}.docx"
+    return {
+        "status": "found",
+        "tailored_resume": rec["resume"],
+        "resume_id": resume_id,
+        "updated_at": rec.get("updated_at"),
+        "tex_url": f"/api/resumes/{resume_id}/latex" if tex_path.exists() else None,
+        "pdf_url": f"/api/resumes/{resume_id}/pdf" if pdf_path.exists() else None,
+        "docx_url": f"/api/resumes/{resume_id}/docx" if docx_path.exists() else None,
+        "pdf_available": pdf_path.exists(),
+        "docx_available": docx_path.exists(),
+    }
+
+
+@app.post("/api/resumes/save")
+def save_tailored_resume(request: ResumeSaveRequest):
+    job = db.get_job(request.job_id) or {}
+    master_resume = ACTIVE_SESSION.get("resume") or {}
+    normalized = resume_generation_svc._validate_and_normalize(request.resume, master_resume, job)
+    resume_id = request.resume_id or uuid.uuid4().hex
+    artifacts = resume_generation_svc.update_artifacts(resume_id, normalized)
+    db.save_tailored_resume(request.job_id, resume_id, normalized)
+    return {
+        "status": "saved",
+        "resume_id": resume_id,
+        "resume": normalized,
+        **artifacts,
+    }
+
+
+@app.post("/api/resumes/rewrite-section")
+def rewrite_resume_section(request: ResumeRewriteSectionRequest):
+    job = db.get_job(request.job_id) or {}
+    resume_data = request.resume_data or ACTIVE_SESSION.get("resume") or {}
+    rewritten = resume_generation_svc.rewrite_section(
+        section=request.section,
+        content=request.content,
+        job=job,
+        resume_data=resume_data
+    )
+    return {
+        "status": "success",
+        "section": request.section,
+        "rewritten": rewritten,
+    }
+
+
+@app.get("/api/resumes/{resume_id}/latex")
+def download_resume_latex(resume_id: str):
+    path = resume_generation_svc.output_dir / f"{resume_id}.tex"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Resume source was not found.")
+    return FileResponse(path, media_type="application/x-tex", filename=f"{resume_id}.tex")
+
+
+@app.get("/api/resumes/{resume_id}/docx")
+def download_resume_docx(resume_id: str):
+    path = resume_generation_svc.output_dir / f"{resume_id}.docx"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="DOCX version is not available.")
+    return FileResponse(
+        path,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename=f"{resume_id}.docx"
+    )
+
+
+@app.get("/api/resumes/{resume_id}/pdf")
+def download_resume_pdf(resume_id: str):
+    path = resume_generation_svc.output_dir / f"{resume_id}.pdf"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="PDF is unavailable. Download the DOCX or LaTeX source instead.")
+    return FileResponse(path, media_type="application/pdf", filename=f"{resume_id}.pdf")
 
 @app.post("/api/jobs/match")
 @app.post("/api/recommend")

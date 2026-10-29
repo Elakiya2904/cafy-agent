@@ -116,15 +116,16 @@ class ResumeService:
     def analyze_text(self, text: str, filename: str = "Uploaded_Resume.pdf") -> Dict[str, Any]:
         cleaned_text = re.sub(r"\s+", " ", text).strip()
 
-        # Contact Info
-        email_match = re.search(r"[\w\.-]+@[\w\.-]+\.\w+", text)
-        email = email_match.group(0) if email_match else "contact@candidate.dev"
+        # Contact Info strictly from resume (no fake fallbacks)
+        email_match = re.search(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", text)
+        email = email_match.group(0) if email_match else ""
 
-        phone_match = re.search(r"(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}", text)
-        phone = phone_match.group(0) if phone_match else "(555) 000-0000"
+        phone_match = re.search(r"(\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,5}", text)
+        phone = phone_match.group(0) if phone_match else ""
 
-        linkedin_match = re.search(r"linkedin\.com/in/[\w-]+", text, re.IGNORECASE)
-        github_match = re.search(r"github\.com/[\w-]+", text, re.IGNORECASE)
+        linkedin_match = re.search(r"(?:https?://)?(?:www\.)?linkedin\.com/in/([a-zA-Z0-9_.-]+)", text, re.IGNORECASE)
+        github_match = re.search(r"(?:https?://)?(?:www\.)?github\.com/([a-zA-Z0-9_.-]+)", text, re.IGNORECASE)
+        portfolio_match = re.search(r"(?:https?://)?([a-zA-Z0-9-]+\.)+(?:com|io|dev|app|me|net|org)(?:/[^\s]*)?", text, re.IGNORECASE)
 
         # Name heuristic
         candidate_name = self._detect_name(text, filename)
@@ -146,11 +147,13 @@ class ResumeService:
 
         return {
             "filename": filename,
+            "raw_text": text[:20000],
             "candidate_name": candidate_name,
             "email": email,
             "phone": phone,
-            "linkedin": linkedin_match.group(0) if linkedin_match else "",
-            "github": github_match.group(0) if github_match else "",
+            "linkedin": linkedin_match.group(1) if linkedin_match else "",
+            "github": github_match.group(1) if github_match else "",
+            "portfolio": portfolio_match.group(0) if portfolio_match else "",
             "skills": skills,
             "categorized_skills": categorized,
             "total_skills": len(skills),

@@ -1,0 +1,86 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=1.5cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{titlesec}
+\usepackage{xcolor}
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\setlist[itemize]{leftmargin=1.15em, itemsep=2pt, topsep=2pt}
+\titleformat{\section}{\large\bfseries\uppercase}{}{0pt}{}[\titlerule]
+\titlespacing*{\section}{0pt}{10pt}{5pt}
+
+\newcommand{\entry}[4]{
+  \textbf{#1} \hfill \textit{#2}\\
+  \textit{#3} \hfill #4
+}
+
+\begin{document}
+\begin{center}
+  {\LARGE\bfseries (( personal_info.name | texescape ))}\\[2pt]
+  ((*- if target_role *))((  target_role | texescape ))((*- endif *))\\[3pt]
+  ((*- if personal_info.email *))\href{mailto:(( personal_info.email ))}{(( personal_info.email | texescape ))}((*- endif *))
+  ((*- if personal_info.phone *)) \textbar{} \href{tel:(( personal_info.phone ))}{(( personal_info.phone | texescape ))}((*- endif *))
+  ((*- if personal_info.location *)) \textbar{} (( personal_info.location | texescape ))((*- endif *))\\
+  ((*- if personal_info.linkedin *))\href{https://linkedin.com/in/(( personal_info.linkedin ))}{linkedin.com/in/(( personal_info.linkedin | texescape ))}((*- endif *))
+  ((*- if personal_info.github *)) ((*- if personal_info.linkedin *))\textbar{} ((*- endif *))\href{https://github.com/(( personal_info.github ))}{github.com/(( personal_info.github | texescape ))}((*- endif *))
+  ((*- if personal_info.portfolio *)) \textbar{} \href{https://(( personal_info.portfolio ))}{(( personal_info.portfolio | texescape ))}((*- endif *))
+\end{center}
+
+\section*{Professional Summary}
+(( professional_summary | texescape ))
+
+((*- if experience *))
+\section*{Work Experience}
+((*- for item in experience *))
+\entry{(( item.title | default("") | texescape ))}{(( item.dates | default("") | texescape ))}{(( item.company | default(item.organization | default("")) | texescape ))}{(( item.location | default("") | texescape ))}
+((*- if item.description *))
+(( item.description | texescape ))\\[2pt]
+((*- endif *))
+((*- if item.bullets *))
+\begin{itemize}
+((*- for bullet in item.bullets *))\item (( bullet | texescape ))
+((*- endfor *))
+\end{itemize}
+((*- endif *))
+((*- endfor *))
+((*- endif *))
+
+((*- if projects *))
+\section*{Projects}
+((*- for item in projects *))
+\textbf{(( item.title | default(item.name | default("")) | texescape ))}((*- if item.dates *)) \hfill \textit{(( item.dates | texescape ))}((*- endif *))\\
+((*- if item.organization | default(item.company) *))\textit{(( item.organization | default(item.company) | texescape ))}\\[2pt]((*- endif *))
+((*- if item.description *))(( item.description | texescape ))\\[2pt]((*- endif *))
+((*- if item.bullets *))\begin{itemize}((*- for bullet in item.bullets *))\item (( bullet | texescape ))((*- endfor *))\end{itemize}((*- endif *))
+((*- endfor *))
+((*- endif *))
+
+((*- if education *))
+\section*{Education}
+((*- for item in education *))
+\entry{(( item.degree | default(item.title | default("")) | texescape ))}{(( item.dates | default("") | texescape ))}{(( item.institution | default(item.organization | default(item.school | default(""))) | texescape ))}{(( item.location | default("") | texescape ))}
+((*- if item.description *))
+(( item.description | texescape ))\\[2pt]
+((*- endif *))
+((*- if item.bullets *))\begin{itemize}((*- for bullet in item.bullets *))\item (( bullet | texescape ))((*- endfor *))\end{itemize}((*- endif *))
+((*- endfor *))
+((*- endif *))
+
+((*- if skills *))
+\section*{Skills}
+((*- for skill in skills *))(( skill | texescape ))((*- if not loop.last *)) \textbullet{} ((*- endif *))((*- endfor *))
+((*- endif *))
+
+((*- if certifications *))
+\section*{Certifications}
+((*- for item in certifications *))
+\textbf{(( item.name | default(item.title | default("")) | texescape ))}((*- if item.dates *)) \hfill \textit{(( item.dates | texescape ))}((*- endif *))\\
+((*- if item.issuer | default(item.organization) *))\textit{(( item.issuer | default(item.organization) | texescape ))}\\[2pt]((*- endif *))
+((*- endfor *))
+((*- endif *))
+
+\end{document}

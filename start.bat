@@ -13,7 +13,7 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8000" ^| findstr "LISTENING
 
 :: Start Backend (FastAPI on port 8000)
 echo [1/2] Starting Backend on http://127.0.0.1:8000 ...
-start "Cafy Backend" cmd /k "cd /d "%~dp0" && "%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe" run.py"
+start "Cafy Backend" cmd /k "cd /d "%~dp0" && py -3.13 run.py"
 
 :: Wait for backend to be ready
 timeout /t 4 /nobreak >nul
