@@ -6,7 +6,7 @@ from typing import Optional, List, Dict, Any, Literal
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
@@ -97,16 +97,29 @@ ACTIVE_SESSION = {
     "last_matched_jobs": []
 }
 
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled server exception: %s", exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal server error: {str(exc)}"},
+    )
+
+
 @app.on_event("startup")
 def startup_event():
-    # Start the background scraping worker
-    scheduler.start()
-    logger.info("[Main] Background scheduler initiated.")
+    # Only run the background scheduler in standard server mode, not ephemeral serverless
+    if not os.environ.get("VERCEL"):
+        scheduler.start()
+        logger.info("[Main] Background scheduler initiated.")
+    else:
+        logger.info("[Main] Vercel environment detected; scheduler thread omitted.")
 
 @app.on_event("shutdown")
 def shutdown_event():
-    scheduler.stop()
-    logger.info("[Main] Background scheduler stopped.")
+    if scheduler.is_running:
+        scheduler.stop()
+        logger.info("[Main] Background scheduler stopped.")
 
 @app.get("/api/health")
 def health():

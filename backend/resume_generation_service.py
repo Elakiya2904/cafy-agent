@@ -27,7 +27,10 @@ class ResumeGenerationService:
     def __init__(self, project_root: Path):
         self.project_root = project_root
         self.template_dir = project_root / "backend" / "templates"
-        self.output_dir = project_root / "backend" / "generated_resumes"
+        if os.environ.get("VERCEL"):
+            self.output_dir = Path("/tmp/generated_resumes")
+        else:
+            self.output_dir = project_root / "backend" / "generated_resumes"
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.environment = Environment(
             loader=FileSystemLoader(str(self.template_dir)),
@@ -129,7 +132,7 @@ class ResumeGenerationService:
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                 json={
-                    "model": os.getenv("GROQ_MODEL") or "openai/gpt-oss-20b",
+                    "model": os.getenv("GROQ_MODEL") or "llama-3.3-70b-versatile",
                     "messages": [
                         {"role": "system", "content": system},
                         {"role": "user", "content": f"Original text to improve:\n{content}"},
@@ -199,7 +202,7 @@ class ResumeGenerationService:
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                 json={
-                    "model": os.getenv("GROQ_MODEL") or "openai/gpt-oss-20b",
+                    "model": os.getenv("GROQ_MODEL") or "llama-3.3-70b-versatile",
                     "messages": [
                         {"role": "system", "content": system},
                         {"role": "user", "content": json.dumps(prompt, ensure_ascii=True)},

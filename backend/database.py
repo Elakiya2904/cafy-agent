@@ -1,6 +1,8 @@
 import sqlite3
 import json
 import os
+import shutil
+from pathlib import Path
 import logging
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timezone
@@ -15,7 +17,23 @@ class JobDatabase:
     """
 
     def __init__(self, db_path: str = DB_PATH):
-        self.db_path = db_path
+        if os.environ.get("VERCEL"):
+            tmp_db = Path("/tmp/cafy_jobs.db")
+            orig_db = Path(db_path)
+            if not tmp_db.exists():
+                if orig_db.exists():
+                    try:
+                        shutil.copy2(orig_db, tmp_db)
+                        logger.info("Copied SQLite DB to %s for serverless write support", tmp_db)
+                    except Exception as err:
+                        logger.warning("Could not copy SQLite DB to /tmp: %s", err)
+            if tmp_db.exists():
+                self.db_path = str(tmp_db)
+            else:
+                self.db_path = db_path
+        else:
+            self.db_path = db_path
+
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -24,8 +42,9 @@ class JobDatabase:
         return conn
 
     def _init_db(self):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
             
             # 1. Stored Job Listings
             cursor.execute("""
@@ -86,6 +105,8 @@ class JobDatabase:
 
             conn.commit()
             logger.info(f"[JobDatabase] Initialized SQLite schema at {self.db_path}")
+        except sqlite3.OperationalError as err:
+            logger.warning("[JobDatabase] Could not run _init_db (read-only SQLite): %s", err)
 
     def save_or_update_jobs(self, jobs: List[Dict[str, Any]]) -> Dict[str, int]:
         """

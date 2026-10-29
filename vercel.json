@@ -3,6 +3,11 @@
   "installCommand": "npm install --prefix frontend --include=dev",
   "buildCommand": "npm run build",
   "outputDirectory": "frontend/dist",
+  "functions": {
+    "api/index.py": {
+      "includeFiles": "{backend/**,sponsor-data/**}"
+    }
+  },
   "rewrites": [
     {
       "source": "/api/(.*)",
