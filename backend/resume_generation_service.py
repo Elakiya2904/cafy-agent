@@ -132,7 +132,7 @@ class ResumeGenerationService:
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                 json={
-                    "model": os.getenv("GROQ_MODEL") or "llama-3.1-8b-instant",
+                    "model": os.getenv("GROQ_MODEL") or "openai/gpt-oss-20b",
                     "messages": [
                         {"role": "system", "content": system},
                         {"role": "user", "content": f"Original text to improve:\n{content}"},
@@ -202,7 +202,7 @@ class ResumeGenerationService:
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                 json={
-                    "model": os.getenv("GROQ_MODEL") or "llama-3.1-8b-instant",
+                    "model": os.getenv("GROQ_MODEL") or "openai/gpt-oss-20b",
                     "messages": [
                         {"role": "system", "content": system},
                         {"role": "user", "content": json.dumps(prompt, ensure_ascii=True)},

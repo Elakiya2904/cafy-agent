@@ -376,7 +376,7 @@ class CareerChatService:
             ),
         })
 
-        model = os.getenv("GROQ_MODEL") or "llama-3.1-8b-instant"
+        model = os.getenv("GROQ_MODEL") or "openai/gpt-oss-20b"
         try:
             response = requests.post(
                 "https://api.groq.com/openai/v1/chat/completions",
