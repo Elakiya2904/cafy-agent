@@ -238,9 +238,10 @@ def get_jobs(
         "jobs": jobs
     }
 
+_is_serverless = bool(os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_VERSION"))
 UPLOADED_RESUME_DIR = (
     Path(tempfile.gettempdir()) / "cafy-uploaded-resumes"
-    if os.getenv("VERCEL")
+    if _is_serverless or str(PROJECT_ROOT).startswith("/var/task")
     else PROJECT_ROOT / "backend" / "uploaded_resumes"
 )
 
@@ -331,7 +332,11 @@ async def upload_resume(file: UploadFile = File(...)):
         content = await file.read()
         parsed = resume_svc.parse_resume(file.filename, content)
         ACTIVE_SESSION["resume"] = parsed
-        _store_uploaded_resume(file.filename, file.content_type, content, parsed)
+        try:
+            _store_uploaded_resume(file.filename, file.content_type, content, parsed)
+        except OSError as error:
+            # Resume parsing and matching must still work when ephemeral file storage is unavailable.
+            logger.warning("[API] Could not store original resume file: %s", error)
 
         # Query database across all platforms (up to 3000 jobs)
         stored_jobs = db.get_jobs(limit=3000)
