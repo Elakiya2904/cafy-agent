@@ -1,5 +1,6 @@
 import json
 import os
+import tempfile
 import uuid
 
 # Verify HTTPS against the operating system's certificate store instead of Python's bundled
@@ -251,7 +252,11 @@ def get_jobs(
         "jobs": jobs
     }
 
-UPLOADED_RESUME_DIR = PROJECT_ROOT / "backend" / "uploaded_resumes"
+UPLOADED_RESUME_DIR = (
+    Path(tempfile.gettempdir()) / "cafy-uploaded-resumes"
+    if os.getenv("VERCEL")
+    else PROJECT_ROOT / "backend" / "uploaded_resumes"
+)
 
 
 def _store_uploaded_resume(
