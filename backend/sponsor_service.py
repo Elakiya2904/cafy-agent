@@ -101,11 +101,14 @@ class VisaSponsorRegistry:
 
     @classmethod
     def from_directory(cls, directory: Path) -> "VisaSponsorRegistry":
-        registers = sorted(directory.glob(REGISTER_FILENAME_PATTERN))
+        registers = sorted(directory.glob(REGISTER_FILENAME_PATTERN)) if directory.exists() else []
         if not registers:
-            raise FileNotFoundError(
-                f"No visa sponsor register found in {directory}"
-            )
+            instance = cls.__new__(cls)
+            instance.csv_path = directory
+            instance.companies = set()
+            instance.uk_places = set()
+            instance.company_names_by_key = {}
+            return instance
         return cls(registers[-1])
 
     def _load_register(

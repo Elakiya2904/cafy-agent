@@ -27,7 +27,10 @@ class ResumeGenerationService:
     def __init__(self, project_root: Path):
         self.project_root = project_root
         self.template_dir = project_root / "backend" / "templates"
-        self.output_dir = project_root / "backend" / "generated_resumes"
+        if os.environ.get("VERCEL"):
+            self.output_dir = Path("/tmp/generated_resumes")
+        else:
+            self.output_dir = project_root / "backend" / "generated_resumes"
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.environment = Environment(
             loader=FileSystemLoader(str(self.template_dir)),

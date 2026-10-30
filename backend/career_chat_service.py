@@ -405,9 +405,15 @@ class CareerChatService:
             ) from err
 
         if response.status_code != 200:
-            logger.warning("Groq chat returned HTTP %s", response.status_code)
+            err_msg = ""
+            try:
+                err_data = response.json()
+                err_msg = err_data.get("error", {}).get("message", "")
+            except Exception:
+                err_msg = response.text[:200]
+            logger.warning("Groq chat returned HTTP %s: %s", response.status_code, err_msg)
             raise CareerChatError(
-                "Career Analyst could not complete the request. Check the Groq API key and model configuration."
+                f"Groq API error ({response.status_code}): {err_msg or 'Check API key or model configuration.'}"
             )
 
         try:
