@@ -1,12 +1,24 @@
+import json
 import os
 import uuid
+
+# Verify HTTPS against the operating system's certificate store instead of Python's bundled
+# list. Antivirus HTTPS scanning (e.g. AVG) re-signs traffic with a root the OS trusts but
+# certifi does not, which otherwise makes every Groq call fail with CERTIFICATE_VERIFY_FAILED.
+try:
+    import truststore
+
+    truststore.inject_into_ssl()
+except ImportError:
+    pass
 import logging
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Literal
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from datetime import datetime, timezone
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
@@ -19,6 +31,9 @@ from .sponsor_service import VisaSponsorRegistry
 from .career_chat_service import CareerChatError, CareerChatService, build_career_context
 from .company_profiles import enrich_jobs_with_company_profiles
 from .resume_generation_service import ResumeGenerationError, ResumeGenerationService
+from .export_service import EXPORT_PARTS, build_export_zip
+from .profile_strength_service import evaluate_profile_strength
+from .job_match_analysis_service import analyze_profile_for_job
 
 logger = logging.getLogger("cafy.api")
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -44,11 +59,46 @@ class ResumeGenerationRequest(BaseModel):
     resume_data: Optional[Dict[str, Any]] = None
 
 
+class PreGenerationAnalysisRequest(BaseModel):
+    job_id: str
+    resume_data: Optional[Dict[str, Any]] = None
+
+
+class ExportApplication(BaseModel):
+    job_id: Optional[str] = None
+    title: Optional[str] = None
+    company: Optional[str] = None
+    status: Optional[str] = None
+    url: Optional[str] = None
+
+
+class DataExportRequest(BaseModel):
+    include: List[str] = Field(default_factory=list)
+    applications: List[ExportApplication] = Field(default_factory=list)
+
+
 class ResumeSaveRequest(BaseModel):
     job_id: str
     resume_id: Optional[str] = None
     resume: Dict[str, Any]
 
+
+
+class ProfileUpdateRequest(BaseModel):
+    candidate_name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    linkedin: Optional[str] = None
+    github: Optional[str] = None
+    portfolio: Optional[str] = None
+    summary: Optional[str] = None
+    skills: Optional[List[str]] = None
+    experience: Optional[List[Dict[str, Any]]] = None
+    education: Optional[List[Dict[str, Any]]] = None
+    projects: Optional[List[Dict[str, Any]]] = None
+    certifications: Optional[List[Dict[str, Any]]] = None
+    seniority_level: Optional[str] = None
+    target_roles: Optional[List[str]] = None
 
 class ResumeRewriteSectionRequest(BaseModel):
     job_id: str
@@ -187,6 +237,88 @@ def get_jobs(
         "jobs": jobs
     }
 
+UPLOADED_RESUME_DIR = PROJECT_ROOT / "backend" / "uploaded_resumes"
+
+
+def _store_uploaded_resume(
+    filename: str, content_type: Optional[str], content: bytes, parsed: Optional[Dict[str, Any]] = None
+) -> None:
+    """Keep the most recently uploaded original file so it can be previewed and downloaded later."""
+    UPLOADED_RESUME_DIR.mkdir(parents=True, exist_ok=True)
+    for old in UPLOADED_RESUME_DIR.glob("latest.*"):
+        old.unlink()
+    suffix = Path(filename or "").suffix.lower() or ".bin"
+    (UPLOADED_RESUME_DIR / f"latest{suffix}").write_bytes(content)
+    meta = {
+        "filename": filename,
+        "content_type": content_type or "application/octet-stream",
+        "stored_as": f"latest{suffix}",
+        "size_bytes": len(content),
+        "uploaded_at": datetime.now(timezone.utc).isoformat(),
+        # Parsed content in the tailored-resume shape, so it can be compared with generated versions.
+        "resume": _profile_as_resume(parsed or {}),
+    }
+    (UPLOADED_RESUME_DIR / "latest.json").write_text(json.dumps(meta), encoding="utf-8")
+
+
+def _profile_as_resume(profile: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "personal_info": {
+            "name": profile.get("candidate_name") or "",
+            "email": profile.get("email") or "",
+            "phone": profile.get("phone") or "",
+            "linkedin": profile.get("linkedin") or "",
+            "github": profile.get("github") or "",
+        },
+        "professional_summary": profile.get("summary") or "",
+        "skills": profile.get("skills") or [],
+        "experience": profile.get("experience") or [],
+        "projects": profile.get("projects") or [],
+        "education": profile.get("education") or [],
+        "certifications": profile.get("certifications") or [],
+    }
+
+
+def _uploaded_resume_meta() -> Optional[Dict[str, Any]]:
+    meta_path = UPLOADED_RESUME_DIR / "latest.json"
+    if not meta_path.is_file():
+        return None
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    return meta if (UPLOADED_RESUME_DIR / meta["stored_as"]).is_file() else None
+
+
+@app.get("/api/resume/uploaded")
+def get_uploaded_resume():
+    """Metadata for the original uploaded resume file, if one was uploaded."""
+    meta = _uploaded_resume_meta()
+    if not meta:
+        return {"uploaded": None}
+    return {
+        "uploaded": {
+            "filename": meta["filename"],
+            "content_type": meta["content_type"],
+            "size_bytes": meta["size_bytes"],
+            "uploaded_at": meta["uploaded_at"],
+            "resume": meta.get("resume") or {},
+            "preview_url": "/api/resume/uploaded/file",
+            "download_url": "/api/resume/uploaded/file?download=true",
+        }
+    }
+
+
+@app.get("/api/resume/uploaded/file")
+def get_uploaded_resume_file(download: bool = False):
+    meta = _uploaded_resume_meta()
+    if not meta:
+        raise HTTPException(status_code=404, detail="No uploaded resume file is stored.")
+    return FileResponse(
+        UPLOADED_RESUME_DIR / meta["stored_as"],
+        media_type=meta["content_type"],
+        filename=meta["filename"],
+        content_disposition_type="attachment" if download else "inline",
+    )
+
+
 @app.post("/api/resume/upload")
 async def upload_resume(file: UploadFile = File(...)):
     """Parse candidate résumé and match against verified jobs in database."""
@@ -194,16 +326,18 @@ async def upload_resume(file: UploadFile = File(...)):
         content = await file.read()
         parsed = resume_svc.parse_resume(file.filename, content)
         ACTIVE_SESSION["resume"] = parsed
+        _store_uploaded_resume(file.filename, file.content_type, content, parsed)
 
         # Query database across all platforms (up to 3000 jobs)
         stored_jobs = db.get_jobs(limit=3000)
-        recommendations = rec_svc.recommend_jobs(parsed, stored_jobs, min_score=85)
+        recommendations = rec_svc.recommend_jobs(parsed, stored_jobs, min_score=60)
         recommendations = enrich_jobs_with_company_profiles(sponsor_registry.annotate_jobs(recommendations))
         ACTIVE_SESSION["last_matched_jobs"] = recommendations
 
         return {
             "status": "success",
             "resume": parsed,
+            "profile_strength": parsed.get("profile_strength") or evaluate_profile_strength(parsed),
             "matched_jobs": recommendations,
             "total_matches": len(recommendations)
         }
@@ -211,81 +345,83 @@ async def upload_resume(file: UploadFile = File(...)):
         logger.error(f"[API] Resume parsing error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to process résumé: {str(e)}")
 
-@app.post("/api/resume/sample")
-def load_sample_resume(sample_key: str = Form("fullstack")):
-    """Load a demo profile and match against database listings."""
-    sample_texts = {
-        "dhanush": """
-Dhanush D
-AI Engineer & Machine Learning Specialist
-dhanush.d@example.com | London, UK
-Skills: Python, FastAPI, RAG, Machine Learning, Deep Learning, PyTorch, Docker, Kubernetes, SQL, LLMs, NLP, APIs, Git.
-Experience: Early career AI Engineer / Graduate candidate with projects in RAG systems, FastAPI microservices, and LLM applications.
-""",
-        "fullstack": """
-Alex Chen
-Senior Full Stack Software Engineer
-alex.chen@example.com | (555) 234-5678 | San Francisco, CA
-Skills: TypeScript, JavaScript, Python, React, Next.js, Node.js, FastAPI, PostgreSQL, Redis, Docker, Kubernetes, AWS, TailwindCSS, GraphQL, CI/CD, Git.
-Experience: 6+ years building microservices and web apps. Deployed Kubernetes clusters on AWS EKS with Terraform.
-""",
-        "ml_ai": """
-Dr. Sophia Martinez
-Lead Machine Learning & AI Systems Engineer
-sophia.martinez@example.com | (555) 987-6543 | New York, NY
-Skills: Python, PyTorch, TensorFlow, Scikit-Learn, LLMs, Generative AI, RAG, LangChain, FastAPI, Docker, Kubernetes, AWS, BigQuery, Snowflake, Apache Spark, Airflow, SQL.
-Built RAG inference microservices in Python & FastAPI. Deployed on Kubernetes GPU clusters.
-""",
-        "devops": """
-Marcus Vance
-Senior DevOps & Site Reliability Engineer (SRE)
-marcus.vance@example.com | (555) 456-7890 | Austin, TX
-Skills: AWS, Azure, GCP, Docker, Kubernetes, Terraform, Ansible, Linux, Prometheus, Grafana, CI/CD, GitHub Actions, Python, Go, Bash, SRE, System Design.
-Managed production Kubernetes clusters on AWS with Terraform and automated CI/CD pipelines.
-"""
-    }
-    text = sample_texts.get(sample_key, sample_texts["dhanush"])
-    filename_map = {
-        "dhanush": "Dhanush_D_AI_Engineer_Resume.pdf",
-        "fullstack": "Alex_Chen_Senior_FullStack.pdf",
-        "ml_ai": "Dr_Sophia_Martinez_Lead_AI.pdf",
-        "devops": "Marcus_Vance_DevOps_SRE.pdf"
-    }
-    filename = filename_map.get(sample_key, "Dhanush_D_AI_Engineer_Resume.pdf")
-
-    parsed = resume_svc.analyze_text(text, filename)
-    ACTIVE_SESSION["resume"] = parsed
-
-    stored_jobs = db.get_jobs(limit=3000)
-    recommendations = rec_svc.recommend_jobs(parsed, stored_jobs, min_score=85)
-    recommendations = enrich_jobs_with_company_profiles(sponsor_registry.annotate_jobs(recommendations))
-    ACTIVE_SESSION["last_matched_jobs"] = recommendations
-
-    return {
-        "status": "success",
-        "resume": parsed,
-        "matched_jobs": recommendations,
-        "total_matches": len(recommendations)
-    }
-
 @app.get("/api/resume/current")
 def get_current_resume():
     if not ACTIVE_SESSION["resume"]:
-        return {"resume": None, "matched_jobs": []}
-    # Return cached matches if available — avoids re-running TF-IDF on every poll
+        return {"resume": None, "profile_strength": None, "matched_jobs": []}
+    strength = ACTIVE_SESSION["resume"].get("profile_strength") or evaluate_profile_strength(ACTIVE_SESSION["resume"])
+    ACTIVE_SESSION["resume"]["profile_strength"] = strength
     if ACTIVE_SESSION["last_matched_jobs"]:
         return {
             "resume": ACTIVE_SESSION["resume"],
+            "profile_strength": strength,
             "matched_jobs": enrich_jobs_with_company_profiles(ACTIVE_SESSION["last_matched_jobs"])
         }
     stored_jobs = db.get_jobs(limit=3000)
-    recs = rec_svc.recommend_jobs(ACTIVE_SESSION["resume"], stored_jobs, min_score=85)
+    recs = rec_svc.recommend_jobs(ACTIVE_SESSION["resume"], stored_jobs, min_score=60)
     recs = enrich_jobs_with_company_profiles(sponsor_registry.annotate_jobs(recs))
     ACTIVE_SESSION["last_matched_jobs"] = recs
     return {
         "resume": ACTIVE_SESSION["resume"],
+        "profile_strength": strength,
         "matched_jobs": recs
     }
+
+
+@app.post("/api/resume/update")
+def update_resume_profile(request: ProfileUpdateRequest):
+    """Update candidate profile fields and immediately re-evaluate profile completeness."""
+    curr = ACTIVE_SESSION.get("resume")
+    if not curr:
+        raise HTTPException(status_code=400, detail="Upload a résumé first.")
+    data = request.dict(exclude_unset=True)
+    for k, v in data.items():
+        if v is not None:
+            curr[k] = v
+
+    if "skills" in data and curr.get("skills"):
+        from .resume_service import SKILL_TAXONOMY
+        categorized = {}
+        for cat, cat_skills in SKILL_TAXONOMY.items():
+            cat_lower = {s.lower() for s in cat_skills}
+            matches = [s for s in curr["skills"] if s.lower() in cat_lower]
+            if matches:
+                categorized[cat] = matches
+        curr["categorized_skills"] = categorized
+        curr["total_skills"] = len(curr["skills"])
+
+    strength = evaluate_profile_strength(curr)
+    curr["profile_strength"] = strength
+    ACTIVE_SESSION["resume"] = curr
+
+    return {
+        "status": "success",
+        "resume": curr,
+        "profile_strength": strength
+    }
+
+
+@app.post("/api/profile/strength")
+def get_profile_strength(resume_data: Optional[Dict[str, Any]] = None):
+    """Evaluate profile completeness score and suggestions for given or active resume."""
+    target = resume_data or ACTIVE_SESSION.get("resume")
+    return evaluate_profile_strength(target)
+
+
+@app.post("/api/resumes/pre-analysis")
+def pre_generation_analysis(request: PreGenerationAnalysisRequest):
+    """Score a (possibly job-specific, unsaved) profile against a job before generating a resume.
+
+    ``resume_data`` lets the client send its working copy so edits that have not been
+    synced to the Master Profile are still reflected in the scores.
+    """
+    profile = request.resume_data or ACTIVE_SESSION.get("resume")
+    if not profile:
+        raise HTTPException(status_code=400, detail="Upload a résumé before analysing a job match.")
+    job = db.get_job(request.job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="The selected job could not be found.")
+    return analyze_profile_for_job(profile, job)
 
 
 @app.post("/api/resumes/generate")
@@ -298,9 +434,50 @@ def generate_resume(request: ResumeGenerationRequest):
         result = resume_generation_svc.generate(resume or {}, job or {})
         if result.get("resume_id") and result.get("resume"):
             db.save_tailored_resume(request.job_id, result["resume_id"], result["resume"])
+            db.save_resume_version(
+                result["resume_id"], request.job_id, result["resume"],
+                job_title=(job or {}).get("title"), company=(job or {}).get("company"),
+            )
         return result
     except ResumeGenerationError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+def _artifact_urls(resume_id: str) -> Dict[str, Optional[str]]:
+    out_dir = resume_generation_svc.output_dir
+    return {
+        "pdf_url": f"/api/resumes/{resume_id}/pdf" if (out_dir / f"{resume_id}.pdf").exists() else None,
+        "docx_url": f"/api/resumes/{resume_id}/docx" if (out_dir / f"{resume_id}.docx").exists() else None,
+        "tex_url": f"/api/resumes/{resume_id}/latex" if (out_dir / f"{resume_id}.tex").exists() else None,
+    }
+
+
+@app.get("/api/resumes/versions")
+def list_resume_versions():
+    """Every generated tailored resume, newest first."""
+    versions = [{**v, **_artifact_urls(v["resume_id"])} for v in db.list_resume_versions()]
+    return {"count": len(versions), "versions": versions}
+
+
+@app.post("/api/export")
+def export_data(request: DataExportRequest):
+    include = [part for part in request.include if part in EXPORT_PARTS]
+    if not include:
+        raise HTTPException(status_code=400, detail="Choose at least one item to export.")
+    applications = [a.model_dump() if hasattr(a, "model_dump") else a.dict() for a in request.applications]
+    payload = build_export_zip(
+        include=include,
+        profile=ACTIVE_SESSION.get("resume"),
+        applications=applications,
+        versions=db.list_resume_versions() if "resumes" in include else [],
+        resume_dir=resume_generation_svc.output_dir,
+    )
+    filename = f"cafy-export-{datetime.now(timezone.utc):%Y%m%d}.zip"
+    return Response(
+        content=payload,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/api/resumes/job/{job_id}")
@@ -330,9 +507,13 @@ def save_tailored_resume(request: ResumeSaveRequest):
     job = db.get_job(request.job_id) or {}
     master_resume = ACTIVE_SESSION.get("resume") or {}
     normalized = resume_generation_svc._validate_and_normalize(request.resume, master_resume, job)
+
+    # Manual edits are stored in the current version; new versions come only from AI
+    # generation and full AI rewrites.
     resume_id = request.resume_id or uuid.uuid4().hex
     artifacts = resume_generation_svc.update_artifacts(resume_id, normalized)
     db.save_tailored_resume(request.job_id, resume_id, normalized)
+    db.save_resume_version(resume_id, request.job_id, normalized, job_title=job.get("title"), company=job.get("company"))
     return {
         "status": "saved",
         "resume_id": resume_id,
@@ -341,16 +522,59 @@ def save_tailored_resume(request: ResumeSaveRequest):
     }
 
 
+@app.post("/api/resumes/rewrite-full")
+def rewrite_full_resume(request: ResumeSaveRequest):
+    """Rewrite the whole tailored resume for the job with AI and store it as a new version.
+
+    The rewrite cannot add facts (see ResumeGenerationService.merge_rewrite). Job skills the
+    resume lacks are returned as recommendations for the user to add themselves.
+    """
+    job = db.get_job(request.job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="The selected job could not be found.")
+    master_resume = ACTIVE_SESSION.get("resume") or {}
+    current = resume_generation_svc._validate_and_normalize(request.resume, master_resume, job)
+    try:
+        outcome = resume_generation_svc.rewrite_full(current, job, resume_svc)
+    except ResumeGenerationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    rewritten = resume_generation_svc._validate_and_normalize(outcome["resume"], master_resume, job)
+
+    resume_id = uuid.uuid4().hex
+    artifacts = resume_generation_svc.update_artifacts(resume_id, rewritten)
+    db.save_tailored_resume(request.job_id, resume_id, rewritten)
+    db.save_resume_version(
+        resume_id, request.job_id, rewritten,
+        job_title=job.get("title"), company=job.get("company"),
+        kind="ai_rewrite", based_on=request.resume_id,
+    )
+
+    have = {str(s).lower() for s in rewritten.get("skills") or []}
+    job_skills = job.get("extracted_skills") or resume_svc.extract_skills(f"{job.get('title', '')} {job.get('description', '')}")
+    recommended = [s for s in job_skills if str(s).lower() not in have]
+    return {
+        "status": "rewritten",
+        "resume_id": resume_id,
+        "resume": rewritten,
+        "rejected_lines": outcome["rejected_lines"],
+        "recommended_skills": recommended,
+        **artifacts,
+    }
+
+
 @app.post("/api/resumes/rewrite-section")
 def rewrite_resume_section(request: ResumeRewriteSectionRequest):
     job = db.get_job(request.job_id) or {}
     resume_data = request.resume_data or ACTIVE_SESSION.get("resume") or {}
-    rewritten = resume_generation_svc.rewrite_section(
-        section=request.section,
-        content=request.content,
-        job=job,
-        resume_data=resume_data
-    )
+    try:
+        rewritten = resume_generation_svc.rewrite_section(
+            section=request.section,
+            content=request.content,
+            job=job,
+            resume_data=resume_data
+        )
+    except ResumeGenerationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     return {
         "status": "success",
         "section": request.section,
@@ -387,7 +611,7 @@ def download_resume_pdf(resume_id: str):
 
 @app.post("/api/jobs/match")
 @app.post("/api/recommend")
-def recommend_filtered(platform: str = "all", min_score: int = 85):
+def recommend_filtered(platform: str = "all", min_score: int = 60):
     if not ACTIVE_SESSION["resume"]:
         raise HTTPException(status_code=400, detail="No résumé uploaded yet.")
     stored_jobs = db.get_jobs(platform=platform, limit=3000)
@@ -458,7 +682,7 @@ def career_chat(request: CareerChatRequest):
             matched_jobs = rec_svc.recommend_jobs(
                 resume,
                 [dict(job) for job in jobs],
-                min_score=85,
+                min_score=60,
             )
             matched_jobs = enrich_jobs_with_company_profiles(sponsor_registry.annotate_jobs(matched_jobs))
             ACTIVE_SESSION["last_matched_jobs"] = matched_jobs

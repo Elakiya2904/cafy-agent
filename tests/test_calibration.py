@@ -28,13 +28,13 @@ dhanush_resume = {
     "raw_text": "Dhanush Senior Full Stack Software Engineer Python React FastAPI AWS Docker"
 }
 
-recs_m = rec_svc.recommend_jobs(marcus_resume, stored_jobs, min_score=85)
-recs_d = rec_svc.recommend_jobs(dhanush_resume, stored_jobs, min_score=85)
+recs_m = rec_svc.recommend_jobs(marcus_resume, stored_jobs, min_score=60)
+recs_d = rec_svc.recommend_jobs(dhanush_resume, stored_jobs, min_score=60)
 
-print(f"Marcus Vance (>=85%): {len(recs_m)} jobs")
+print(f"Marcus Vance (>=60%): {len(recs_m)} jobs")
 for r in recs_m[:5]:
     print(f"  {r['match_score']}% | {r['title']} @ {r['company']} (Matched: {r['matched_skills']})")
 
-print(f"Dhanush (>=85%): {len(recs_d)} jobs")
+print(f"Dhanush (>=60%): {len(recs_d)} jobs")
 for r in recs_d[:5]:
     print(f"  {r['match_score']}% | {r['title']} @ {r['company']} (Matched: {r['matched_skills']})")

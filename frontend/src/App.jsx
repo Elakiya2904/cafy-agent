@@ -3,6 +3,56 @@
 // ==========================================================================
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import {
+  EditorMatchScore,
+  SectionScoreBadge,
+  tailoredResumeToProfile,
+  useJobMatchAnalysis,
+} from "./JobMatchScore.jsx";
+import ApplicationAnalysis from "./ApplicationAnalysis.jsx";
+import ResumeVersionHistory from "./ResumeVersionHistory.jsx";
+import DataExport from "./DataExport.jsx";
+import {
+  AlertTriangle,
+  AlignLeft,
+  ArrowDown,
+  ArrowRight,
+  ArrowUp,
+  Award,
+  BarChart3,
+  ChevronRight,
+  Briefcase,
+  Check,
+  Plus,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Circle,
+  Download,
+  ExternalLink,
+  Eye,
+  FileText,
+  Github,
+  Globe,
+  GraduationCap,
+  Hourglass,
+  Info,
+  Lightbulb,
+  Linkedin,
+  Mail,
+  MapPin,
+  PenLine,
+  Pencil,
+  Phone,
+  RefreshCw,
+  Rocket,
+  Save,
+  ScrollText,
+  Sparkles,
+  User,
+  Wrench,
+  X,
+} from "lucide-react";
 
 const API_BASE =
   typeof window !== "undefined" &&
@@ -87,6 +137,15 @@ function App() {
 
   useEffect(() => {
     loadPlatformsAndJobs();
+    fetch(`${API_BASE}/api/resume/current`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data && data.resume) {
+          setCurrentResume(data.resume);
+          if (data.matched_jobs) setMatchedJobs(data.matched_jobs);
+        }
+      })
+      .catch(() => {});
   }, [loadPlatformsAndJobs]);
 
   // Handle File Upload
@@ -114,7 +173,7 @@ function App() {
       setMatchedJobs(data.matched_jobs || []);
       setCurrentStep(3);
       setAssistantOpen(true);
-      showToast(`Analyzed résumé! Found ${data.matched_jobs?.length || 0} top roles (≥85% match).`);
+      showToast(`Analyzed résumé. Found ${data.matched_jobs?.length || 0} matching roles.`);
       
       // Auto-redirect to Find Jobs tab
       setTimeout(() => {
@@ -123,43 +182,6 @@ function App() {
     } catch (err) {
       console.error(err);
       showToast(`Error processing résumé: ${err.message}`);
-      setCurrentStep(1);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  // Handle Demo Profiles
-  const handleSampleProfile = async (sampleKey) => {
-    setIsProcessing(true);
-    setCurrentStep(2);
-    showToast(`Loading demo candidate profile (${sampleKey})...`);
-
-    try {
-      const formData = new FormData();
-      formData.append("sample_key", sampleKey);
-
-      const res = await fetch(`${API_BASE}/api/resume/sample`, {
-        method: "POST",
-        body: formData
-      });
-
-      if (!res.ok) throw new Error("Failed to load demo profile");
-
-      const data = await res.json();
-      setCurrentResume(data.resume);
-      setMatchedJobs(data.matched_jobs || []);
-      setCurrentStep(3);
-      setAssistantOpen(true);
-      showToast(`Analyzed profile! Found ${data.matched_jobs?.length || 0} top roles (≥85% match).`);
-
-      // Auto-redirect to Find Jobs tab
-      setTimeout(() => {
-        setActiveTab("find-jobs");
-      }, 700);
-    } catch (err) {
-      console.error(err);
-      showToast(`Error: ${err.message}`);
       setCurrentStep(1);
     } finally {
       setIsProcessing(false);
@@ -179,6 +201,7 @@ function App() {
         hasResume={!!currentResume}
         highMatchCount={matchedJobs.length}
         pipelineCount={pipelineJobIds.size}
+        platformCount={platforms.length}
       />
 
       {/* MAIN CONTENT AREA */}
@@ -186,7 +209,7 @@ function App() {
         <header className="main-top-bar">
           <div className="top-bar-left">
             <span style={{ fontSize: "0.82rem", color: "#64748B", fontWeight: 500 }}>
-              ATS Scraper & Intelligence • 8 Connected Platforms
+              ATS Scraper & Intelligence{platforms.length > 0 ? ` • ${platforms.length} Connected Platforms` : ""}
             </span>
           </div>
           <div className="top-bar-right">
@@ -202,10 +225,10 @@ function App() {
             {currentResume && (
               <div className="user-profile-badge">
                 <span className="user-avatar-circle">
-                  {currentResume.candidate_name.charAt(0).toUpperCase()}
+                  {(currentResume.candidate_name || currentResume.filename || "?").charAt(0).toUpperCase()}
                 </span>
                 <span className="user-name">
-                  {currentResume.candidate_name}
+                  {currentResume.candidate_name || currentResume.filename || "Your profile"}
                 </span>
               </div>
             )}
@@ -220,7 +243,6 @@ function App() {
             <div className="upload-container-card">
               <UploadDropzone
                 onFileSelected={handleFileUpload}
-                onSampleSelected={handleSampleProfile}
                 isProcessing={isProcessing}
                 fileInputRef={fileInputRef}
               />
@@ -234,11 +256,12 @@ function App() {
               matchedCount={matchedJobs.length}
               onViewJobs={() => setActiveTab("find-jobs")}
               onChangeResume={() => fileInputRef.current && fileInputRef.current.click()}
+              onViewProfile={() => setActiveTab("resume")}
             />
           </div>
         )}
 
-        {/* TAB: FIND JOBS (Browse all stored jobs & >=85% matched jobs) */}
+        {/* TAB: FIND JOBS (Browse all stored jobs & skill-matched jobs) */}
         {activeTab === "find-jobs" && (
           <DirectoryView
             jobs={allJobs}
@@ -259,30 +282,26 @@ function App() {
             platforms={platforms}
             onOpenAdd={() => setShowAddCompanyModal(true)}
             onScrapePlatform={async (pId) => {
-              showToast(`Scraping ${pId}...`);
-              await fetch(`${API_BASE}/api/scrape`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ platform: pId })
-              });
-              setTimeout(loadPlatformsAndJobs, 3000);
+              try {
+                const res = await fetch(`${API_BASE}/api/scrape?platform=${encodeURIComponent(pId)}`, { method: "POST" });
+                if (!res.ok) throw new Error(`Scrape request failed (${res.status})`);
+                showToast(`Scrape of ${pId} started. Refresh the job list once it finishes.`);
+              } catch (err) {
+                showToast(err.message || "Could not start the scrape.");
+              }
             }}
           />
         )}
 
         {/* TAB: RESUME DETAILS */}
         {activeTab === "resume" && (
-          <ResumeProfileView
-            resume={currentResume}
-            onUploadNew={() => {
-              setActiveTab("home");
-              if (fileInputRef.current) fileInputRef.current.click();
-            }}
-          />
+          <div className="content-container">
+            <ResumeVersionHistory PreviewComponent={ResumeDocumentPreview} />
+          </div>
         )}
 
         {/* TAB: INSIGHTS */}
-        {activeTab === "insights" && <InsightsView />}
+        {activeTab === "insights" && <InsightsView platforms={platforms} />}
 
         {/* TAB: MY APPLICATIONS */}
         {activeTab === "my-applications" && (
@@ -290,7 +309,6 @@ function App() {
             pipelineJobIds={pipelineJobIds}
             allJobs={allJobs}
             onSelectJob={setSelectedJob}
-            onTogglePipeline={togglePipeline}
           />
         )}
 
@@ -300,7 +318,7 @@ function App() {
             <h1 className="page-title">Job Alerts</h1>
             <p className="page-subtitle">Get automatic notifications when new roles matching your skills are scraped.</p>
             <div className="empty-state-card">
-              <p>No active alerts. When new postings match your résumé skills on Greenhouse, Ashby, Workday, or Lever, they will appear here automatically.</p>
+              <p>Job alerts are not available yet.</p>
             </div>
           </div>
         )}
@@ -311,7 +329,7 @@ function App() {
             <h1 className="page-title">Follow-ups</h1>
             <p className="page-subtitle">Keep track of recruiter outreach and interview stages.</p>
             <div className="empty-state-card">
-              <p>No pending follow-ups. Apply to roles to set reminder check-ins and schedule interview milestones.</p>
+              <p>Follow-up tracking is not available yet.</p>
             </div>
           </div>
         )}
@@ -325,38 +343,24 @@ function App() {
               {currentResume ? (
                 <div>
                   <h4 style={{ marginBottom: 8, color: "var(--slate-900)" }}>Current File: {currentResume.filename}</h4>
-                  <p>Extracted {currentResume.total_skills} skills • {currentResume.seniority_level} • {currentResume.candidate_name}</p>
+                  <p>
+                    {[
+                      `Extracted ${currentResume.total_skills ?? (currentResume.skills || []).length} skills`,
+                      currentResume.seniority_level && currentResume.seniority_level !== "Unknown" ? currentResume.seniority_level : null,
+                      currentResume.candidate_name || null,
+                    ].filter(Boolean).join(" • ")}
+                  </p>
                 </div>
               ) : (
                 <p>No files uploaded yet. Upload a résumé on the Home tab to see your document breakdown here.</p>
               )}
             </div>
+            <DataExport pipelineJobIds={pipelineJobIds} allJobs={allJobs} />
           </div>
         )}
 
         {/* TAB: SETTINGS */}
-        {activeTab === "settings" && (
-          <div className="content-container">
-            <h1 className="page-title">Settings</h1>
-            <p className="page-subtitle">Configure Cafy Agent scraping intervals, minimum tolerances, and ATS connections.</p>
-            <div className="settings-card">
-              <div className="setting-item">
-                <div>
-                  <strong>Background Scraper Service</strong>
-                  <p>Automatic periodic updates across all 8 ATS networks (every 6 hours).</p>
-                </div>
-                <input type="checkbox" defaultChecked />
-              </div>
-              <div className="setting-item">
-                <div>
-                  <strong>Strict Zero-Mock Data Policy</strong>
-                  <p>Never generate synthetic vacancies when an external career board is offline.</p>
-                </div>
-                <span className="badge-pill" style={{ background: "#ECFDF5", color: "#059669" }}>Enforced</span>
-              </div>
-            </div>
-          </div>
-        )}
+        {activeTab === "settings" && <SettingsView />}
       </main>
 
       <CareerAnalystPanel
@@ -370,10 +374,11 @@ function App() {
       />
 
       {/* JOB DETAIL MODAL */}
-      {selectedJob && activeTab !== "my-applications" && (
+      {selectedJob && (
         <JobDetailModal
           job={selectedJob}
           resume={currentResume}
+          onUpdateResume={setCurrentResume}
           inPipeline={pipelineJobIds.has(selectedJob.id)}
           onTogglePipeline={() => togglePipeline(selectedJob.id)}
           onClose={() => setSelectedJob(null)}
@@ -589,126 +594,6 @@ function sanitizeDisplayText(value) {
   return text;
 }
 
-function StructuredJobDetailCard({ job }) {
-  const [activeTab, setActiveTab] = useState("overview");
-  const tabs = [
-    { key: "overview", label: "Overview" },
-    { key: "requirements", label: "Requirements" },
-    { key: "company", label: "Company" },
-    { key: "application", label: "Application" },
-  ];
-
-  const requirements = [
-    ...(Array.isArray(job.matched_skills) ? job.matched_skills : []),
-    ...(Array.isArray(job.missing_skills) ? job.missing_skills : []),
-  ].slice(0, 8);
-
-  const overviewBullets = Array.isArray(job.bullets) && job.bullets.length > 0
-    ? job.bullets.slice(0, 4)
-    : [
-        job.location ? `Location: ${job.location}` : "Location: Not listed",
-        job.employment_type ? `Employment type: ${job.employment_type}` : "Employment type: Not listed",
-        job.recommendation ? `Recommendation: ${job.recommendation}` : "Recommendation: Review against your profile",
-      ];
-
-  return (
-    <div className="career-chat-structured-card">
-      <div className="career-chat-structured-header">
-        <div className="career-chat-structured-logo-wrap">
-          <CompanyBrandLogo company={job.company} />
-        </div>
-        <div className="career-chat-structured-header-copy">
-          <div className="career-chat-structured-role">{job.title || "Role"}</div>
-          <div className="career-chat-structured-company">{job.company || "Unknown employer"} · {job.location || "Location not listed"}</div>
-        </div>
-        {Number.isFinite(job.match_score) && (
-          <span className="career-chat-structured-match">{job.match_score}% match</span>
-        )}
-      </div>
-
-      <div className="career-chat-structured-tabs" role="tablist" aria-label="Job detail tabs">
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            className={`career-chat-structured-tab ${activeTab === tab.key ? "active" : ""}`}
-            onClick={() => setActiveTab(tab.key)}
-            role="tab"
-            aria-selected={activeTab === tab.key}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="career-chat-structured-panel">
-        {activeTab === "overview" && (
-          <div className="career-chat-structured-section">
-            <ul className="career-chat-structured-list">
-              {overviewBullets.map((item, idx) => (
-                <li key={idx}>{item}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {activeTab === "requirements" && (
-          <div className="career-chat-structured-section">
-            {requirements.length > 0 ? (
-              <div className="career-chat-skill-pills">
-                {requirements.map((item, idx) => (
-                  <span key={idx} className="career-chat-skill-pill">
-                    {String(item).replace(/^[-*•\s]+/, "")}
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <p className="career-chat-structured-empty">No detailed skill list available for this role.</p>
-            )}
-          </div>
-        )}
-
-        {activeTab === "company" && (
-          <div className="career-chat-structured-section">
-            <div className="career-chat-company-metadata">
-              <div>
-                <span className="career-chat-meta-label">Company</span>
-                <strong>{job.company || "Company not listed"}</strong>
-              </div>
-              <div>
-                <span className="career-chat-meta-label">Location</span>
-                <strong>{job.location || "Location not listed"}</strong>
-              </div>
-              <div>
-                <span className="career-chat-meta-label">Visa status</span>
-                <strong>{job.sponsorship_status || "Unknown"}</strong>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === "application" && (
-          <div className="career-chat-structured-section">
-            <ol className="career-chat-application-steps">
-              <li>Review the job summary and match score.</li>
-              <li>Tailor your résumé to the key responsibilities and tools.</li>
-              <li>Apply through the ATS or company portal with a strong cover note.</li>
-              <li>Track follow-up steps and recruiter contact within your pipeline.</li>
-            </ol>
-          </div>
-        )}
-      </div>
-
-      <div className="career-chat-structured-actions">
-        <button type="button" className="career-chat-structured-btn secondary">+ Add to pipeline</button>
-        {job.url && /^https?:\/\//i.test(job.url) && (
-          <a href={job.url} target="_blank" rel="noopener noreferrer" className="career-chat-structured-btn primary">Apply →</a>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function renderCareerAnswer(content) {
   const lines = sanitizeDisplayText(content)
     .split(/\n/);
@@ -866,7 +751,7 @@ function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipe
   const createInitialMessages = () => [
     {
       role: "assistant",
-      content: "Hi! 👋\nI can help you explore current job listings and application strategies. Upload your resume to get evidence-based match scores, skill comparisons, and personalized recommendations.\n\nWhat would you like to do?",
+      content: "Hi!\nI can help you explore current job listings and application strategies. Upload your resume to get evidence-based match scores, skill comparisons, and personalized recommendations.\n\nWhat would you like to do?",
       showQuickActions: true,
       job_cards: [],
     },
@@ -1111,7 +996,7 @@ function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipe
                                   rel="noopener noreferrer"
                                   className="career-chat-card-btn"
                                 >
-                                  View job →
+                                  View job <ArrowRight size={14} aria-hidden="true" />
                                 </a>
                               </div>
                             )}
@@ -1189,7 +1074,7 @@ function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipe
 // SUBCOMPONENTS
 // ==========================================================================
 
-function Sidebar({ activeTab, setActiveTab, totalJobsCount, hasResume, highMatchCount = 0, pipelineCount = 0 }) {
+function Sidebar({ activeTab, setActiveTab, totalJobsCount, hasResume, highMatchCount = 0, pipelineCount = 0, platformCount = 0 }) {
   const navItems = [
     { id: "home", label: "Home", icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1223,7 +1108,7 @@ function Sidebar({ activeTab, setActiveTab, totalJobsCount, hasResume, highMatch
         <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
       </svg>
     )},
-    { id: "companies", label: "Companies", tag: "8 ATS", icon: (
+    { id: "companies", label: "Companies", tag: platformCount ? `${platformCount} ATS` : undefined, icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect>
         <line x1="9" y1="22" x2="9" y2="22.01"></line>
@@ -1294,12 +1179,13 @@ function Sidebar({ activeTab, setActiveTab, totalJobsCount, hasResume, highMatch
         ))}
       </nav>
 
-      <div className="sidebar-footer">
-        <div className="ats-indicator">
-          <span className="pulse-dot"></span>
-          <span>8 ATS Live Connectors</span>
+      {platformCount > 0 && (
+        <div className="sidebar-footer">
+          <div className="ats-indicator">
+            <span>{platformCount} ATS connectors configured</span>
+          </div>
         </div>
-      </div>
+      )}
     </aside>
   );
 }
@@ -1368,7 +1254,7 @@ function HeroSection() {
   );
 }
 
-function UploadDropzone({ onFileSelected, onSampleSelected, isProcessing, fileInputRef }) {
+function UploadDropzone({ onFileSelected, isProcessing, fileInputRef }) {
   const [isDragActive, setIsDragActive] = useState(false);
 
   return (
@@ -1446,7 +1332,7 @@ function Stepper({ currentStep }) {
   return (
     <div className="stepper-wrapper">
       <div className={`step-item ${currentStep === 1 ? "active" : currentStep > 1 ? "completed" : ""}`}>
-        <div className="step-node-circle">{currentStep > 1 ? "✓" : "1"}</div>
+        <div className="step-node-circle">{currentStep > 1 ? <Check size={16} aria-hidden="true" /> : "1"}</div>
         <div className="step-text-group">
           <span className="step-heading">Upload résumé</span>
           <span className="step-subheading">Add your latest résumé</span>
@@ -1456,7 +1342,7 @@ function Stepper({ currentStep }) {
       <div className="step-connector connector-1-2" style={{ background: currentStep >= 2 ? "#10B981" : "#2563EB" }}></div>
 
       <div className={`step-item ${currentStep === 2 ? "active" : currentStep > 2 ? "completed" : ""}`}>
-        <div className="step-node-circle">{currentStep > 2 ? "✓" : "2"}</div>
+        <div className="step-node-circle">{currentStep > 2 ? <Check size={16} aria-hidden="true" /> : "2"}</div>
         <div className="step-text-group">
           <span className="step-heading">Extract your skills</span>
           <span className="step-subheading">We'll find your skills and experience</span>
@@ -1472,7 +1358,7 @@ function Stepper({ currentStep }) {
       ></div>
 
       <div className={`step-item ${currentStep === 3 ? "completed active" : ""}`}>
-        <div className="step-node-circle">{currentStep >= 3 ? "✓" : "3"}</div>
+        <div className="step-node-circle">{currentStep >= 3 ? <Check size={16} aria-hidden="true" /> : "3"}</div>
         <div className="step-text-group">
           <span className="step-heading">Find matching jobs</span>
           <span className="step-subheading">Discover roles tailored to you</span>
@@ -1482,7 +1368,7 @@ function Stepper({ currentStep }) {
   );
 }
 
-function NextStepsSection({ resume, matchedCount, onViewJobs, onChangeResume }) {
+function NextStepsSection({ resume, matchedCount, onViewJobs, onChangeResume, onViewProfile }) {
   return (
     <div className="what-next-section">
       <h2 className="section-title">What happens next?</h2>
@@ -1548,24 +1434,48 @@ function NextStepsSection({ resume, matchedCount, onViewJobs, onChangeResume }) 
           ) : (
             <div className="active-state">
               <div className="active-header">
-                <span className="active-badge">✓ Active Profile</span>
+                <span className="active-badge"><CheckCircle2 size={14} aria-hidden="true" /> Active Profile</span>
                 <span className="file-name-label">{resume.filename}</span>
               </div>
-              <h3 className="candidate-name">{resume.candidate_name}</h3>
+              {resume.candidate_name && <h3 className="candidate-name">{resume.candidate_name}</h3>}
               <p className="candidate-meta">
-                {(resume.target_roles && resume.target_roles[0]) || "Software Engineer"} •{" "}
-                {resume.years_of_experience > 0 ? `${resume.years_of_experience}+ yrs` : resume.seniority_level}
+                {[
+                  resume.target_roles && resume.target_roles[0],
+                  resume.years_of_experience > 0
+                    ? `${resume.years_of_experience}+ yrs`
+                    : resume.seniority_level && resume.seniority_level !== "Unknown" ? resume.seniority_level : null,
+                ].filter(Boolean).join(" • ")}
               </p>
               <div className="candidate-quick-skills">
-                {resume.skills.slice(0, 5).map((s, i) => (
+                {(resume.skills || []).slice(0, 5).map((s, i) => (
                   <span key={i} className="quick-skill-tag">
                     {s}
                   </span>
                 ))}
-                {resume.skills.length > 5 && (
+                {(resume.skills || []).length > 5 && (
                   <span className="quick-skill-tag">+{resume.skills.length - 5} more</span>
                 )}
               </div>
+
+              {resume.profile_strength && (
+                <div
+                  className="mini-strength-card"
+                  onClick={onViewProfile}
+                  style={{ cursor: "pointer", transition: "all 0.2s ease" }}
+                  title="Click to view full Profile Strength breakdown & fix gaps"
+                >
+                  <div className="mini-strength-top">
+                    <span className="mini-strength-title">Profile Strength: {resume.profile_strength.strength_tier}</span>
+                    <span className="mini-strength-score">{resume.profile_strength.overall_score}%</span>
+                  </div>
+                  <div className="profile-strength-bar-bg" style={{ height: "6px" }}>
+                    <div
+                      className={`profile-strength-bar-fill tier-${resume.profile_strength.tier_badge_color || "blue"}`}
+                      style={{ width: `${resume.profile_strength.overall_score}%` }}
+                    />
+                  </div>
+                </div>
+              )}
               <div className="active-card-actions">
                 <button type="button" className="btn-view-matches" onClick={onViewJobs}>
                   <span>View <strong>{matchedCount}</strong> Jobs</span>
@@ -1585,11 +1495,12 @@ function NextStepsSection({ resume, matchedCount, onViewJobs, onChangeResume }) 
   );
 }
 
+// Returns "" when the posting date is unknown so the UI can hide it.
 function formatJobAge(dateStr) {
-  if (!dateStr) return "2d ago";
+  if (!dateStr) return "";
   try {
     const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return "2d ago";
+    if (isNaN(d.getTime())) return "";
     const diffDays = Math.floor((new Date() - d) / (1000 * 60 * 60 * 24));
     if (diffDays <= 0) return "today";
     if (diffDays === 1) return "1d ago";
@@ -1597,115 +1508,29 @@ function formatJobAge(dateStr) {
     if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
     return `${diffDays}d ago`;
   } catch {
-    return "2d ago";
+    return "";
   }
-}
-
-function buildTailoredResumeText(resume, job) {
-  const candidateName = resume?.candidate_name || "Candidate";
-  const email = resume?.email || "your.email@example.com";
-  const location = resume?.location || "Open to work";
-  const skills = Array.isArray(resume?.skills) ? resume.skills : [];
-  const matchedSkills = Array.isArray(job?.matched_skills) ? job.matched_skills : [];
-  const missingSkills = Array.isArray(job?.missing_skills) ? job.missing_skills : [];
-  const roleTitle = job?.title || "Target role";
-  const companyName = job?.company || "Target company";
-
-  const prioritySkills = matchedSkills.length ? matchedSkills : skills.slice(0, 6);
-  const weightedSkills = [...new Set([...prioritySkills, ...missingSkills].slice(0, 8))];
-
-  return [
-    `${candidateName}`,
-    `${email}`,
-    `${location}`,
-    "",
-    `Application for: ${roleTitle} | ${companyName}`,
-    "",
-    "Professional Summary",
-    `${candidateName} is a motivated professional with experience aligned to ${roleTitle}. This tailored profile highlights the most relevant skills for ${companyName}, including ${weightedSkills.join(", ") || "core domain expertise"}.`,
-    "",
-    "Core Skills",
-    weightedSkills.map((skill) => `- ${skill}`).join("\n"),
-    "",
-    "Experience Highlights",
-    `- Delivered work focused on ${weightedSkills.slice(0, 3).join(", ") || "core technical delivery"}.`,
-    `- Collaborated across product, engineering, and stakeholder teams to deliver business-critical outcomes in fast-moving environments.`,
-    `- Applied strong communication, problem solving, and execution skills to deliver measurable impact and improve operational efficiency.`,
-    "",
-    "Application Notes",
-    `- Tailored for the ${roleTitle} opportunity at ${companyName}.`,
-    `- Emphasises relevant skills, measurable impact, and role-specific strengths.`,
-    `- Prepared to discuss experience in ${weightedSkills.slice(0, 3).join(", ") || "the target domain"}.`
-  ].join("\n");
 }
 
 function getCompanySummary(job) {
-  const providedSummary = job.company_description || job.company_overview || job.about_company;
-  if (typeof providedSummary === "string" && providedSummary.trim()) {
-    return sanitizeDisplayText(providedSummary);
-  }
-
-  const companyProfiles = {
-    amazon: "Amazon is a global technology and commerce company that builds online retail, cloud computing, logistics, digital streaming, and consumer technology products. Its teams work across customer-facing services and large-scale infrastructure.",
-    google: "Google is a technology company best known for Search, online advertising, Android, YouTube, and Google Cloud. Its teams build products and infrastructure used by people and organisations around the world.",
-    microsoft: "Microsoft develops software, cloud services, devices, and productivity tools, including Azure, Microsoft 365, Windows, and GitHub. Its engineering teams work across enterprise and consumer technology.",
-    meta: "Meta builds social and communication platforms including Facebook, Instagram, WhatsApp, and Messenger, alongside virtual and augmented reality products. Its teams focus on connecting people and developing large-scale technology.",
-    apple: "Apple designs consumer hardware, software, and services including iPhone, Mac, iOS, macOS, and Apple services. Its teams combine product design, engineering, and privacy-focused technology.",
-    netflix: "Netflix is a global entertainment company that provides streaming films, series, and games. Its technology teams support content delivery, recommendations, experimentation, and reliable customer experiences.",
-    "shopify": "Shopify provides commerce tools that help businesses start, grow, market, and manage online and in-person stores. Its teams build software and infrastructure for merchants around the world.",
-    "salesforce": "Salesforce provides cloud-based customer relationship management software and business applications. Its products help organisations manage sales, service, marketing, analytics, and collaboration.",
-    databricks: "Databricks is a data and artificial intelligence company that provides the Data Intelligence Platform. The platform brings together data engineering, analytics, machine learning, and generative AI so organisations can build and operate data-driven applications at scale.",
-    reddit: "Reddit operates a community platform where people share, discuss, and discover content across thousands of interest-based communities. Its teams build large-scale conversation, discovery, advertising, and community tools.",
-  };
-  const companyKey = String(job.company || "").trim().toLowerCase();
-  if (companyProfiles[companyKey]) return companyProfiles[companyKey];
-
-  return "A company overview was not included in this job feed. Use the official company website and the original job posting to verify the organisation, its products, and its team before applying.";
-}
-
-function getCompanyProfile(job) {
-  const companyKey = String(job.company || "").trim().toLowerCase();
-  const profiles = {
-    databricks: {
-      industry: "Data, cloud software, and artificial intelligence",
-      website: "https://www.databricks.com",
-    },
-    reddit: {
-      industry: "Social media and online communities",
-      website: "https://www.redditinc.com",
-    },
-  };
-  return profiles[companyKey] || {};
+  const provided = job.company_description || job.company_overview || job.about_company;
+  if (typeof provided === "string" && provided.trim()) return sanitizeDisplayText(provided);
+  return "No company description available.";
 }
 
 function JobCard({ job, inPipeline, onTogglePipeline, onViewDetails }) {
   const plat = (job.platform || "ATS").toLowerCase();
 
-  let matchedKeyword = "devops";
-  if (job.matched_skills && job.matched_skills.length > 0) {
-    matchedKeyword = job.matched_skills[0].toLowerCase();
-  } else if (job.extracted_skills && job.extracted_skills.length > 0) {
-    matchedKeyword = job.extracted_skills[0].toLowerCase();
-  } else if (job.title) {
-    const lower = job.title.toLowerCase();
-    if (lower.includes("devops") || lower.includes("sre")) matchedKeyword = "devops";
-    else if (lower.includes("security")) matchedKeyword = "devops";
-    else if (lower.includes("cloud")) matchedKeyword = "cloud";
-    else if (lower.includes("react") || lower.includes("frontend")) matchedKeyword = "react";
-    else if (lower.includes("python") || lower.includes("backend")) matchedKeyword = "python";
-    else matchedKeyword = "skills";
-  }
+  // Only a skill the backend actually matched against the resume is labelled "matched".
+  const matchedKeyword = job.matched_skills && job.matched_skills.length > 0 ? job.matched_skills[0] : "";
 
   const postingAge = formatJobAge(job.posted_at || job.created_at);
 
   return (
     <div className="job-card-uploaded-style">
       <div className="card-header-row">
-        <div className="company-avatar-circle" title={job.company || "Company"}>
-          <svg width="24" height="24" viewBox="0 0 28 28" fill="none">
-            <path d="M14 3C8.48 3 4 7.48 4 13C4 17.2 6.58 20.8 10.25 22.3C9.45 20.1 9 17.6 9 15C9 9.5 12.8 4.9 18 3.5C16.7 3.2 15.4 3 14 3Z" fill="#10B981" />
-            <path d="M14 27C19.52 27 24 22.52 24 17C24 12.8 21.42 9.2 17.75 7.7C18.55 9.9 19 12.4 19 15C19 20.5 15.2 25.1 10 26.5C11.3 26.8 12.6 27 14 27Z" fill="#06B6D4" />
-          </svg>
+        <div className="company-avatar-circle" title={job.company || "Company not listed"}>
+          {(job.company || "?").charAt(0).toUpperCase()}
         </div>
 
         <div className="card-title-block">
@@ -1727,7 +1552,7 @@ function JobCard({ job, inPipeline, onTogglePipeline, onViewDetails }) {
             </a>
           </div>
           <div className="job-card-subtitle">
-            {job.company || "jobgether"} · {job.location || "Remote"}
+            {job.company || "Company not listed"} · {job.location || "Location not listed"}
           </div>
           {job.visa_sponsored && (
             <span
@@ -1742,10 +1567,12 @@ function JobCard({ job, inPipeline, onTogglePipeline, onViewDetails }) {
 
       <div className="card-meta-row">
         <span className="platform-tag-pill">{plat}</span>
-        <span className="meta-age-text">{postingAge}</span>
-        <span className="matched-skill-text">
-          · matched <span className="matched-skill-highlight">{matchedKeyword}</span>
-        </span>
+        {postingAge && <span className="meta-age-text">{postingAge}</span>}
+        {matchedKeyword && (
+          <span className="matched-skill-text">
+            · matched <span className="matched-skill-highlight">{matchedKeyword}</span>
+          </span>
+        )}
       </div>
 
       <div className="card-action-row">
@@ -1916,10 +1743,10 @@ function normalizeClientResume(raw, masterResume, job) {
 
   return {
     personal_info: {
-      name: String(pInfo.name || masterResume?.candidate_name || "Candidate").trim(),
+      name: String(pInfo.name || masterResume?.candidate_name || "").trim(),
       email: String(pInfo.email || masterResume?.email || "").trim(),
       phone: String(pInfo.phone || masterResume?.phone || "").trim(),
-      location: String(pInfo.location || masterResume?.location || job?.location || "").trim(),
+      location: String(pInfo.location || masterResume?.location || "").trim(),
       linkedin: String(pInfo.linkedin || masterResume?.linkedin || "").trim(),
       github: String(pInfo.github || masterResume?.github || "").trim(),
       portfolio: String(pInfo.portfolio || pInfo.website || masterResume?.portfolio || masterResume?.website || "").trim(),
@@ -1996,7 +1823,7 @@ function ResumeDocumentPreview({ resume, job, resumeReady, isGeneratingResume })
             <span />
           </div>
           <strong>Generating ATS-Tailored Resume…</strong>
-          <p>Analyzing job requirements and formatting verified experience.</p>
+          <p>Analyzing job requirements and formatting your experience.</p>
         </div>
       </div>
     );
@@ -2006,7 +1833,7 @@ function ResumeDocumentPreview({ resume, job, resumeReady, isGeneratingResume })
     return (
       <div className="resume-paper is-empty">
         <div className="preview-empty-state">
-          <div className="preview-empty-icon">✦</div>
+          <div className="preview-empty-icon"><Sparkles size={28} aria-hidden="true" /></div>
           <strong>Your tailored resume preview</strong>
           <p>Generate a draft to see the role-focused version here.</p>
         </div>
@@ -2015,7 +1842,7 @@ function ResumeDocumentPreview({ resume, job, resumeReady, isGeneratingResume })
   }
 
   const pInfo = resume.personal_info || {};
-  const targetRole = resume.target_role || job?.title || "Professional Role";
+  const targetRole = resume.target_role || job?.title || "";
   const linkedInHandle = sanitizeLinkedInHandle(pInfo.linkedin);
   const gitHubHandle = sanitizeGitHubHandle(pInfo.github);
   const portfolioClean = sanitizePortfolioUrl(pInfo.portfolio || pInfo.website);
@@ -2025,34 +1852,34 @@ function ResumeDocumentPreview({ resume, job, resumeReady, isGeneratingResume })
       <div className="resume-paper-doc" id="resume-printable-doc">
         <div className="resume-paper-content">
         {/* 1. Header: Sebastian Bennett ATS Style */}
-      <h1 style={{ letterSpacing: "0.04em" }}>{(pInfo.name || "Candidate Name").toUpperCase()}</h1>
-      <div className="paper-role">{targetRole}</div>
+      {pInfo.name && <h1 style={{ letterSpacing: "0.04em" }}>{pInfo.name.toUpperCase()}</h1>}
+      {targetRole && <div className="paper-role">{targetRole}</div>}
 
       <div className="paper-contact-bar">
         {pInfo.phone && (
           <span>
-            📞 <a href={`tel:${pInfo.phone.replace(/[^\d+]/g, "")}`}>{pInfo.phone}</a>
+            <Phone size={12} aria-hidden="true" /> <a href={`tel:${pInfo.phone.replace(/[^\d+]/g, "")}`}>{pInfo.phone}</a>
           </span>
         )}
         {pInfo.email && (
           <span>
-            ✉️ <a href={`mailto:${pInfo.email}`}>{pInfo.email}</a>
+            <Mail size={12} aria-hidden="true" /> <a href={`mailto:${pInfo.email}`}>{pInfo.email}</a>
           </span>
         )}
-        {(pInfo.location || job?.location) && <span>📍 {pInfo.location || job?.location}</span>}
+        {pInfo.location && <span><MapPin size={12} aria-hidden="true" /> {pInfo.location}</span>}
         {linkedInHandle && (
           <span>
-            🔗 <a href={`https://linkedin.com/in/${linkedInHandle}`} target="_blank" rel="noopener noreferrer">linkedin.com/in/{linkedInHandle}</a>
+            <Linkedin size={12} aria-hidden="true" /> <a href={`https://linkedin.com/in/${linkedInHandle}`} target="_blank" rel="noopener noreferrer">linkedin.com/in/{linkedInHandle}</a>
           </span>
         )}
         {gitHubHandle && (
           <span>
-            🐙 <a href={`https://github.com/${gitHubHandle}`} target="_blank" rel="noopener noreferrer">github.com/{gitHubHandle}</a>
+            <Github size={12} aria-hidden="true" /> <a href={`https://github.com/${gitHubHandle}`} target="_blank" rel="noopener noreferrer">github.com/{gitHubHandle}</a>
           </span>
         )}
         {portfolioClean && (
           <span>
-            🌐 <a href={`https://${portfolioClean}`} target="_blank" rel="noopener noreferrer">{portfolioClean}</a>
+            <Globe size={12} aria-hidden="true" /> <a href={`https://${portfolioClean}`} target="_blank" rel="noopener noreferrer">{portfolioClean}</a>
           </span>
         )}
       </div>
@@ -2080,7 +1907,7 @@ function ResumeDocumentPreview({ resume, job, resumeReady, isGeneratingResume })
                 </span>
                 {exp.dates && <span className="paper-entry-dates">{exp.dates}</span>}
               </div>
-              <div className="paper-entry-title">{exp.title || "Position"}</div>
+              {exp.title && <div className="paper-entry-title">{exp.title}</div>}
               {exp.description && <p className="paper-summary">{exp.description}</p>}
               {exp.bullets && exp.bullets.length > 0 && (
                 <ul className="paper-bullets">
@@ -2103,7 +1930,7 @@ function ResumeDocumentPreview({ resume, job, resumeReady, isGeneratingResume })
             <div className="paper-entry" key={`proj-${idx}`} style={{ marginBottom: 10 }}>
               <div className="paper-entry-meta">
                 <span className="paper-entry-company">
-                  {proj.title || "Project"}
+                  {proj.title || ""}
                   {proj.organization ? ` | ${proj.organization}` : ""}
                 </span>
                 {proj.dates && <span className="paper-entry-dates">{proj.dates}</span>}
@@ -2135,7 +1962,7 @@ function ResumeDocumentPreview({ resume, job, resumeReady, isGeneratingResume })
                 </span>
                 {edu.dates && <span className="paper-entry-dates">{edu.dates}</span>}
               </div>
-              <div className="paper-entry-title">{edu.degree || edu.title || "Degree"}</div>
+              {(edu.degree || edu.title) && <div className="paper-entry-title">{edu.degree || edu.title}</div>}
               {edu.description && <p className="paper-summary"><LinkifiedText text={edu.description} /></p>}
               {edu.bullets && edu.bullets.length > 0 && (
                 <ul className="paper-bullets">
@@ -2172,7 +1999,7 @@ function ResumeDocumentPreview({ resume, job, resumeReady, isGeneratingResume })
           {resume.certifications.map((cert, idx) => (
             <div className="paper-entry" key={`cert-${idx}`} style={{ marginBottom: 4 }}>
               <div className="paper-entry-meta">
-                <span className="paper-entry-title">{cert.name || cert.title || "Certification"}</span>
+                <span className="paper-entry-title">{cert.name || cert.title || ""}</span>
                 {cert.dates && <span className="paper-entry-dates">{cert.dates}</span>}
               </div>
               {cert.issuer && <div className="paper-entry-loc">{cert.issuer}</div>}
@@ -2183,181 +2010,6 @@ function ResumeDocumentPreview({ resume, job, resumeReady, isGeneratingResume })
       </div>
     </div>
   </div>
-  );
-}
-
-function MatchAnalysisPanel({ job, resume, tailoredResume }) {
-  const matchScore = job.match_score || 85;
-  const matchedRequired = Array.isArray(job.matched_skills) ? job.matched_skills : [];
-  const missingRequired = Array.isArray(job.missing_skills) ? job.missing_skills : [];
-
-  // Extract candidate skills from actual resume
-  const candidateSkills = new Set(
-    (tailoredResume?.skills || resume?.skills || []).map((s) => String(s).toLowerCase())
-  );
-
-  // Extract important keywords from actual job description
-  const jdText = String(job.description || "").toLowerCase();
-  const jdWords = jdText
-    .replace(/[^\w\s\+#\.]/g, " ")
-    .split(/\s+/)
-    .filter((w) => w.length > 3);
-  const commonStopWords = new Set([
-    "with", "experience", "working", "teams", "skills", "ability", "strong", "knowledge", "required", "preferred", "years", "role", "work", "help", "build", "using", "responsible", "opportunity", "company", "candidates", "salary", "apply"
-  ]);
-  const wordFreq = {};
-  for (const w of jdWords) {
-    if (!commonStopWords.has(w)) {
-      wordFreq[w] = (wordFreq[w] || 0) + 1;
-    }
-  }
-  const topKeywords = Object.entries(wordFreq)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10)
-    .map(([w]) => w.charAt(0).toUpperCase() + w.slice(1));
-
-  // Partition matched into required and preferred based on occurrences in requirements text
-  const preferredSkills = (tailoredResume?.skills || []).filter(
-    (s) => !matchedRequired.map((m) => m.toLowerCase()).includes(s.toLowerCase()) && jdText.includes(s.toLowerCase())
-  );
-
-  // Find genuine evidence in candidate experience
-  const experienceEntries = tailoredResume?.experience || [];
-  const evidenceList = matchedRequired.slice(0, 4).map((skill) => {
-    const sLower = skill.toLowerCase();
-    const matchingExp = experienceEntries.find((exp) => {
-      const text = `${exp.title} ${exp.organization} ${exp.description} ${(exp.bullets || []).join(" ")}`.toLowerCase();
-      return text.includes(sLower);
-    });
-    return {
-      skill,
-      source: matchingExp
-        ? `Demonstrated in "${matchingExp.title}" at ${matchingExp.organization || "work experience"}`
-        : `Verified in verified candidate profile skill taxonomy`,
-    };
-  });
-
-  return (
-    <div className="analysis-container">
-      <div className="analysis-score-card">
-        <div>
-          <span className="workflow-eyebrow">Match Evaluation</span>
-          <h4>Overall Job-Match Score</h4>
-          <p style={{ margin: "4px 0 0", color: "#64748B", fontSize: "0.8rem", maxWidth: "620px" }}>
-            Calculated using Cafy's explainable matching formula: Base qualification threshold (85%) + verified skill
-            overlap ({matchedRequired.length} skills aligned) + target role alignment + candidate seniority check +
-            semantic similarity against the verified job posting.
-          </p>
-        </div>
-        <div className="analysis-score-badge">
-          <strong>{matchScore}%</strong>
-          <span>Verified Fit</span>
-        </div>
-      </div>
-
-      <div className="analysis-grid-2col">
-        <div className="analysis-block">
-          <h5>
-            <span style={{ color: "#059669" }}>✓</span> Matched Required Skills ({matchedRequired.length})
-          </h5>
-          <div>
-            {matchedRequired.length > 0 ? (
-              matchedRequired.map((s) => (
-                <span className="skill-tag-matched" key={s}>
-                  ✓ {s}
-                </span>
-              ))
-            ) : (
-              <span style={{ fontSize: "0.78rem", color: "#64748B" }}>No explicit skill requirements specified</span>
-            )}
-          </div>
-
-          {preferredSkills.length > 0 && (
-            <div style={{ marginTop: 14 }}>
-              <h5 style={{ fontSize: "0.8rem", color: "#2563EB" }}>
-                <span>✦</span> Matched Preferred Skills ({preferredSkills.length})
-              </h5>
-              <div>
-                {preferredSkills.map((s) => (
-                  <span className="skill-tag-matched" style={{ background: "#EFF6FF", color: "#1D4ED8" }} key={s}>
-                    ✦ {s}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="analysis-block">
-          <h5>
-            <span style={{ color: "#D97706" }}>!</span> Missing Required Skills ({missingRequired.length})
-          </h5>
-          <div>
-            {missingRequired.length > 0 ? (
-              missingRequired.map((s) => (
-                <span className="skill-tag-missing" key={s}>
-                  ! {s}
-                </span>
-              ))
-            ) : (
-              <span style={{ fontSize: "0.78rem", color: "#059669" }}>
-                All required skills verified from your uploaded resume!
-              </span>
-            )}
-          </div>
-
-          <div style={{ marginTop: 14 }}>
-            <h5 style={{ fontSize: "0.8rem", color: "#475569" }}>Important Role Keywords</h5>
-            <div>
-              {topKeywords.map((k) => (
-                <span
-                  key={k}
-                  style={{
-                    display: "inline-block",
-                    margin: 2,
-                    padding: "2px 8px",
-                    background: "#F1F5F9",
-                    color: "#334155",
-                    borderRadius: 4,
-                    fontSize: "0.72rem",
-                    fontWeight: 500,
-                  }}
-                >
-                  {k}
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="analysis-block">
-        <h5>Evidence Grounded in Your Profile</h5>
-        <div className="evidence-list">
-          {evidenceList.map((ev, idx) => (
-            <div className="evidence-item" key={idx}>
-              <strong>{ev.skill}</strong>
-              <span>{ev.source}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {missingRequired.length > 0 && (
-        <div className="analysis-block" style={{ borderLeft: "3px solid #F59E0B" }}>
-          <h5>Actionable Recommendations for Genuine Gaps</h5>
-          <ul style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: "0.78rem", color: "#475569", lineHeight: 1.6 }}>
-            {missingRequired.map((skill) => (
-              <li key={skill}>
-                <strong>{skill}</strong>: If you have adjacent project work or self-directed experience with this
-                technology, add it directly to your Projects section in the Resume Editor. Cafy enforces zero-hallucination
-                and never invents unverified claims.
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -2422,18 +2074,18 @@ function SuggestionsPanel({ job, resume, tailoredResume, onRewriteSummary, isRew
 
       <div className="suggestion-box">
         <div className="suggestion-box-header">
-          <strong>5. ATS Single-Column Layout & Formatting Check</strong>
+          <strong>5. ATS-Friendly Layout</strong>
         </div>
         <p>
-          ✓ Clean standard font hierarchy • ✓ Standard section headings • ✓ No unparsable graphics or tables •
-          ✓ Strictly 1-2 page length. Your resume preview is formatted for immediate applicant tracking system pass-through.
+          The template uses a single column, standard section headings and no graphics or tables, which
+          applicant tracking systems generally parse well. Keep the resume to one or two pages.
         </p>
       </div>
     </div>
   );
 }
 
-function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fullPage = false }) {
+function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline, inPipeline, fullPage = false }) {
   const [activeTab, setActiveTab] = useState("application");
   const [workspaceTab, setWorkspaceTab] = useState("editor");
   const [isGeneratingResume, setIsGeneratingResume] = useState(false);
@@ -2446,9 +2098,23 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
   const [draftSaved, setDraftSaved] = useState(false);
   const [generatedOutput, setGeneratedOutput] = useState(null);
   const [tailoredResume, setTailoredResume] = useState(() => normalizeClientResume({}, resume, job));
-  const [openSections, setOpenSections] = useState(new Set(["personal", "summary", "experience", "skills"]));
+  // The editor shows one section at a time, picked from the Structured Editor list.
+  const [openSections, setOpenSections] = useState(new Set(["summary"]));
+  // Last generated/saved version, used by the editor's Reset button.
+  const [savedSnapshot, setSavedSnapshot] = useState(null);
+  // Outcome of the last full "Rewrite with AI": lines kept unchanged + skills to consider adding.
+  const [rewriteResult, setRewriteResult] = useState(null);
   const [newSkillInput, setNewSkillInput] = useState("");
-  const [trackingFilter, setTrackingFilter] = useState("all");
+
+  // Live job-match scoring of the tailored resume while it is open in the editor. Re-runs
+  // (debounced) on every change, including AI rewrites, so section scores stay current.
+  const editorProfile = useMemo(() => tailoredResumeToProfile(tailoredResume, resume), [tailoredResume, resume]);
+  const editorScoring = useJobMatchAnalysis(
+    resumeReady && workspaceTab === "editor" ? job.id : null,
+    editorProfile,
+    600
+  );
+  const editorSections = editorScoring.analysis?.sections || {};
 
   const existingSkillsLower = new Set((tailoredResume?.skills || []).map((s) => String(s).trim().toLowerCase()));
   const candidateJobSkills = [
@@ -2476,6 +2142,7 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
           if (!isCancelled && data.status === "found" && data.tailored_resume) {
             const normalized = normalizeClientResume(data.tailored_resume, resume, job);
             setTailoredResume(normalized);
+            setSavedSnapshot(normalized);
             setGeneratedOutput(data);
             setResumeReady(true);
             setApplicationStatus("Tailored resume ready");
@@ -2491,14 +2158,8 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
     };
   }, [job?.id]);
 
-  const toggleSection = (key) => {
-    setOpenSections((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
+  // Section headers no longer collapse: the editor always shows exactly one section.
+  const toggleSection = (key) => setOpenSections(new Set([key]));
 
   const handleGenerateResume = async () => {
     if (!resume) {
@@ -2524,6 +2185,7 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
       const normalized = normalizeClientResume(rawGen, resume, job);
       setGeneratedOutput(data);
       setTailoredResume(normalized);
+      setSavedSnapshot(normalized);
       setResumeReady(true);
       setApplicationStatus("Tailored resume ready");
       setDraftSaved(false);
@@ -2551,6 +2213,7 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
       const data = await resp.json();
       if (resp.ok) {
         setGeneratedOutput((prev) => ({ ...prev, ...data }));
+        setSavedSnapshot(tailoredResume);
         setDraftSaved(true);
         setApplicationStatus("Draft saved");
         setTimeout(() => setDraftSaved(false), 3000);
@@ -2562,10 +2225,37 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
     }
   };
 
+  // Rewrites the whole resume for this job and stores it as a new version. The backend rejects any
+  // line that would add facts; missing job skills come back as recommendations, never inserted.
+  const handleRewriteFull = async () => {
+    setIsRewriting(true);
+    setResumeError("");
+    setRewriteResult(null);
+    try {
+      const resp = await fetch(`${API_BASE}/api/resumes/rewrite-full`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_id: job.id, resume_id: generatedOutput?.resume_id, resume: tailoredResume }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.detail || `AI rewrite failed (${resp.status})`);
+      const normalized = normalizeClientResume(data.resume, resume, job);
+      setTailoredResume(normalized);
+      setSavedSnapshot(normalized);
+      setGeneratedOutput((prev) => ({ ...prev, ...data }));
+      setRewriteResult({ rejectedLines: data.rejected_lines || 0, recommendedSkills: data.recommended_skills || [] });
+      setApplicationStatus("Rewritten with AI");
+    } catch (error) {
+      setResumeError(error.message || "AI rewrite failed. Please try again.");
+    } finally {
+      setIsRewriting(false);
+    }
+  };
+
   const generatePrintableResumeHtml = (resumeData, jobData) => {
     const res = resumeData || {};
     const pInfo = res.personal_info || {};
-    const role = res.target_role || jobData?.title || "Professional Role";
+    const role = res.target_role || jobData?.title || "";
     const linkedInHandle = sanitizeLinkedInHandle(pInfo.linkedin);
     const gitHubHandle = sanitizeGitHubHandle(pInfo.github);
     const portfolioClean = sanitizePortfolioUrl(pInfo.portfolio || pInfo.website);
@@ -2584,7 +2274,7 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
           <span class="paper-entry-company">${exp.organization || exp.company || ""}${exp.location ? ` | ${exp.location}` : ""}</span>
           ${exp.dates ? `<span class="paper-entry-dates">${exp.dates}</span>` : ""}
         </div>
-        <div class="paper-entry-title">${exp.title || "Position"}</div>
+        ${exp.title ? `<div class="paper-entry-title">${exp.title}</div>` : ""}
         ${exp.description ? `<p class="paper-summary">${renderClickableText(exp.description)}</p>` : ""}
         ${exp.bullets && exp.bullets.length > 0 ? `
           <ul class="paper-bullets">
@@ -2597,7 +2287,7 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
     const projHtml = (res.projects || []).map((proj) => `
       <div class="paper-entry">
         <div class="paper-entry-meta">
-          <span class="paper-entry-company">${proj.title || "Project"}${proj.organization ? ` | ${proj.organization}` : ""}</span>
+          <span class="paper-entry-company">${proj.title || ""}${proj.organization ? ` | ${proj.organization}` : ""}</span>
           ${proj.dates ? `<span class="paper-entry-dates">${proj.dates}</span>` : ""}
         </div>
         ${proj.description ? `<p class="paper-summary">${renderClickableText(proj.description)}</p>` : ""}
@@ -2615,7 +2305,7 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
           <span class="paper-entry-company">${edu.institution || edu.organization || edu.school || ""}${edu.location ? ` | ${edu.location}` : ""}</span>
           ${edu.dates ? `<span class="paper-entry-dates">${edu.dates}</span>` : ""}
         </div>
-        <div class="paper-entry-title">${edu.degree || edu.title || "Degree"}</div>
+        ${(edu.degree || edu.title) ? `<div class="paper-entry-title">${edu.degree || edu.title}</div>` : ""}
         ${edu.description ? `<p class="paper-summary">${renderClickableText(edu.description)}</p>` : ""}
         ${edu.bullets && edu.bullets.length > 0 ? `
           <ul class="paper-bullets">
@@ -2634,7 +2324,7 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
     const certsHtml = (res.certifications || []).map((cert) => `
       <div class="paper-entry">
         <div class="paper-entry-meta">
-          <span class="paper-entry-title">${cert.name || cert.title || "Certification"}</span>
+          <span class="paper-entry-title">${cert.name || cert.title || ""}</span>
           ${cert.dates ? `<span class="paper-entry-dates">${cert.dates}</span>` : ""}
         </div>
         ${cert.issuer ? `<div class="paper-entry-loc">${cert.issuer}</div>` : ""}
@@ -2645,7 +2335,7 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
 <html>
 <head>
   <meta charset="utf-8">
-  <title>${(pInfo.name || "Candidate")}_Resume</title>
+  <title>${pInfo.name ? `${pInfo.name}_Resume` : "Resume"}</title>
   <style>
     @page {
       size: A4 portrait;
@@ -2805,15 +2495,15 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
 <body>
   <div class="resume-paper-doc" id="resume-printable-doc">
     <div class="resume-paper-content">
-      <h1>${(pInfo.name || "Candidate Name").toUpperCase()}</h1>
-      <div class="paper-role">${role}</div>
+      ${pInfo.name ? `<h1>${pInfo.name.toUpperCase()}</h1>` : ""}
+      ${role ? `<div class="paper-role">${role}</div>` : ""}
       <div class="paper-contact-bar">
-        ${pInfo.phone ? `<span>📞 <a href="tel:${pInfo.phone.replace(/[^\d+]/g, '')}">${pInfo.phone}</a></span>` : ""}
-        ${pInfo.email ? `<span>✉️ <a href="mailto:${pInfo.email}">${pInfo.email}</a></span>` : ""}
-        ${(pInfo.location || jobData?.location) ? `<span>📍 ${pInfo.location || jobData?.location}</span>` : ""}
-        ${linkedInHandle ? `<span>🔗 <a href="https://linkedin.com/in/${linkedInHandle}" target="_blank" rel="noopener noreferrer">linkedin.com/in/${linkedInHandle}</a></span>` : ""}
-        ${gitHubHandle ? `<span>🐙 <a href="https://github.com/${gitHubHandle}" target="_blank" rel="noopener noreferrer">github.com/${gitHubHandle}</a></span>` : ""}
-        ${portfolioClean ? `<span>🌐 <a href="https://${portfolioClean}" target="_blank" rel="noopener noreferrer">${portfolioClean}</a></span>` : ""}
+        ${pInfo.phone ? `<span><a href="tel:${pInfo.phone.replace(/[^\d+]/g, '')}">${pInfo.phone}</a></span>` : ""}
+        ${pInfo.email ? `<span><a href="mailto:${pInfo.email}">${pInfo.email}</a></span>` : ""}
+        ${pInfo.location ? `<span>${pInfo.location}</span>` : ""}
+        ${linkedInHandle ? `<span><a href="https://linkedin.com/in/${linkedInHandle}" target="_blank" rel="noopener noreferrer">linkedin.com/in/${linkedInHandle}</a></span>` : ""}
+        ${gitHubHandle ? `<span><a href="https://github.com/${gitHubHandle}" target="_blank" rel="noopener noreferrer">github.com/${gitHubHandle}</a></span>` : ""}
+        ${portfolioClean ? `<span><a href="https://${portfolioClean}" target="_blank" rel="noopener noreferrer">${portfolioClean}</a></span>` : ""}
       </div>
       <hr class="paper-header-hr" />
 
@@ -2973,13 +2663,19 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
         content = tailoredResume.professional_summary;
       }
 
+      // Never let the AI invent content from nothing.
+      if (!String(content || "").trim()) {
+        setResumeError("Add some content first, then use AI to improve it.");
+        return;
+      }
+
       const resp = await fetch(`${API_BASE}/api/resumes/rewrite-section`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           job_id: job.id,
           section: bulletIndex !== null ? "bullet" : sectionKey,
-          content: content || "Software engineering professional aligned with role requirements.",
+          content,
           resume_data: resume,
         }),
       });
@@ -3039,8 +2735,7 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
     const targetUrl = job.url || job.apply_url || job.application_url;
     if (targetUrl) {
       window.open(targetUrl, "_blank", "noopener,noreferrer");
-      setApplicationStatus("Application opened");
-      setSubmitted(true);
+      setApplicationStatus("Application page opened");
     } else {
       setApplicationStatus("No external application URL available");
     }
@@ -3053,6 +2748,24 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
       personal_info: { ...prev.personal_info, [field]: val },
     }));
     setDraftSaved(false);
+  };
+
+  const EDITOR_SECTION_FIELDS = {
+    personal: "personal_info",
+    summary: "professional_summary",
+    skills: "skills",
+    experience: "experience",
+    projects: "projects",
+    education: "education",
+    certifications: "certifications",
+  };
+
+  const activeEditorSection = [...openSections][0] || "summary";
+
+  const resetEditorSection = () => {
+    const field = EDITOR_SECTION_FIELDS[activeEditorSection];
+    if (!savedSnapshot || !field) return;
+    setTailoredResume((prev) => ({ ...prev, [field]: savedSnapshot[field] }));
   };
 
   const updateSummary = (val) => {
@@ -3119,10 +2832,10 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
     setTailoredResume((prev) => {
       const newItem =
         section === "education"
-          ? { degree: "New Degree", institution: "Institution", dates: "Year", location: "", bullets: [] }
+          ? { degree: "", institution: "", dates: "", location: "", bullets: [] }
           : section === "certifications"
-          ? { name: "Certification Name", issuer: "Issuer", dates: "Year" }
-          : { title: "New Role", organization: "Organization", dates: "Period", location: "", bullets: ["Key achievement"] };
+          ? { name: "", issuer: "", dates: "" }
+          : { title: "", organization: "", dates: "", location: "", bullets: [] };
       return { ...prev, [section]: [...(prev[section] || []), newItem] };
     });
     setDraftSaved(false);
@@ -3178,22 +2891,24 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
         <div className="drawer-header">
           <div className="workspace-header-row">
             <div className="workspace-header-main">
-              <div className="workspace-company-avatar" title={job.company || "Company"}>
-                {(job.company || "G").charAt(0).toUpperCase()}
+              <div className="workspace-company-avatar" title={job.company || "Company not listed"}>
+                {(job.company || "?").charAt(0).toUpperCase()}
               </div>
               <div className="drawer-title-wrap">
                 <h2 className="drawer-title" style={{ margin: 0, fontSize: "1.35rem" }}>{job.title}</h2>
                 <div className="workspace-header-meta">
-                  <span className="badge-location">📍 {job.location || "London, UK"}</span>
+                  <span className="badge-location"><MapPin size={13} aria-hidden="true" /> {job.location || "Location not listed"}</span>
                   {job.visa_sponsored && (
                     <span className="badge-visa-sponsored" title="UK Sponsor Listed">
-                      ✓ Visa Sponsored
+                      <Check size={13} aria-hidden="true" /> Visa Sponsored
                     </span>
                   )}
-                  <span className="badge-work-type">💼 {job.employment_type || "Full-time"}</span>
+                  {job.employment_type && (
+                    <span className="badge-work-type"><Briefcase size={13} aria-hidden="true" /> {job.employment_type}</span>
+                  )}
                   {job.match_score > 0 && (
                     <span className="badge-match-pill">
-                      ✓ {job.match_score}% match
+                      <Check size={13} aria-hidden="true" /> {job.match_score}% match
                     </span>
                   )}
                 </div>
@@ -3205,7 +2920,7 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                 className="btn-job-details-toggle"
                 onClick={() => setActiveTab(activeTab === "application" ? "overview" : "application")}
               >
-                👁️ {activeTab === "application" ? "Job Details" : "Resume Workspace"}
+                <Eye size={15} aria-hidden="true" /> {activeTab === "application" ? "Job Details" : "Resume Workspace"}
               </button>
               <button type="button" className="drawer-close-btn" onClick={onClose} aria-label="Close job drawer">
                 ×
@@ -3241,7 +2956,7 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                     <span>Based on your résumé</span>
                   </div>
                   <p>
-                    <strong>Matching skills:</strong> {(job.matched_skills || []).join(", ") || "General role match"}
+                    <strong>Matching skills:</strong> {(job.matched_skills || []).join(", ") || "No overlapping skills listed"}
                   </p>
                   {job.missing_skills && job.missing_skills.length > 0 && (
                     <p>
@@ -3260,11 +2975,11 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                   </div>
                   <div>
                     <span className="muted-label">Employment type</span>
-                    <strong>{job.employment_type || "Full-time"}</strong>
+                    <strong>{job.employment_type || "Not listed"}</strong>
                   </div>
                   <div>
                     <span className="muted-label">Location</span>
-                    <strong>{job.location || "Remote"}</strong>
+                    <strong>{job.location || "Location not listed"}</strong>
                   </div>
                   <div>
                     <span className="muted-label">Sponsor status</span>
@@ -3285,8 +3000,9 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
             <div className="job-detail-panel">
               <div className="drawer-section-block">
                 <h4 className="modal-section-heading">Required & preferred skills</h4>
+                {requirementItems.length === 0 && <p className="pipeline-desc">Role requirements not listed.</p>}
                 <div className="skill-tag-list">
-                  {(requirementItems.length ? requirementItems : ["Role requirements not listed"]).map((item, index) => (
+                  {requirementItems.map((item, index) => (
                     <span
                       key={`${item}-${index}`}
                       className={`skill-tag ${index < (job.matched_skills || []).length ? "matched" : "missing"}`}
@@ -3328,7 +3044,6 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                 <h4 className="modal-section-heading">Company</h4>
                 <p className="company-description">{getCompanySummary(job)}</p>
                 {(() => {
-                  const companyProfile = getCompanyProfile(job);
                   return (
                     <div className="company-summary-box">
                       <div className="company-summary-row">
@@ -3337,11 +3052,11 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                       </div>
                       <div className="company-summary-row">
                         <span className="company-summary-label">Industry</span>
-                        <span>{job.industry || companyProfile.industry || "Not listed"}</span>
+                        <span>{job.industry || "Not listed"}</span>
                       </div>
                       <div className="company-summary-row">
                         <span className="company-summary-label">Location</span>
-                        <span>{job.location || "Remote"}</span>
+                        <span>{job.location || "Location not listed"}</span>
                       </div>
                       <div className="company-summary-row">
                         <span className="company-summary-label">Headquarters</span>
@@ -3353,13 +3068,9 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                       </div>
                       <div className="company-summary-row">
                         <span className="company-summary-label">Website</span>
-                        {job.company_website || companyProfile.website ? (
-                          <a
-                            href={job.company_website || companyProfile.website}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            {job.company_website || companyProfile.website}
+                        {job.company_website ? (
+                          <a href={job.company_website} target="_blank" rel="noopener noreferrer">
+                            {job.company_website}
                           </a>
                         ) : (
                           <span>Not listed</span>
@@ -3379,21 +3090,6 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
           {/* TAB 4: APPLICATION & RESUME WORKSPACE */}
           {activeTab === "application" && (
             <div className="job-detail-panel" style={{ padding: "0 0 16px" }}>
-              {/* Top Banner / Application Workflow text for harness tests */}
-              <div className="workflow-intro">
-                <div>
-                  <span className="workflow-eyebrow">Application workflow · Tailored application workspace</span>
-                  <h3>Review & Edit</h3>
-                  <p>Edit directly with live preview, ATS compliance, and role-fit match analysis.</p>
-                </div>
-                {job.match_score > 0 && (
-                  <div className="workflow-match-score">
-                    <strong>{job.match_score}%</strong>
-                    <span>job match</span>
-                  </div>
-                )}
-              </div>
-
               {/* Background tailoring status banner (resume generation handled on backend) */}
               {isGeneratingResume && (
                 <div className="pipeline-generating-banner">
@@ -3404,44 +3100,24 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
 
               {/* If not yet ready and not generating */}
               {!resumeReady && !isGeneratingResume && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                  <div className="workflow-stepper">
-                    <div className="workflow-step complete">
-                      <span>✓</span>
-                      <strong>Job selected</strong>
+                <div>
+                  {resume ? (
+                    <ApplicationAnalysis
+                      job={job}
+                      resume={resume}
+                      onResumeUpdated={onUpdateResume}
+                      onViewDetails={() => setActiveTab("requirements")}
+                    />
+                  ) : (
+                    <div className="pipeline-card">
+                      <p className="pipeline-desc">Upload a résumé to see your profile analysis for this job.</p>
                     </div>
-                    <div className="workflow-step active">
-                      <span>2</span>
-                      <strong>Auto generation</strong>
-                    </div>
-                    <div className="workflow-step">
-                      <span>3</span>
-                      <strong>Review & edit</strong>
-                    </div>
-                    <div className="workflow-step">
-                      <span>4</span>
-                      <strong>Final output</strong>
-                    </div>
-                  </div>
-
-                  <div className="pipeline-card done">
-                    <div className="pipeline-card-header">
-                      <span className="pipeline-step-badge done">✓ Job Selected</span>
-                    </div>
-                    <h4>{job.title}</h4>
-                    <p className="pipeline-meta">
-                      {job.company} · {job.location || "Remote"} · {job.employment_type || "Full-time"}
-                    </p>
-                  </div>
-
-                  <div className="pipeline-card">
-                    <div className="pipeline-card-header">
-                      <span className="pipeline-step-badge">2 · Generate Tailored Resume</span>
-                    </div>
-                    <p className="pipeline-desc">
-                      Generate a role-focused version tailored strictly using facts from your verified profile.
-                    </p>
-                    {resumeError && <div className="pipeline-error">{resumeError}</div>}
+                  )}
+                  {resumeError && <div className="pipeline-error" style={{ marginTop: 16 }}>{resumeError}</div>}
+                  <div className="aa-generate-row">
+                    <span className="pipeline-desc" style={{ margin: 0 }}>
+                      Tailored strictly using facts from your uploaded profile.
+                    </span>
                     <button
                       type="button"
                       className="pipeline-btn-primary"
@@ -3480,30 +3156,12 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                       </button>
                       <button
                         type="button"
-                        className={workspaceTab === "analysis" ? "active" : ""}
-                        onClick={() => setWorkspaceTab("analysis")}
-                        role="tab"
-                        aria-selected={workspaceTab === "analysis"}
-                      >
-                        Match Analysis
-                      </button>
-                      <button
-                        type="button"
                         className={workspaceTab === "suggestions" ? "active" : ""}
                         onClick={() => setWorkspaceTab("suggestions")}
                         role="tab"
                         aria-selected={workspaceTab === "suggestions"}
                       >
                         Suggestions
-                      </button>
-                      <button
-                        type="button"
-                        className={workspaceTab === "final" ? "active" : ""}
-                        onClick={() => setWorkspaceTab("final")}
-                        role="tab"
-                        aria-selected={workspaceTab === "final"}
-                      >
-                        Final Output
                       </button>
                       <button
                         type="button"
@@ -3521,22 +3179,40 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
 
                   {/* SUBTAB: RESUME EDITOR (Desktop Split: Editor on Left, Live Preview on Right) */}
                   {workspaceTab === "editor" && (
-                    <div className="workflow-editor-grid">
+                    <div className="workflow-editor-grid editor-master-detail">
+                      <nav className="editor-section-nav" aria-label="Structured editor sections">
+                        <span className="editor-section-nav-title">Structured Editor</span>
+                        {[
+                          ["personal", "Personal Information"],
+                          ["summary", "Professional Summary"],
+                          ["skills", "Skills"],
+                          ["experience", "Work Experience"],
+                          ["projects", "Projects"],
+                          ["education", "Education"],
+                          ["certifications", "Certifications"],
+                        ].map(([key, label]) => (
+                          <button
+                            key={key}
+                            type="button"
+                            className={activeEditorSection === key ? "active" : ""}
+                            aria-current={activeEditorSection === key ? "true" : undefined}
+                            onClick={() => toggleSection(key)}
+                          >
+                            <ChevronRight size={15} aria-hidden="true" />
+                            <span>{label}</span>
+                            {key !== "personal" && <SectionScoreBadge section={editorSections[key]} />}
+                          </button>
+                        ))}
+                      </nav>
                       <div className="workflow-editor-panel">
                         <div className="workflow-panel-heading" style={{ marginBottom: 14 }}>
                           <div>
                             <span className="workflow-eyebrow">Structured Editor</span>
                             <h4>Tailored Resume Content</h4>
                           </div>
-                          <button
-                            type="button"
-                            className="text-action"
-                            onClick={handleSaveDraft}
-                            disabled={isSavingDraft}
-                          >
-                            {isSavingDraft ? "Saving…" : draftSaved ? "Saved ✓" : "Save draft"}
-                          </button>
                         </div>
+
+                        <EditorMatchScore {...editorScoring} />
 
                         {/* ACCORDION */}
                         <div className="editor-accordion">
@@ -3548,14 +3224,14 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                               onClick={() => toggleSection("personal")}
                               aria-expanded={openSections.has("personal")}
                             >
-                              <span className="editor-section-icon">▣</span>
+                              <span className="editor-section-icon"><User size={16} aria-hidden="true" /></span>
                               <span>
                                 <strong>Personal Information</strong>
                                 <small>
                                   {tailoredResume.personal_info.name} · {tailoredResume.personal_info.email || "Email"}
                                 </small>
                               </span>
-                              <span className="editor-chevron">{openSections.has("personal") ? "⌃" : "⌄"}</span>
+                              <span className="editor-chevron">{openSections.has("personal") ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}</span>
                             </button>
                             {openSections.has("personal") && (
                               <div className="editor-accordion-content">
@@ -3621,12 +3297,13 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                               onClick={() => toggleSection("summary")}
                               aria-expanded={openSections.has("summary")}
                             >
-                              <span className="editor-section-icon">▤</span>
+                              <span className="editor-section-icon"><AlignLeft size={16} aria-hidden="true" /></span>
                               <span>
                                 <strong>Professional Summary</strong>
                                 <small>Role-focused career overview</small>
                               </span>
-                              <span className="editor-chevron">{openSections.has("summary") ? "⌃" : "⌄"}</span>
+                              <SectionScoreBadge section={editorSections.summary} />
+                              <span className="editor-chevron">{openSections.has("summary") ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}</span>
                             </button>
                             {openSections.has("summary") && (
                               <div className="editor-accordion-content">
@@ -3638,6 +3315,7 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                                   rows={6}
                                   aria-label="Professional summary"
                                 />
+                                <div className="editor-char-count">{(tailoredResume.professional_summary || "").length}/500</div>
                                 <div style={{ display: "flex", justifyContent: "flex-start", marginTop: 10 }}>
                                   <button
                                     type="button"
@@ -3645,7 +3323,7 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                                     onClick={() => handleRewriteSection("professional_summary")}
                                     disabled={isRewriting}
                                   >
-                                    <span>✨</span> {isRewriting ? "Improving with AI…" : "Improve with AI"}
+                                    <Sparkles size={14} aria-hidden="true" /> {isRewriting ? "Improving with AI…" : "Improve with AI"}
                                   </button>
                                 </div>
                               </div>
@@ -3660,12 +3338,13 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                               onClick={() => toggleSection("experience")}
                               aria-expanded={openSections.has("experience")}
                             >
-                              <span className="editor-section-icon">💼</span>
+                              <span className="editor-section-icon"><Briefcase size={16} aria-hidden="true" /></span>
                               <span>
                                 <strong>Work Experience</strong>
                                 <small>{tailoredResume.experience.length} positions</small>
                               </span>
-                              <span className="editor-chevron">{openSections.has("experience") ? "⌃" : "⌄"}</span>
+                              <SectionScoreBadge section={editorSections.experience} />
+                              <span className="editor-chevron">{openSections.has("experience") ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}</span>
                             </button>
                             {openSections.has("experience") && (
                               <div className="editor-accordion-content">
@@ -3673,7 +3352,7 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                                   <div className="editor-entry-card" key={`exp-edit-${idx}`}>
                                     <div className="editor-entry-header">
                                       <strong>
-                                        {exp.title || "Position"} — {exp.organization || "Company"}
+                                        {[exp.title, exp.organization].filter(Boolean).join(" — ") || "Untitled role"}
                                       </strong>
                                       <div className="editor-entry-actions" style={{ display: "flex", alignItems: "center", gap: 6 }}>
                                         <button
@@ -3683,7 +3362,7 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                                           disabled={isRewriting}
                                           title="Improve this position with AI"
                                         >
-                                          ✨ Improve with AI
+                                          <Sparkles size={13} aria-hidden="true" /> Improve with AI
                                         </button>
                                         <button
                                           type="button"
@@ -3691,7 +3370,7 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                                           title="Remove position"
                                           onClick={() => removeEntry("experience", idx)}
                                         >
-                                          ✕
+                                          <X size={14} aria-hidden="true" />
                                         </button>
                                       </div>
                                     </div>
@@ -3752,7 +3431,7 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                                             onClick={() => handleRewriteSection("experience", idx, bIdx)}
                                             disabled={isRewriting}
                                           >
-                                            ✨
+                                            <Sparkles size={14} aria-hidden="true" />
                                           </button>
                                           <button
                                             type="button"
@@ -3760,7 +3439,7 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                                             title="Move up"
                                             onClick={() => moveBullet("experience", idx, bIdx, -1)}
                                           >
-                                            ↑
+                                            <ArrowUp size={14} aria-hidden="true" />
                                           </button>
                                           <button
                                             type="button"
@@ -3768,7 +3447,7 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                                             title="Move down"
                                             onClick={() => moveBullet("experience", idx, bIdx, 1)}
                                           >
-                                            ↓
+                                            <ArrowDown size={14} aria-hidden="true" />
                                           </button>
                                           <button
                                             type="button"
@@ -3776,7 +3455,7 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                                             title="Delete bullet"
                                             onClick={() => removeBullet("experience", idx, bIdx)}
                                           >
-                                            ✕
+                                            <X size={14} aria-hidden="true" />
                                           </button>
                                         </div>
                                       ))}
@@ -3809,19 +3488,20 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                               onClick={() => toggleSection("projects")}
                               aria-expanded={openSections.has("projects")}
                             >
-                              <span className="editor-section-icon">🚀</span>
+                              <span className="editor-section-icon"><Rocket size={16} aria-hidden="true" /></span>
                               <span>
                                 <strong>Projects</strong>
                                 <small>{tailoredResume.projects.length} projects</small>
                               </span>
-                              <span className="editor-chevron">{openSections.has("projects") ? "⌃" : "⌄"}</span>
+                              <SectionScoreBadge section={editorSections.projects} />
+                              <span className="editor-chevron">{openSections.has("projects") ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}</span>
                             </button>
                             {openSections.has("projects") && (
                               <div className="editor-accordion-content">
                                 {tailoredResume.projects.map((proj, idx) => (
                                   <div className="editor-entry-card" key={`proj-edit-${idx}`}>
                                     <div className="editor-entry-header">
-                                      <strong>{proj.title || "Project"}</strong>
+                                      <strong>{proj.title || "Untitled project"}</strong>
                                       <div className="editor-entry-actions" style={{ display: "flex", alignItems: "center", gap: 6 }}>
                                         <button
                                           type="button"
@@ -3830,14 +3510,14 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                                           disabled={isRewriting}
                                           title="Improve this project with AI"
                                         >
-                                          ✨ Improve with AI
+                                          <Sparkles size={13} aria-hidden="true" /> Improve with AI
                                         </button>
                                         <button
                                           type="button"
                                           className="btn-icon-action danger"
                                           onClick={() => removeEntry("projects", idx)}
                                         >
-                                          ✕
+                                          <X size={14} aria-hidden="true" />
                                         </button>
                                       </div>
                                     </div>
@@ -3878,7 +3558,7 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                                             onClick={() => handleRewriteSection("projects", idx, bIdx)}
                                             disabled={isRewriting}
                                           >
-                                            ✨
+                                            <Sparkles size={14} aria-hidden="true" />
                                           </button>
                                           <button
                                             type="button"
@@ -3886,7 +3566,7 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                                             title="Move up"
                                             onClick={() => moveBullet("projects", idx, bIdx, -1)}
                                           >
-                                            ↑
+                                            <ArrowUp size={14} aria-hidden="true" />
                                           </button>
                                           <button
                                             type="button"
@@ -3894,7 +3574,7 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                                             title="Move down"
                                             onClick={() => moveBullet("projects", idx, bIdx, 1)}
                                           >
-                                            ↓
+                                            <ArrowDown size={14} aria-hidden="true" />
                                           </button>
                                           <button
                                             type="button"
@@ -3902,7 +3582,7 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                                             title="Delete bullet"
                                             onClick={() => removeBullet("projects", idx, bIdx)}
                                           >
-                                            ✕
+                                            <X size={14} aria-hidden="true" />
                                           </button>
                                         </div>
                                       ))}
@@ -3931,12 +3611,13 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                               onClick={() => toggleSection("skills")}
                               aria-expanded={openSections.has("skills")}
                             >
-                              <span className="editor-section-icon">◇</span>
+                              <span className="editor-section-icon"><Wrench size={16} aria-hidden="true" /></span>
                               <span>
                                 <strong>Skills</strong>
                                 <small>{tailoredResume.skills.length} skills listed</small>
                               </span>
-                              <span className="editor-chevron">{openSections.has("skills") ? "⌃" : "⌄"}</span>
+                              <SectionScoreBadge section={editorSections.skills} />
+                              <span className="editor-chevron">{openSections.has("skills") ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}</span>
                             </button>
                             {openSections.has("skills") && (
                               <div className="editor-accordion-content">
@@ -3983,7 +3664,7 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                                   <div className="editor-recommended-skills-box" style={{ marginTop: 14, padding: "12px 14px", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8 }}>
                                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
                                       <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#166534", display: "flex", alignItems: "center", gap: 5 }}>
-                                        <span>💡</span> Recommended Skills from Job Description
+                                        <Lightbulb size={14} aria-hidden="true" /> Recommended Skills from Job Description
                                       </span>
                                       <button
                                         type="button"
@@ -4038,25 +3719,26 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                               onClick={() => toggleSection("education")}
                               aria-expanded={openSections.has("education")}
                             >
-                              <span className="editor-section-icon">🎓</span>
+                              <span className="editor-section-icon"><GraduationCap size={16} aria-hidden="true" /></span>
                               <span>
                                 <strong>Education</strong>
                                 <small>{tailoredResume.education.length} degrees</small>
                               </span>
-                              <span className="editor-chevron">{openSections.has("education") ? "⌃" : "⌄"}</span>
+                              <SectionScoreBadge section={editorSections.education} />
+                              <span className="editor-chevron">{openSections.has("education") ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}</span>
                             </button>
                             {openSections.has("education") && (
                               <div className="editor-accordion-content">
                                 {tailoredResume.education.map((edu, idx) => (
                                   <div className="editor-entry-card" key={`edu-edit-${idx}`}>
                                     <div className="editor-entry-header">
-                                      <strong>{edu.degree || "Degree"}</strong>
+                                      <strong>{edu.degree || "Untitled education entry"}</strong>
                                       <button
                                         type="button"
                                         className="btn-icon-action danger"
                                         onClick={() => removeEntry("education", idx)}
                                       >
-                                        ✕
+                                        <X size={14} aria-hidden="true" />
                                       </button>
                                     </div>
                                     <div className="editor-field-row">
@@ -4103,6 +3785,82 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                               </div>
                             )}
                           </div>
+
+                          {/* 7. Certifications */}
+                          <div className={`editor-accordion-item ${openSections.has("certifications") ? "open" : ""}`}>
+                            <button
+                              type="button"
+                              className="editor-accordion-trigger"
+                              onClick={() => toggleSection("certifications")}
+                              aria-expanded={openSections.has("certifications")}
+                            >
+                              <span className="editor-section-icon"><Award size={16} aria-hidden="true" /></span>
+                              <span>
+                                <strong>Certifications</strong>
+                                <small>{(tailoredResume.certifications || []).length} certifications</small>
+                              </span>
+                              <SectionScoreBadge section={editorSections.certifications} />
+                            </button>
+                            {openSections.has("certifications") && (
+                              <div className="editor-accordion-content">
+                                {(tailoredResume.certifications || []).map((cert, idx) => (
+                                  <div className="editor-entry-card" key={`cert-edit-${idx}`}>
+                                    <div className="editor-entry-header">
+                                      <strong>{cert.name || "Untitled certification"}</strong>
+                                      <button
+                                        type="button"
+                                        className="btn-icon-action danger"
+                                        onClick={() => removeEntry("certifications", idx)}
+                                        aria-label="Remove certification"
+                                      >
+                                        <X size={14} aria-hidden="true" />
+                                      </button>
+                                    </div>
+                                    <div className="editor-field-row">
+                                      <input
+                                        type="text"
+                                        className="editor-input"
+                                        placeholder="Certification name"
+                                        value={cert.name || ""}
+                                        onChange={(e) => updateEntryField("certifications", idx, "name", e.target.value)}
+                                        aria-label="Certification name"
+                                      />
+                                      <input
+                                        type="text"
+                                        className="editor-input"
+                                        placeholder="Issuer"
+                                        value={cert.issuer || ""}
+                                        onChange={(e) => updateEntryField("certifications", idx, "issuer", e.target.value)}
+                                        aria-label="Certification issuer"
+                                      />
+                                    </div>
+                                    <div className="editor-field-row">
+                                      <input
+                                        type="text"
+                                        className="editor-input"
+                                        placeholder="Date"
+                                        value={cert.dates || ""}
+                                        onChange={(e) => updateEntryField("certifications", idx, "dates", e.target.value)}
+                                        aria-label="Certification date"
+                                      />
+                                    </div>
+                                  </div>
+                                ))}
+                                <button type="button" className="btn-add-entry" onClick={() => addEntry("certifications")}>
+                                  + Add Certification
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="editor-panel-footer">
+                          <button type="button" className="btn-editor-reset" onClick={resetEditorSection} disabled={!savedSnapshot}>
+                            Reset
+                          </button>
+                          <button type="button" className="pipeline-btn-primary" onClick={handleSaveDraft} disabled={isSavingDraft}>
+                            {isSavingDraft ? "Saving…" : draftSaved ? "Saved" : "Save Changes"}
+                          </button>
                         </div>
                       </div>
 
@@ -4110,10 +3868,8 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                       <div className="workflow-preview-panel">
                         <div className="workflow-panel-heading" style={{ marginBottom: 14 }}>
                           <div>
-                            <span className="workflow-eyebrow">Real-Time ATS Preview</span>
-                            <h4>{tailoredResume.target_role || job.title}</h4>
+                            <h4>Live Preview</h4>
                           </div>
-                          <span className="preview-status">Live Synchronized</span>
                         </div>
                         <ResumeDocumentPreview
                           resume={tailoredResume}
@@ -4137,13 +3893,6 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                     </div>
                   )}
 
-                  {/* SUBTAB: MATCH ANALYSIS */}
-                  {workspaceTab === "analysis" && (
-                    <div className="workspace-single-panel">
-                      <MatchAnalysisPanel job={job} resume={resume} tailoredResume={tailoredResume} />
-                    </div>
-                  )}
-
                   {/* SUBTAB: SUGGESTIONS */}
                   {workspaceTab === "suggestions" && (
                     <div className="workspace-single-panel">
@@ -4157,120 +3906,9 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                     </div>
                   )}
 
-                  {/* SUBTAB: FINAL RESUME OUTPUT (Screen 4 from resume-pipeline.jpeg) */}
-                  {workspaceTab === "final" && (
-                    <div className="final-output-container">
-                      <div className="final-output-banner">
-                        <div className="banner-check-circle">✓</div>
-                        <div>
-                          <h3>Resume Ready!</h3>
-                          <p>Your tailored resume has been generated and validated.</p>
-                        </div>
-                      </div>
-
-                      <div className="download-formats-grid">
-                        <div className="format-card">
-                          <div className="format-info">
-                            <span className="format-tag pdf">PDF</span>
-                            <div>
-                              <strong>PDF (ATS-Friendly)</strong>
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            className="format-btn"
-                            onClick={() => handleDownloadResume("pdf")}
-                          >
-                            Download
-                          </button>
-                        </div>
-
-                        <div className="format-card">
-                          <div className="format-info">
-                            <span className="format-tag docx">DOCX</span>
-                            <div>
-                              <strong>DOCX (Editable)</strong>
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            className="format-btn"
-                            onClick={() => handleDownloadResume("docx")}
-                          >
-                            Download
-                          </button>
-                        </div>
-
-                        <div className="format-card">
-                          <div className="format-info">
-                            <span className="format-tag latex">LaTeX</span>
-                            <div>
-                              <strong>LaTeX Source</strong>
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            className="format-btn"
-                            onClick={() => {
-                              window.open("https://www.overleaf.com/docs", "_blank", "noopener,noreferrer");
-                              handleDownloadResume("latex");
-                            }}
-                          >
-                            Open in Overleaf
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="quality-check-card">
-                        <h4>Quality Check</h4>
-                        <div className="quality-grid">
-                          <div className="quality-item">
-                            <span>✓</span>
-                            <span>ATS-friendly format (UK/IE)</span>
-                          </div>
-                          <div className="quality-item">
-                            <span>✓</span>
-                            <span>No keyword stuffing</span>
-                          </div>
-                          <div className="quality-item">
-                            <span>✓</span>
-                            <span>Correct grammar and tone</span>
-                          </div>
-                          <div className="quality-item">
-                            <span>✓</span>
-                            <span>Relevant content only</span>
-                          </div>
-                          <div className="quality-item">
-                            <span>✓</span>
-                            <span>1-2 pages</span>
-                          </div>
-                          <div className="quality-item">
-                            <span>✓</span>
-                            <span>All claims from your profile</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="final-action-footer">
-                        <div className="final-saved-note">
-                          <span>ℹ️</span>
-                          <span>This resume is saved for this job. You can create different versions for other jobs.</span>
-                        </div>
-                        <button
-                          type="button"
-                          className="btn-open-careers"
-                          onClick={handleContinueToApplication}
-                        >
-                          Continue to Application (Step 5) →
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* SUBTAB: STEP 5 & STEP 6 CONTINUE TO APPLICATION SCENARIOS (Matching Image 2) */}
+                  {/* SUBTAB: CONTINUE TO APPLICATION */}
                   {workspaceTab === "scenarios" && (
                     <div className="scenarios-container">
-                      {/* Step 5 Banner */}
                       <div className="scenarios-title-bar">
                         <div className="scenarios-heading">
                           <span className="scenario-badge-circle">5</span>
@@ -4281,414 +3919,109 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                             </p>
                           </div>
                         </div>
-                        <button
-                          type="button"
-                          className="btn-mark-applied-hero"
-                          onClick={() => {
-                            if (!inPipeline) onTogglePipeline(job.id);
-                            setApplicationStatus("Applied");
-                            setSubmitted(true);
-                          }}
-                        >
-                          <span>✓</span> {submitted || applicationStatus === "Applied" ? "Marked as Applied ✓" : "Mark as Applied"}
-                        </button>
+                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                          <button
+                            type="button"
+                            className="btn-tracking-view"
+                            onClick={() => {
+                              if (!inPipeline) onTogglePipeline(job.id);
+                              setApplicationStatus("In pipeline");
+                            }}
+                          >
+                            {inPipeline ? "Tracked" : "Track Application"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-mark-applied-hero"
+                            onClick={() => {
+                              if (!inPipeline) onTogglePipeline(job.id);
+                              setApplicationStatus("Applied");
+                              setSubmitted(true);
+                            }}
+                          >
+                            <span><Check size={14} aria-hidden="true" /></span> {submitted ? "Marked as Applied" : "Mark as Applied"}
+                          </button>
+                        </div>
                       </div>
 
-                      {/* 4 Application Scenarios Grid */}
                       <div className="scenarios-grid">
-                        {/* 1. External Application Page (Most Common) */}
                         <div className="scenario-card">
                           <div>
                             <div className="scenario-card-header">
-                              <div className="scenario-number-row">
-                                <span className="scenario-step-num">1</span>
-                                <span className="scenario-card-title">External Application Page (Most Common)</span>
-                              </div>
+                              <div className="scenario-number-row"><span className="scenario-step-num">1</span><span className="scenario-card-title">External Application Page (Most Common)</span></div>
                               <p className="scenario-card-subtitle">Opens the official application page with your resume ready.</p>
                             </div>
-
                             <div className="scenario-inner-box scenario-external-box">
-                              <div className="scenario-company-brand">
-                                <span style={{ fontSize: "1.2rem" }}>🌐</span>
-                                <span>{job.company || "Company"} Careers</span>
-                              </div>
+                              <strong>{job.company || "Company careers"}</strong>
                               <p className="scenario-role-name">{job.title}</p>
-                              <p className="scenario-role-loc">{job.location || "London, UK"} | {job.employment_type || "Full-time"}</p>
-                              <button
-                                type="button"
-                                className="btn-scenario-blue"
-                                onClick={handleOpenCareerPortal}
-                                disabled={!job.url}
-                              >
-                                Apply on {job.company || "Company"} Careers ↗
+                              <p className="scenario-role-loc">{job.location || "Location not listed"}{job.employment_type ? ` | ${job.employment_type}` : ""}</p>
+                              <button type="button" className="btn-scenario-blue" onClick={handleOpenCareerPortal} disabled={!(job.url || job.apply_url || job.application_url)}>
+                                Apply on {job.company || "company careers"} <ExternalLink size={13} aria-hidden="true" />
                               </button>
                             </div>
                           </div>
-
-                          <div className="scenario-what-we-do">
-                            <div className="scenario-what-we-do-label">What we do:</div>
-                            <ul className="scenario-features-list">
-                              <li><span className="check">✓</span> Open application page in new tab</li>
-                              <li><span className="check">✓</span> Keep your resume ready to upload</li>
-                              <li><span className="check">✓</span> Guide you with a step-by-step checklist</li>
-                            </ul>
-                          </div>
                         </div>
 
-                        {/* 2. Supported Form Autofill (Where Available) */}
                         <div className="scenario-card">
                           <div>
                             <div className="scenario-card-header">
-                              <div className="scenario-number-row">
-                                <span className="scenario-step-num" style={{ background: "#10B981" }}>2</span>
-                                <span className="scenario-card-title">Supported Form Autofill (Where Available)</span>
-                              </div>
+                              <div className="scenario-number-row"><span className="scenario-step-num" style={{ background: "#10B981" }}>2</span><span className="scenario-card-title">Supported Form Autofill (Where Available)</span></div>
                               <p className="scenario-card-subtitle">We pre-fill the application form using your profile information.</p>
                             </div>
-
                             <div className="scenario-inner-box">
-                              <div style={{ fontSize: "0.74rem", fontWeight: 750, color: "#0F172A", marginBottom: 8 }}>
-                                Application Form (Auto-filled)
-                              </div>
+                              <div className="scenario-pink-header">Application Form (Auto-filled)</div>
                               <div className="autofill-preview-form">
-                                <div>
-                                  <label>Full Name</label>
-                                  <input type="text" readOnly value={tailoredResume.personal_info.name || "Candidate Name"} />
-                                </div>
-                                <div>
-                                  <label>Email</label>
-                                  <input type="text" readOnly value={tailoredResume.personal_info.email || "candidate@email.com"} />
-                                </div>
-                                <div>
-                                  <label>Phone</label>
-                                  <input type="text" readOnly value={tailoredResume.personal_info.phone || "+44 20 7946 0958"} />
-                                </div>
-                                <div>
-                                  <label>Location</label>
-                                  <input type="text" readOnly value={tailoredResume.personal_info.location || job.location || "London, UK"} />
-                                </div>
-                                <div>
-                                  <label>Resume</label>
-                                  <div className="autofill-resume-pill">
-                                    <span>📄 {(tailoredResume.personal_info.name || "Tailored").replace(/\s+/g, '_')}_Resume.pdf</span>
-                                    <span style={{ cursor: "pointer", color: "#64748B" }}>✕</span>
-                                  </div>
-                                </div>
+                                <label>Full Name<input value={resume?.candidate_name || resume?.name || ""} readOnly /></label>
+                                <label>Email<input value={resume?.email || ""} readOnly /></label>
+                                <label>Phone<input value={resume?.phone || ""} readOnly /></label>
+                                <div className="autofill-resume-pill">Resume <span>Tailored resume.pdf</span></div>
                               </div>
-                              <button
-                                type="button"
-                                className="btn-scenario-green"
-                                onClick={() => {
-                                  setApplicationStatus("Autofilled & submitted");
-                                  setSubmitted(true);
-                                  if (!inPipeline) onTogglePipeline(job.id);
-                                  if (job.url) window.open(job.url, "_blank", "noopener,noreferrer");
-                                }}
-                              >
-                                Review & Submit
-                              </button>
+                              <button type="button" className="btn-scenario-green" onClick={handleOpenCareerPortal} disabled={!(job.url || job.apply_url || job.application_url)}>Review &amp; Submit</button>
                             </div>
-                          </div>
-
-                          <div className="scenario-what-we-do">
-                            <div className="scenario-what-we-do-label">What we do:</div>
-                            <ul className="scenario-features-list">
-                              <li><span className="check">✓</span> Auto-fill supported fields</li>
-                              <li><span className="check">✓</span> Attach your tailored resume</li>
-                              <li><span className="check">✓</span> You review and submit (final confirmation)</li>
-                            </ul>
                           </div>
                         </div>
 
-                        {/* 3. Multi-step Application (Company Specific) */}
                         <div className="scenario-card">
                           <div>
                             <div className="scenario-card-header">
-                              <div className="scenario-number-row">
-                                <span className="scenario-step-num" style={{ background: "#2563EB" }}>3</span>
-                                <span className="scenario-card-title">Multi-step Application (Company Specific)</span>
-                              </div>
+                              <div className="scenario-number-row"><span className="scenario-step-num">3</span><span className="scenario-card-title">Multi-step Application (Company Specific)</span></div>
                               <p className="scenario-card-subtitle">We guide you through each step with your information ready.</p>
                             </div>
-
                             <div className="scenario-inner-box">
                               <div className="multistep-scenario-list">
-                                <div className="multistep-scenario-item">
-                                  <span><span className="step-num-badge">1</span> Personal Information</span>
-                                  <span style={{ color: "#10B981", fontWeight: 800 }}>✓</span>
-                                </div>
-                                <div className="multistep-scenario-item">
-                                  <span><span className="step-num-badge">2</span> Additional Questions</span>
-                                  <span style={{ color: "#3B82F6", fontWeight: 800 }}>✓</span>
-                                </div>
-                                <div className="multistep-scenario-item">
-                                  <span><span className="step-num-badge" style={{ background: "#94A3B8" }}>3</span> Upload Documents</span>
-                                  <span style={{ color: "#94A3B8" }}>○</span>
-                                </div>
-                                <div className="multistep-scenario-item">
-                                  <span><span className="step-num-badge" style={{ background: "#94A3B8" }}>4</span> Review & Submit</span>
-                                  <span style={{ color: "#94A3B8" }}>○</span>
-                                </div>
+                                {["Personal Information", "Additional Questions", "Upload Documents", "Review & Submit"].map((step, index) => (
+                                  <div className="multistep-scenario-item" key={step}><span><span className="step-num-badge">{index + 1}</span> {step}</span>{index < 2 && <Check size={13} color="#10B981" />}</div>
+                                ))}
                               </div>
-                              <button
-                                type="button"
-                                className="btn-scenario-blue"
-                                onClick={() => {
-                                  if (job.url) window.open(job.url, "_blank", "noopener,noreferrer");
-                                  setApplicationStatus("Multi-step in progress");
-                                }}
-                              >
-                                Continue to Next Step →
-                              </button>
+                              <button type="button" className="btn-scenario-blue">Continue to Next Step <ArrowRight size={13} aria-hidden="true" /></button>
                             </div>
-                          </div>
-
-                          <div className="scenario-what-we-do">
-                            <div className="scenario-what-we-do-label">What we do:</div>
-                            <ul className="scenario-features-list">
-                              <li><span className="check">✓</span> Pre-fill what we can</li>
-                              <li><span className="check">✓</span> Suggest answers for common questions</li>
-                              <li><span className="check">✓</span> Show progress and next steps</li>
-                            </ul>
                           </div>
                         </div>
 
-                        {/* 4. Manual Application (If Automation Not Possible) */}
                         <div className="scenario-card">
                           <div>
                             <div className="scenario-card-header">
-                              <div className="scenario-number-row">
-                                <span className="scenario-step-num" style={{ background: "#E11D48" }}>4</span>
-                                <span className="scenario-card-title">Manual Application (If Automation Not Possible)</span>
-                              </div>
+                              <div className="scenario-number-row"><span className="scenario-step-num" style={{ background: "#BE123C" }}>4</span><span className="scenario-card-title">Manual Application (If Automation Not Possible)</span></div>
                               <p className="scenario-card-subtitle">Some companies require manual submission. We still make it easy.</p>
                             </div>
-
                             <div className="scenario-inner-box">
                               <div className="scenario-pink-header">Application Checklist</div>
                               <div className="manual-checklist-items">
-                                <div className="manual-check-step">
-                                  <span>① Download your tailored resume</span>
-                                  <button
-                                    type="button"
-                                    className="manual-mini-btn"
-                                    onClick={() => handleDownloadResume("pdf")}
-                                  >
-                                    Download PDF
-                                  </button>
-                                </div>
-                                <div className="manual-check-step">
-                                  <span>② Go to company application page</span>
-                                  <button
-                                    type="button"
-                                    className="manual-mini-btn"
-                                    onClick={handleOpenCareerPortal}
-                                    disabled={!job.url}
-                                  >
-                                    Open Application Page ↗
-                                  </button>
-                                </div>
-                                <div className="manual-check-step">
-                                  <span>③ Upload resume and fill details</span>
-                                </div>
-                                <div className="manual-check-step">
-                                  <span>④ Submit your application</span>
-                                </div>
+                                <div className="manual-check-step"><span>① Download your tailored resume</span><span style={{ display: "flex", gap: 6 }}><button type="button" className="manual-mini-btn" onClick={() => handleDownloadResume("pdf")}>Download PDF</button><button type="button" className="manual-mini-btn" onClick={() => handleDownloadResume("docx")}>DOCX</button></span></div>
+                                <div className="manual-check-step"><span>② Go to company application page</span><button type="button" className="manual-mini-btn" onClick={handleOpenCareerPortal} disabled={!(job.url || job.apply_url || job.application_url)}>Open Application Page <ExternalLink size={12} /></button></div>
+                                <div className="manual-check-step"><span>③ Upload resume and fill details</span></div>
+                                <div className="manual-check-step"><span>④ Submit your application</span></div>
                               </div>
-                              <div className="scenario-yellow-note">
-                                💡 We keep this page open with job details and your resume so you can complete the application easily.
-                              </div>
+                              <div className="scenario-yellow-note">We keep this page open with job details and your resume so you can complete the application easily.</div>
                             </div>
                           </div>
-
-                          <div className="scenario-what-we-do">
-                            <div className="scenario-what-we-do-label">What we do:</div>
-                            <ul className="scenario-features-list">
-                              <li><span className="check">✓</span> Download tailored ATS resume with 1 click</li>
-                              <li><span className="check">✓</span> Keep credentials & history in side panel</li>
-                              <li><span className="check">✓</span> Auto-track submission in Cafy pipeline</li>
-                            </ul>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Step 6: Application Tracking (After Apply) matching Image 2 */}
-                      <div className="tracking-container">
-                        <div className="tracking-title-bar">
-                          <div className="tracking-heading">
-                            <span className="tracking-badge-circle">6</span>
-                            <div>
-                              <h4 style={{ margin: 0, fontSize: "1.05rem", fontWeight: 800, color: "#0F172A" }}>
-                                Application Tracking (After Apply)
-                              </h4>
-                              <p style={{ margin: "2px 0 0", color: "#64748B", fontSize: "0.78rem" }}>
-                                Track all your applications in one place.
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="tracking-tabs">
-                          <button
-                            type="button"
-                            className={`tracking-tab-btn ${trackingFilter === "all" ? "active" : ""}`}
-                            onClick={() => setTrackingFilter("all")}
-                          >
-                            All (12)
-                          </button>
-                          <button
-                            type="button"
-                            className={`tracking-tab-btn ${trackingFilter === "applied" ? "active" : ""}`}
-                            onClick={() => setTrackingFilter("applied")}
-                          >
-                            Applied (6)
-                          </button>
-                          <button
-                            type="button"
-                            className={`tracking-tab-btn ${trackingFilter === "in_progress" ? "active" : ""}`}
-                            onClick={() => setTrackingFilter("in_progress")}
-                          >
-                            In Progress (3)
-                          </button>
-                          <button
-                            type="button"
-                            className={`tracking-tab-btn ${trackingFilter === "interview" ? "active" : ""}`}
-                            onClick={() => setTrackingFilter("interview")}
-                          >
-                            Interview (2)
-                          </button>
-                          <button
-                            type="button"
-                            className={`tracking-tab-btn ${trackingFilter === "rejected" ? "active" : ""}`}
-                            onClick={() => setTrackingFilter("rejected")}
-                          >
-                            Rejected (1)
-                          </button>
-                        </div>
-
-                        <div className="tracking-cards-list">
-                          {/* Current Job Track Card */}
-                          <div className="tracking-card-item" style={{ border: "1.5px solid #3B82F6", background: "#EFF6FF" }}>
-                            <div className="tracking-item-left">
-                              <div className="tracking-item-avatar" style={{ background: "#2563EB", color: "#FFFFFF" }}>
-                                {(job.company || "C").charAt(0).toUpperCase()}
-                              </div>
-                              <div className="tracking-item-details">
-                                <strong>{job.title}</strong>
-                                <span>{job.company} · {job.location || "London, UK"}</span>
-                              </div>
-                            </div>
-                            <div className="tracking-item-right">
-                              <span className={`tracking-status-pill ${submitted || applicationStatus === "Applied" ? "applied" : "in_progress"}`}>
-                                {submitted || applicationStatus === "Applied" ? "Applied" : "Ready to Submit"}
-                              </span>
-                              <span style={{ fontSize: "0.72rem", color: "#64748B" }}>Just now</span>
-                              <button
-                                type="button"
-                                className="btn-tracking-view"
-                                onClick={() => {
-                                  if (!inPipeline) onTogglePipeline(job.id);
-                                  setApplicationStatus("Applied");
-                                  setSubmitted(true);
-                                }}
-                              >
-                                {submitted ? "Tracked ✓" : "Mark Applied"}
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Existing applications list matching Image 2 */}
-                          {(trackingFilter === "all" || trackingFilter === "applied") && (
-                            <div className="tracking-card-item">
-                              <div className="tracking-item-left">
-                                <div className="tracking-item-avatar" style={{ color: "#EA4335" }}>G</div>
-                                <div className="tracking-item-details">
-                                  <strong>AI Engineer</strong>
-                                  <span>Google · London, UK</span>
-                                </div>
-                              </div>
-                              <div className="tracking-item-right">
-                                <span className="tracking-status-pill applied">Applied</span>
-                                <span style={{ fontSize: "0.72rem", color: "#64748B" }}>2 days ago</span>
-                                <button type="button" className="btn-tracking-view">View</button>
-                              </div>
-                            </div>
-                          )}
-
-                          {(trackingFilter === "all" || trackingFilter === "in_progress") && (
-                            <div className="tracking-card-item">
-                              <div className="tracking-item-left">
-                                <div className="tracking-item-avatar" style={{ color: "#FF9900" }}>a</div>
-                                <div className="tracking-item-details">
-                                  <strong>ML Engineer</strong>
-                                  <span>Amazon · Dublin, Ireland</span>
-                                </div>
-                              </div>
-                              <div className="tracking-item-right">
-                                <span className="tracking-status-pill in_progress">In Progress</span>
-                                <span style={{ fontSize: "0.72rem", color: "#64748B" }}>1 day ago</span>
-                                <button type="button" className="btn-tracking-view">View</button>
-                              </div>
-                            </div>
-                          )}
-
-                          {(trackingFilter === "all" || trackingFilter === "interview") && (
-                            <div className="tracking-card-item">
-                              <div className="tracking-item-left">
-                                <div className="tracking-item-avatar" style={{ color: "#0668E1" }}>∞</div>
-                                <div className="tracking-item-details">
-                                  <strong>Data Scientist</strong>
-                                  <span>Meta · London, UK</span>
-                                </div>
-                              </div>
-                              <div className="tracking-item-right">
-                                <span className="tracking-status-pill interview">Interview</span>
-                                <span style={{ fontSize: "0.72rem", color: "#64748B" }}>5 days ago</span>
-                                <button type="button" className="btn-tracking-view">View</button>
-                              </div>
-                            </div>
-                          )}
-
-                          {(trackingFilter === "all" || trackingFilter === "applied") && (
-                            <div className="tracking-card-item">
-                              <div className="tracking-item-left">
-                                <div className="tracking-item-avatar" style={{ color: "#00A4EF" }}>⊞</div>
-                                <div className="tracking-item-details">
-                                  <strong>Applied AI Engineer</strong>
-                                  <span>Microsoft · Dublin, Ireland</span>
-                                </div>
-                              </div>
-                              <div className="tracking-item-right">
-                                <span className="tracking-status-pill applied">Applied</span>
-                                <span style={{ fontSize: "0.72rem", color: "#64748B" }}>1 week ago</span>
-                                <button type="button" className="btn-tracking-view">View</button>
-                              </div>
-                            </div>
-                          )}
-
-                          {(trackingFilter === "all" || trackingFilter === "rejected") && (
-                            <div className="tracking-card-item">
-                              <div className="tracking-item-left">
-                                <div className="tracking-item-avatar" style={{ color: "#76B900" }}>N</div>
-                                <div className="tracking-item-details">
-                                  <strong>Research Engineer</strong>
-                                  <span>NVIDIA · Cambridge, UK</span>
-                                </div>
-                              </div>
-                              <div className="tracking-item-right">
-                                <span className="tracking-status-pill rejected">Rejected</span>
-                                <span style={{ fontSize: "0.72rem", color: "#64748B" }}>1 week ago</span>
-                                <button type="button" className="btn-tracking-view">View</button>
-                              </div>
-                            </div>
-                          )}
                         </div>
                       </div>
                     </div>
                   )}
 
                   {/* BOTTOM ACTION BAR (Toolbar matching resume-pipeline.jpeg Screen 3 - hidden inside Continue to Application view) */}
-                  {workspaceTab !== "scenarios" && workspaceTab !== "final" && (
+                  {workspaceTab !== "scenarios" && (
                     <div className="workflow-output-row" style={{ marginTop: 24 }}>
                       <div className="editor-toolbar-actions" style={{ width: "100%" }}>
                         <button
@@ -4697,15 +4030,16 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                           onClick={handleSaveDraft}
                           disabled={isSavingDraft}
                         >
-                          💾 {isSavingDraft ? "Saving…" : draftSaved ? "Draft Saved ✓" : "Save Draft"}
+                          <Save size={14} aria-hidden="true" /> {isSavingDraft ? "Saving…" : draftSaved ? "Draft Saved" : "Save Draft"}
                         </button>
                         <button
                           type="button"
                           className="btn-tool-ai"
-                          onClick={() => handleRewriteSection("professional_summary")}
+                          onClick={handleRewriteFull}
                           disabled={isRewriting}
+                          title="Rewrite the whole resume for this job and save it as a new version"
                         >
-                          ✨ {isRewriting ? "Improving…" : "Rewrite with AI"}
+                          <Sparkles size={14} aria-hidden="true" /> {isRewriting ? "Rewriting…" : "Rewrite with AI"}
                         </button>
                         <button
                           type="button"
@@ -4715,14 +4049,14 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                             handleDownloadResume("latex");
                           }}
                         >
-                          📝 Edit in Overleaf
+                          <PenLine size={14} aria-hidden="true" /> Edit in Overleaf
                         </button>
                         <button
                           type="button"
                           className="btn-tool-draft"
                           onClick={() => handleDownloadResume("pdf")}
                         >
-                          📥 Download Resume
+                          <Download size={14} aria-hidden="true" /> Download Resume
                         </button>
                         <button
                           type="button"
@@ -4730,7 +4064,7 @@ function JobDetailModal({ job, onClose, resume, onTogglePipeline, inPipeline, fu
                           onClick={handleContinueToApplication}
                           title="Continue to application scenarios"
                         >
-                          Continue to Application →
+                          Continue to Application <ArrowRight size={14} aria-hidden="true" />
                         </button>
                       </div>
                     </div>
@@ -4915,17 +4249,8 @@ function DirectoryView({
     requestAnimationFrame(() => resultsRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" }));
   };
 
-  // When a resume is present, strictly show jobs matching >= 85%
-  const sourcePool = useMemo(() => {
-    if (resume) {
-      return (matchedJobs || []).filter((j) => (
-        (j.match_score || 0) >= 85
-        && Array.isArray(j.matched_skills)
-        && j.matched_skills.length >= 4
-      ));
-    }
-    return jobs;
-  }, [resume, matchedJobs, jobs]);
+  // With a resume, show the backend's skill-ranked matches (it applies the score threshold).
+  const sourcePool = useMemo(() => (resume ? matchedJobs || [] : jobs), [resume, matchedJobs, jobs]);
 
   // Extract unique companies from sourcePool
   const companiesList = useMemo(() => {
@@ -5131,9 +4456,9 @@ function DirectoryView({
       {resume && (
         <div className="high-match-banner">
           <div className="high-match-banner-content">
-            <div className="high-match-badge-circle">85%+</div>
             <div className="high-match-text">
-              High-compatibility roles detected for <strong>{resume.candidate_name || resume.filename}</strong>. Showing <strong>{filtered.length}</strong> verified job postings matching <strong>≥85%</strong> of your extracted skills.
+              Showing <strong>{filtered.length}</strong> stored job postings ranked by skill match with{" "}
+              <strong>{resume.candidate_name || resume.filename || "your resume"}</strong>.
             </div>
           </div>
           <button
@@ -5142,7 +4467,7 @@ function DirectoryView({
             style={{ background: "#FFFFFF", color: "var(--slate-700)" }}
             onClick={onRefresh}
           >
-            🔄 Refresh ATS Feed
+            <RefreshCw size={14} aria-hidden="true" /> Refresh ATS Feed
           </button>
         </div>
       )}
@@ -5573,7 +4898,7 @@ function CompaniesView({ platforms, onOpenAdd, onScrapePlatform }) {
         <div>
           <span className="hero-tag">ATS CONNECTOR CATALOG</span>
           <h1 className="page-title">Supported ATS Platforms & Companies</h1>
-          <p className="page-subtitle">Live public APIs and feed connectors across all 8 major applicant tracking systems.</p>
+          <p className="page-subtitle">Public job-board APIs for the {platforms.length} configured applicant tracking systems.</p>
         </div>
         <button type="button" className="btn-choose-resume" onClick={onOpenAdd}>
           <span>+ Add Company to Scrape</span>
@@ -5601,7 +4926,7 @@ function CompaniesView({ platforms, onOpenAdd, onScrapePlatform }) {
             </div>
             <div className="platform-footer">
               <span style={{ fontSize: "0.76rem", color: "#64748B" }}>
-                Status: {p.status || "ready"}
+                Status: {!p.status || p.status === "never_run" ? "Never run" : String(p.status).replace(/_/g, " ")}
               </span>
               <button
                 type="button"
@@ -5618,98 +4943,989 @@ function CompaniesView({ platforms, onOpenAdd, onScrapePlatform }) {
   );
 }
 
-function ResumeProfileView({ resume, onUploadNew }) {
-  if (!resume) {
+
+// ==========================================================================
+// PROFILE STRENGTH METER & PROFILE COMPLETION COMPONENTS
+// ==========================================================================
+
+function ProfileStrengthMeter({ resume, onUpdateResume, onUploadNew }) {
+  const [showEditor, setShowEditor] = useState(false);
+  const [editorInitialTab, setEditorInitialTab] = useState("skills");
+
+  if (!resume) return null;
+
+  // Only show scores the backend actually computed.
+  const strength = resume.profile_strength;
+  if (!strength) {
     return (
-      <div className="content-container">
-        <div style={{ background: "#FFFFFF", borderRadius: "16px", border: "1px dashed #CBD5E1", padding: "48px", textAlign: "center" }}>
-          <h3 style={{ fontSize: "1.15rem", color: "#1E293B", marginBottom: "8px" }}>No résumé uploaded yet</h3>
-          <p style={{ fontSize: "0.88rem", color: "#64748B", marginBottom: "18px" }}>
-            Upload your résumé on the Home tab to see your extracted skill breakdown.
-          </p>
-          <button type="button" className="btn-choose-resume" onClick={onUploadNew}>
-            Upload Résumé Now
-          </button>
-        </div>
+      <div className="profile-strength-card">
+        <p className="profile-strength-desc">Profile score unavailable.</p>
       </div>
     );
   }
 
-  return (
-    <div className="content-container">
-      <div className="section-page-header">
-        <div>
-          <span className="hero-tag">PARSED PROFILE</span>
-          <h1 className="page-title">Candidate Résumé Insights</h1>
-          <p className="page-subtitle">Extracted candidate entities and skills taxonomy.</p>
-        </div>
-        <button type="button" className="btn-choose-resume" onClick={onUploadNew}>
-          <span>Upload New Résumé</span>
-        </button>
-      </div>
+  const sections = strength.sections || {};
+  const incompleteKeys = strength.incomplete_sections || [];
+  const suggestions = strength.suggestions || [];
+  const tierColor = strength.tier_badge_color || "blue";
 
-      <div className="profile-card">
-        <div className="profile-header-grid">
-          <div className="profile-avatar-circle">
-            {(resume.candidate_name || "U").charAt(0)}
-          </div>
-          <div>
-            <h2 style={{ fontSize: "1.6rem", fontWeight: 800, color: "#0F172A", marginBottom: "4px" }}>
-              {resume.candidate_name}
-            </h2>
-            <p style={{ fontSize: "0.95rem", color: "#475569", marginBottom: "10px" }}>
-              {(resume.target_roles || []).join(" • ")} •{" "}
-              {resume.years_of_experience > 0 ? `${resume.years_of_experience}+ years experience` : resume.seniority_level}
-            </p>
-            <div style={{ display: "flex", gap: "16px", fontSize: "0.84rem", color: "#64748B", flexWrap: "wrap" }}>
-              <span>📧 {resume.email}</span>
-              <span>📞 {resume.phone}</span>
-              {resume.linkedin && <span>🔗 {resume.linkedin}</span>}
-              {resume.github && <span>🐙 {resume.github}</span>}
+  const openSectionEditor = (sectionKey) => {
+    setEditorInitialTab(sectionKey);
+    setShowEditor(true);
+  };
+
+  const sectionIconMap = {
+    skills: Wrench,
+    experience: Briefcase,
+    education: GraduationCap,
+    basics: User,
+    projects: Rocket,
+    certifications: ScrollText
+  };
+
+  return (
+    <div className="profile-strength-container">
+      {/* 1. HERO COMPLETENESS SCORE CARD */}
+      <div className="profile-strength-hero-card">
+        <div className="profile-strength-top-row">
+          <div className="profile-score-badge-group">
+            <div className={`profile-score-dial tier-${tierColor}`}>
+              <span className="profile-score-number">{strength.overall_score}%</span>
+              <span className="profile-score-label">COMPLETE</span>
+            </div>
+            <div className="profile-strength-meta">
+              <div className="profile-strength-tier-row">
+                <span className={`profile-tier-pill tier-${tierColor}`}>
+                  {strength.strength_tier}
+                </span>
+                <span style={{ fontSize: "0.82rem", color: "var(--slate-500)", fontWeight: 600 }}>
+                  ATS Readiness Meter
+                </span>
+              </div>
+              <h2 className="profile-strength-headline">
+                {strength.overall_score >= 88
+                  ? "Your profile covers every section well."
+                  : strength.overall_score >= 70
+                  ? "Strong profile. A few sections could be filled in further."
+                  : "Profile in progress. Complete the highlighted sections below."}
+              </h2>
+              <p className="profile-strength-desc">
+                Evaluates Skills (25%), Work Experience (25%), Education (15%), Contact & Summary (15%), Projects (10%), and Certifications (10%).
+              </p>
             </div>
           </div>
+
+          <button
+            type="button"
+            className="btn-suggestion-action"
+            style={{ padding: "10px 20px", fontSize: "0.88rem" }}
+            onClick={() => openSectionEditor("skills")}
+          >
+            <Pencil size={14} aria-hidden="true" /> Edit & Boost Profile
+          </button>
         </div>
 
-        <div style={{ borderTop: "1px solid #E2E8F0", paddingTop: "24px" }}>
-          <h3 style={{ fontSize: "1.1rem", fontWeight: 700, color: "#0F172A", marginBottom: "16px" }}>
-            Skills Taxonomy ({resume.total_skills} skills extracted)
-          </h3>
-          {Object.entries(resume.categorized_skills || {}).map(([cat, sks]) => (
-            <div key={cat} className="skill-category-block">
-              <h4 className="category-name">
-                {cat} ({sks.length})
-              </h4>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                {sks.map((s, i) => (
-                  <span key={i} className="skill-chip">
+        {/* Master Progress Bar */}
+        <div className="profile-strength-progress-wrap">
+          <div className="profile-strength-bar-bg">
+            <div
+              className={`profile-strength-bar-fill tier-${tierColor}`}
+              style={{ width: `${strength.overall_score}%` }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* 2. INCOMPLETE SECTIONS ALERT BANNER */}
+      {incompleteKeys.length > 0 && (
+        <div className="profile-incomplete-banner">
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <AlertTriangle size={20} color="#B45309" aria-hidden="true" />
+            <div>
+              <span style={{ fontSize: "0.86rem", fontWeight: 800, color: "#92400E" }}>
+                Incomplete Sections ({incompleteKeys.length}):
+              </span>
+              <span style={{ fontSize: "0.84rem", color: "#B45309", marginLeft: "6px" }}>
+                These sections are missing or below 75% completeness.
+              </span>
+            </div>
+          </div>
+          <div className="profile-incomplete-chips">
+            {incompleteKeys.map((key) => {
+              const sec = sections[key];
+              if (!sec) return null;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  className="incomplete-chip"
+                  onClick={() => openSectionEditor(key)}
+                >
+                  + Add {sec.name} ({sec.score}%)
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 3. SECTION-BY-SECTION COMPLETION CARDS */}
+      <div>
+        <h3 style={{ fontSize: "1.05rem", fontWeight: 800, color: "var(--slate-900)", marginBottom: "12px", display: "flex", alignItems: "center", gap: "8px" }}>
+          <BarChart3 size={18} aria-hidden="true" />
+          <span>Section-by-Section Breakdown</span>
+        </h3>
+        <div className="profile-sections-grid">
+          {Object.entries(sections).map(([key, sec]) => {
+            const SectionIcon = sectionIconMap[key] || FileText;
+            const statusClass = `status-${sec.status || "incomplete"}`;
+            const fillClass = sec.score >= 80 ? "tier-emerald" : sec.score >= 45 ? "tier-amber" : "tier-rose";
+
+            return (
+              <div key={key} className={`profile-section-card ${statusClass}`}>
+                <div>
+                  <div className="profile-section-header">
+                    <div className="profile-section-title-wrap">
+                      <span className="profile-section-icon"><SectionIcon size={18} aria-hidden="true" /></span>
+                      <div>
+                        <div className="profile-section-name">{sec.name}</div>
+                        <div className="profile-section-weight">{sec.weight}% of score</div>
+                      </div>
+                    </div>
+                    <span className={`profile-section-status-pill ${statusClass}`}>
+                      {sec.status === "complete" ? <><Check size={12} aria-hidden="true" /> Complete</> : sec.status === "in_progress" ? <><Hourglass size={12} aria-hidden="true" /> In Progress</> : <><X size={12} aria-hidden="true" /> Missing</>}
+                    </span>
+                  </div>
+
+                  <div className="profile-section-meter" style={{ marginTop: "14px" }}>
+                    <div className="profile-section-meter-labels">
+                      <span>Completeness</span>
+                      <span className="profile-section-meter-percent">{sec.score}%</span>
+                    </div>
+                    <div className="profile-strength-bar-bg" style={{ height: "7px" }}>
+                      <div
+                        className={`profile-strength-bar-fill ${fillClass}`}
+                        style={{ width: `${sec.score}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="profile-section-details" style={{ marginTop: "10px" }}>
+                    {sec.details}
+                  </div>
+
+                  {sec.gaps && sec.gaps.length > 0 && (
+                    <div style={{ marginTop: "8px", fontSize: "0.76rem", color: "#B91C1C", background: "#FEF2F2", padding: "4px 8px", borderRadius: "6px" }}>
+                      Tip: {sec.gaps[0]}
+                    </div>
+                  )}
+                </div>
+
+                <div className="profile-section-actions">
+                  <button
+                    type="button"
+                    className="btn-section-edit"
+                    onClick={() => openSectionEditor(key)}
+                  >
+                    {sec.score >= 80 ? "Edit" : "+ Complete"}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 4. WHAT TO ADD NEXT: PRIORITIZED SUGGESTIONS */}
+      {suggestions.length > 0 && (
+        <div className="profile-suggestions-section">
+          <div className="profile-suggestions-header">
+            <div className="profile-suggestions-title">
+              <span><Lightbulb size={16} aria-hidden="true" /> Suggestions to Maximize Profile Strength</span>
+              <span className="badge-pill" style={{ background: "#EFF6FF", color: "#2563EB", border: "1px solid #BFDBFE" }}>
+                {suggestions.length} recommendations
+              </span>
+            </div>
+            <span style={{ fontSize: "0.80rem", color: "var(--slate-500)" }}>
+              Ranked by impact on ATS visibility
+            </span>
+          </div>
+
+          <div className="profile-suggestions-list">
+            {suggestions.map((sug, i) => (
+              <div key={sug.id || i} className="profile-suggestion-item">
+                <div className="profile-suggestion-content">
+                  <div className="profile-suggestion-meta-row">
+                    <span className={`profile-suggestion-priority ${sug.priority || "medium"}`}>
+                      {sug.priority || "medium"} priority
+                    </span>
+                    <span className="profile-suggestion-impact">
+                      {sug.impact ? `Impact: ${sug.impact}` : null}
+                    </span>
+                  </div>
+                  <div className="profile-suggestion-title-text">
+                    {sug.title || "Improve section"}
+                  </div>
+                  <div className="profile-suggestion-desc">
+                    {sug.text}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="btn-suggestion-action"
+                  onClick={() => openSectionEditor(sug.section || "skills")}
+                >
+                  Add Now
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 5. INTERACTIVE PROFILE EDITOR MODAL */}
+      {showEditor && (
+        <ProfileEditorModal
+          resume={resume}
+          initialTab={editorInitialTab}
+          onClose={() => setShowEditor(false)}
+          onSaved={(updated) => {
+            setShowEditor(false);
+            if (onUpdateResume) onUpdateResume(updated);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ProfileEditorModal({ resume, initialTab = "skills", onClose, onSaved }) {
+  const [tab, setTab] = useState(initialTab);
+  const [saving, setSaving] = useState(false);
+
+  // Form State
+  const [skills, setSkills] = useState(resume.skills || []);
+  const [newSkillInput, setNewSkillInput] = useState("");
+  const [summary, setSummary] = useState(resume.summary || "");
+  const [experience, setExperience] = useState(resume.experience || []);
+  const [education, setEducation] = useState(resume.education || []);
+  const [projects, setProjects] = useState(resume.projects || []);
+  const [certifications, setCertifications] = useState(resume.certifications || []);
+  const [linkedin, setLinkedin] = useState(resume.linkedin || "");
+  const [github, setGithub] = useState(resume.github || "");
+  const [portfolio, setPortfolio] = useState(resume.portfolio || "");
+  const [phone, setPhone] = useState(resume.phone || "");
+
+  // Skill Helpers
+  const handleAddSkill = (skillToAdd) => {
+    const trimmed = (skillToAdd || newSkillInput).trim();
+    if (!trimmed) return;
+    if (!skills.some((s) => s.toLowerCase() === trimmed.toLowerCase())) {
+      setSkills((prev) => [...prev, trimmed]);
+    }
+    setNewSkillInput("");
+  };
+
+  const handleRemoveSkill = (skillToRemove) => {
+    setSkills((prev) => prev.filter((s) => s !== skillToRemove));
+  };
+
+  // Add Item Helpers
+  const handleAddExperience = () => {
+    setExperience((prev) => [
+      ...prev,
+      {
+        title: "",
+        company: "",
+        dates: "",
+        bullets: []
+      }
+    ]);
+  };
+
+  const handleAddEducation = () => {
+    setEducation((prev) => [
+      ...prev,
+      {
+        degree: "",
+        institution: "",
+        dates: ""
+      }
+    ]);
+  };
+
+  const handleAddProject = () => {
+    setProjects((prev) => [
+      ...prev,
+      {
+        title: "",
+        description: "",
+        bullets: []
+      }
+    ]);
+  };
+
+  const handleAddCertification = () => {
+    setCertifications((prev) => [
+      ...prev,
+      {
+        name: "",
+        issuer: "",
+        dates: ""
+      }
+    ]);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    const payload = {
+      skills,
+      summary,
+      experience,
+      education,
+      projects,
+      certifications,
+      linkedin,
+      github,
+      portfolio,
+      phone
+    };
+
+    try {
+      const res = await fetch(`${API_BASE}/api/resume/update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        onSaved(data.resume);
+      } else {
+        // Fallback local update
+        const updated = { ...resume, ...payload };
+        onSaved(updated);
+      }
+    } catch (e) {
+      console.error("Failed to save profile:", e);
+      const updated = { ...resume, ...payload };
+      onSaved(updated);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const popularSkills = [
+    "Python", "JavaScript", "TypeScript", "React", "Node.js", "Docker", "Kubernetes",
+    "AWS", "PostgreSQL", "FastAPI", "GraphQL", "CI/CD", "Terraform", "Git"
+  ];
+
+  return (
+    <div className="modal-backdrop" onClick={onClose} style={{ zIndex: 1200 }}>
+      <div
+        className="modal-container"
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxWidth: "780px", maxHeight: "90vh", display: "flex", flexDirection: "column" }}
+      >
+        <div className="modal-header">
+          <div>
+            <span className="hero-tag">PROFILE ENHANCER</span>
+            <h2 className="modal-title">Edit Profile & Boost Completeness</h2>
+          </div>
+          <button type="button" className="btn-modal-close" onClick={onClose}>
+            <X size={14} aria-hidden="true" />
+          </button>
+        </div>
+
+        {/* Tab Navigation */}
+        <div style={{ display: "flex", gap: "8px", borderBottom: "1px solid var(--slate-200)", padding: "0 24px", overflowX: "auto" }}>
+          {[
+            { id: "skills", label: "Skills", Icon: Wrench },
+            { id: "experience", label: "Experience", Icon: Briefcase },
+            { id: "education", label: "Education", Icon: GraduationCap },
+            { id: "projects", label: "Projects", Icon: Rocket },
+            { id: "certifications", label: "Certifications", Icon: ScrollText },
+            { id: "basics", label: "Contact & Summary", Icon: User },
+          ].map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id)}
+              style={{
+                padding: "12px 14px",
+                borderBottom: tab === t.id ? "3px solid var(--primary-blue)" : "3px solid transparent",
+                fontWeight: tab === t.id ? 800 : 600,
+                color: tab === t.id ? "var(--primary-blue)" : "var(--slate-600)",
+                background: "transparent",
+                borderTop: "none",
+                borderLeft: "none",
+                borderRight: "none",
+                cursor: "pointer",
+                whiteSpace: "nowrap"
+              }}
+            >
+              <t.Icon size={14} aria-hidden="true" /> {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab Content */}
+        <div style={{ padding: "24px", overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: "18px" }}>
+          {/* TAB: SKILLS */}
+          {tab === "skills" && (
+            <div>
+              <label style={{ display: "block", fontSize: "0.88rem", fontWeight: 700, color: "var(--slate-900)", marginBottom: "6px" }}>
+                Technical Skills ({skills.length} listed)
+              </label>
+              <p style={{ fontSize: "0.82rem", color: "var(--slate-500)", marginBottom: "12px" }}>
+                Add core languages, frameworks, cloud platforms, and engineering tools to maximize ATS job matching.
+              </p>
+
+              <div style={{ display: "flex", gap: "8px", marginBottom: "14px" }}>
+                <input
+                  type="text"
+                  placeholder="Type a skill (e.g., PyTorch, GraphQL, Redis)..."
+                  value={newSkillInput}
+                  onChange={(e) => setNewSkillInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddSkill(); } }}
+                  style={{ flex: 1, padding: "8px 14px", border: "1px solid var(--slate-300)", borderRadius: "8px", fontSize: "0.9rem" }}
+                />
+                <button
+                  type="button"
+                  className="btn-suggestion-action"
+                  onClick={() => handleAddSkill()}
+                >
+                  + Add Skill
+                </button>
+              </div>
+
+              <div style={{ marginBottom: "12px" }}>
+                <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--slate-600)", marginRight: "8px" }}>
+                  Quick Suggestions:
+                </span>
+                <div style={{ display: "inline-flex", flexWrap: "wrap", gap: "6px", marginTop: "6px" }}>
+                  {popularSkills.filter((ps) => !skills.some((s) => s.toLowerCase() === ps.toLowerCase())).slice(0, 8).map((ps) => (
+                    <button
+                      key={ps}
+                      type="button"
+                      onClick={() => handleAddSkill(ps)}
+                      style={{
+                        fontSize: "0.76rem",
+                        padding: "3px 8px",
+                        borderRadius: "999px",
+                        background: "#F1F5F9",
+                        border: "1px solid #CBD5E1",
+                        color: "var(--slate-700)",
+                        cursor: "pointer"
+                      }}
+                    >
+                      + {ps}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", border: "1px solid var(--slate-200)", padding: "14px", borderRadius: "10px", background: "#F8FAFC", minHeight: "80px" }}>
+                {skills.map((s, idx) => (
+                  <span
+                    key={idx}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      background: "#FFFFFF",
+                      border: "1px solid var(--slate-300)",
+                      padding: "4px 10px",
+                      borderRadius: "999px",
+                      fontSize: "0.82rem",
+                      fontWeight: 600,
+                      color: "var(--slate-800)"
+                    }}
+                  >
                     {s}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveSkill(s)}
+                      style={{ background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontWeight: 800, fontSize: "0.85rem", padding: "0 2px" }}
+                    >
+                      <X size={14} aria-hidden="true" />
+                    </button>
                   </span>
                 ))}
               </div>
             </div>
-          ))}
+          )}
+
+          {/* TAB: EXPERIENCE */}
+          {tab === "experience" && (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                <div>
+                  <h4 style={{ fontSize: "0.95rem", fontWeight: 700, color: "var(--slate-900)" }}>Work Experience ({experience.length})</h4>
+                  <p style={{ fontSize: "0.82rem", color: "var(--slate-500)" }}>Include company, role, dates, and metric-backed achievements.</p>
+                </div>
+                <button type="button" className="btn-section-edit" onClick={handleAddExperience}>
+                  + Add Role
+                </button>
+              </div>
+
+              {experience.map((exp, idx) => (
+                <div key={idx} style={{ background: "#F8FAFC", border: "1px solid var(--slate-200)", borderRadius: "10px", padding: "14px", marginBottom: "12px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
+                    <span style={{ fontWeight: 800, fontSize: "0.85rem", color: "var(--slate-800)" }}>Role #{idx + 1}</span>
+                    <button
+                      type="button"
+                      onClick={() => setExperience((prev) => prev.filter((_, i) => i !== idx))}
+                      style={{ background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: "0.8rem", fontWeight: 700 }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "8px" }}>
+                    <input
+                      type="text"
+                      placeholder="Job Title (e.g. Senior Backend Engineer)"
+                      value={exp.title || ""}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setExperience((prev) => prev.map((item, i) => i === idx ? { ...item, title: val } : item));
+                      }}
+                      style={{ padding: "8px", border: "1px solid var(--slate-300)", borderRadius: "6px", fontSize: "0.85rem" }}
+                    />
+                    <input
+                      type="text"
+                      placeholder="Company Name"
+                      value={exp.company || exp.organization || ""}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setExperience((prev) => prev.map((item, i) => i === idx ? { ...item, company: val, organization: val } : item));
+                      }}
+                      style={{ padding: "8px", border: "1px solid var(--slate-300)", borderRadius: "6px", fontSize: "0.85rem" }}
+                    />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Dates (e.g. 2021 – Present)"
+                    value={exp.dates || ""}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setExperience((prev) => prev.map((item, i) => i === idx ? { ...item, dates: val } : item));
+                    }}
+                    style={{ width: "100%", padding: "8px", border: "1px solid var(--slate-300)", borderRadius: "6px", fontSize: "0.85rem", marginBottom: "8px" }}
+                  />
+                  <textarea
+                    rows={2}
+                    placeholder="Key achievements with metrics (e.g. Scaled platform serving 50k users, reduced latency by 35%)"
+                    value={Array.isArray(exp.bullets) ? exp.bullets.join("\n") : (exp.description || "")}
+                    onChange={(e) => {
+                      const lines = e.target.value.split("\n");
+                      setExperience((prev) => prev.map((item, i) => i === idx ? { ...item, bullets: lines, description: e.target.value } : item));
+                    }}
+                    style={{ width: "100%", padding: "8px", border: "1px solid var(--slate-300)", borderRadius: "6px", fontSize: "0.85rem" }}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* TAB: EDUCATION */}
+          {tab === "education" && (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                <div>
+                  <h4 style={{ fontSize: "0.95rem", fontWeight: 700, color: "var(--slate-900)" }}>Education ({education.length})</h4>
+                  <p style={{ fontSize: "0.82rem", color: "var(--slate-500)" }}>Add your degree title, college/university, and graduation year.</p>
+                </div>
+                <button type="button" className="btn-section-edit" onClick={handleAddEducation}>
+                  + Add Degree
+                </button>
+              </div>
+
+              {education.map((edu, idx) => (
+                <div key={idx} style={{ background: "#F8FAFC", border: "1px solid var(--slate-200)", borderRadius: "10px", padding: "14px", marginBottom: "12px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
+                    <span style={{ fontWeight: 800, fontSize: "0.85rem", color: "var(--slate-800)" }}>Qualification #{idx + 1}</span>
+                    <button
+                      type="button"
+                      onClick={() => setEducation((prev) => prev.filter((_, i) => i !== idx))}
+                      style={{ background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: "0.8rem", fontWeight: 700 }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "8px" }}>
+                    <input
+                      type="text"
+                      placeholder="Degree (e.g. B.Sc. in Computer Science)"
+                      value={edu.degree || edu.title || ""}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setEducation((prev) => prev.map((item, i) => i === idx ? { ...item, degree: val, title: val } : item));
+                      }}
+                      style={{ padding: "8px", border: "1px solid var(--slate-300)", borderRadius: "6px", fontSize: "0.85rem" }}
+                    />
+                    <input
+                      type="text"
+                      placeholder="University / College Name"
+                      value={edu.institution || edu.organization || ""}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setEducation((prev) => prev.map((item, i) => i === idx ? { ...item, institution: val, organization: val } : item));
+                      }}
+                      style={{ padding: "8px", border: "1px solid var(--slate-300)", borderRadius: "6px", fontSize: "0.85rem" }}
+                    />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Graduation Year / Period (e.g. 2018 - 2022)"
+                    value={edu.dates || ""}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setEducation((prev) => prev.map((item, i) => i === idx ? { ...item, dates: val } : item));
+                    }}
+                    style={{ width: "100%", padding: "8px", border: "1px solid var(--slate-300)", borderRadius: "6px", fontSize: "0.85rem" }}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* TAB: PROJECTS */}
+          {tab === "projects" && (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                <div>
+                  <h4 style={{ fontSize: "0.95rem", fontWeight: 700, color: "var(--slate-900)" }}>Technical Projects ({projects.length})</h4>
+                  <p style={{ fontSize: "0.82rem", color: "var(--slate-500)" }}>Showcase personal, open-source, or academic software projects.</p>
+                </div>
+                <button type="button" className="btn-section-edit" onClick={handleAddProject}>
+                  + Add Project
+                </button>
+              </div>
+
+              {projects.map((proj, idx) => (
+                <div key={idx} style={{ background: "#F8FAFC", border: "1px solid var(--slate-200)", borderRadius: "10px", padding: "14px", marginBottom: "12px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
+                    <span style={{ fontWeight: 800, fontSize: "0.85rem", color: "var(--slate-800)" }}>Project #{idx + 1}</span>
+                    <button
+                      type="button"
+                      onClick={() => setProjects((prev) => prev.filter((_, i) => i !== idx))}
+                      style={{ background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: "0.8rem", fontWeight: 700 }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Project Title (e.g. Real-Time Chat Engine)"
+                    value={proj.title || proj.name || ""}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setProjects((prev) => prev.map((item, i) => i === idx ? { ...item, title: val, name: val } : item));
+                    }}
+                    style={{ width: "100%", padding: "8px", border: "1px solid var(--slate-300)", borderRadius: "6px", fontSize: "0.85rem", marginBottom: "8px" }}
+                  />
+                  <textarea
+                    rows={2}
+                    placeholder="Description, tech stack, and key architecture (e.g. Built with Go, WebSockets, and Redis pub/sub)"
+                    value={proj.description || ""}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setProjects((prev) => prev.map((item, i) => i === idx ? { ...item, description: val } : item));
+                    }}
+                    style={{ width: "100%", padding: "8px", border: "1px solid var(--slate-300)", borderRadius: "6px", fontSize: "0.85rem" }}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* TAB: CERTIFICATIONS */}
+          {tab === "certifications" && (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                <div>
+                  <h4 style={{ fontSize: "0.95rem", fontWeight: 700, color: "var(--slate-900)" }}>Certifications ({certifications.length})</h4>
+                  <p style={{ fontSize: "0.82rem", color: "var(--slate-500)" }}>Add industry credentials (AWS, GCP, CKA, PMP, CompTIA, Scrum, etc.).</p>
+                </div>
+                <button type="button" className="btn-section-edit" onClick={handleAddCertification}>
+                  + Add Certification
+                </button>
+              </div>
+
+              {certifications.map((cert, idx) => (
+                <div key={idx} style={{ background: "#F8FAFC", border: "1px solid var(--slate-200)", borderRadius: "10px", padding: "14px", marginBottom: "12px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
+                    <span style={{ fontWeight: 800, fontSize: "0.85rem", color: "var(--slate-800)" }}>Certificate #{idx + 1}</span>
+                    <button
+                      type="button"
+                      onClick={() => setCertifications((prev) => prev.filter((_, i) => i !== idx))}
+                      style={{ background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: "0.8rem", fontWeight: 700 }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "8px" }}>
+                    <input
+                      type="text"
+                      placeholder="Certificate Name (e.g. AWS Solutions Architect)"
+                      value={cert.name || cert.title || ""}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setCertifications((prev) => prev.map((item, i) => i === idx ? { ...item, name: val, title: val } : item));
+                      }}
+                      style={{ padding: "8px", border: "1px solid var(--slate-300)", borderRadius: "6px", fontSize: "0.85rem" }}
+                    />
+                    <input
+                      type="text"
+                      placeholder="Issuer (e.g. Amazon Web Services)"
+                      value={cert.issuer || ""}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setCertifications((prev) => prev.map((item, i) => i === idx ? { ...item, issuer: val } : item));
+                      }}
+                      style={{ padding: "8px", border: "1px solid var(--slate-300)", borderRadius: "6px", fontSize: "0.85rem" }}
+                    />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Year / Date (e.g. 2023)"
+                    value={cert.dates || ""}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setCertifications((prev) => prev.map((item, i) => i === idx ? { ...item, dates: val } : item));
+                    }}
+                    style={{ width: "100%", padding: "8px", border: "1px solid var(--slate-300)", borderRadius: "6px", fontSize: "0.85rem" }}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* TAB: BASICS & SUMMARY */}
+          {tab === "basics" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 700, color: "var(--slate-900)", marginBottom: "4px" }}>
+                  Professional Career Summary
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder="2-3 sentence overview of your career focus, core stack, and impact..."
+                  value={summary}
+                  onChange={(e) => setSummary(e.target.value)}
+                  style={{ width: "100%", padding: "10px", border: "1px solid var(--slate-300)", borderRadius: "8px", fontSize: "0.88rem" }}
+                />
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 700, color: "var(--slate-800)", marginBottom: "4px" }}>
+                    LinkedIn URL
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="linkedin.com/in/username"
+                    value={linkedin}
+                    onChange={(e) => setLinkedin(e.target.value)}
+                    style={{ width: "100%", padding: "8px", border: "1px solid var(--slate-300)", borderRadius: "6px", fontSize: "0.85rem" }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 700, color: "var(--slate-800)", marginBottom: "4px" }}>
+                    GitHub URL
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="github.com/username"
+                    value={github}
+                    onChange={(e) => setGithub(e.target.value)}
+                    style={{ width: "100%", padding: "8px", border: "1px solid var(--slate-300)", borderRadius: "6px", fontSize: "0.85rem" }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 700, color: "var(--slate-800)", marginBottom: "4px" }}>
+                    Portfolio / Website
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="https://myportfolio.dev"
+                    value={portfolio}
+                    onChange={(e) => setPortfolio(e.target.value)}
+                    style={{ width: "100%", padding: "8px", border: "1px solid var(--slate-300)", borderRadius: "6px", fontSize: "0.85rem" }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 700, color: "var(--slate-800)", marginBottom: "4px" }}>
+                    Phone Number
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="+44 7700 900077"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    style={{ width: "100%", padding: "8px", border: "1px solid var(--slate-300)", borderRadius: "6px", fontSize: "0.85rem" }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Modal Footer */}
+        <div className="modal-footer" style={{ borderTop: "1px solid var(--slate-200)", padding: "16px 24px", display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+          <button type="button" className="btn-modal-close" onClick={onClose} style={{ padding: "8px 16px" }}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn-suggestion-action"
+            disabled={saving}
+            onClick={handleSave}
+            style={{ padding: "8px 24px" }}
+          >
+            {saving ? "Saving & Recalculating..." : "Save & Recalculate Score"}
+          </button>
         </div>
       </div>
     </div>
   );
 }
 
-function InsightsView() {
+function ResumeProfileView({ resume, onUploadNew, onUpdateResume }) {
+  if (!resume) {
+    return (
+      <div className="content-container">
+        <div className="empty-state-card">
+          <p>No résumé uploaded yet. Upload one on the Home page to build your profile.</p>
+        </div>
+      </div>
+    );
+  }
+  const displayResume = resume;
+
+  return (
+    <div className="content-container">
+      <div className="section-page-header">
+        <div>
+          <span className="hero-tag">PROFILE STRENGTH & INSIGHTS</span>
+          <h1 className="page-title">Candidate Profile & Strength</h1>
+          <p className="page-subtitle">Track your ATS completeness score, evaluate gaps, and optimize for top employer matches.</p>
+        </div>
+        <button type="button" className="btn-choose-resume" onClick={onUploadNew}>
+          <span>Upload New Résumé</span>
+        </button>
+      </div>
+
+      {!resume && (
+        <div style={{ background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: "12px", padding: "14px 18px", marginBottom: "20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px" }}>
+          <div>
+            <span style={{ fontWeight: 800, color: "#1D4ED8", fontSize: "0.9rem" }}><Info size={14} aria-hidden="true" /> Ready to start: </span>
+            <span style={{ fontSize: "0.85rem", color: "#1E40AF" }}>Upload a résumé on the Home tab, or use the interactive editor below to build your profile and watch your strength score climb!</span>
+          </div>
+          <button type="button" className="btn-choose-resume" onClick={onUploadNew} style={{ padding: "6px 14px", fontSize: "0.82rem" }}>
+            Upload Résumé (PDF/DOCX)
+          </button>
+        </div>
+      )}
+
+      {/* 1. PROFILE STRENGTH METER */}
+      <ProfileStrengthMeter
+        resume={displayResume}
+        onUpdateResume={onUpdateResume}
+        onUploadNew={onUploadNew}
+      />
+
+      {/* 2. PROFILE DETAILS CARD */}
+      <div className="profile-card">
+        <div className="profile-header-grid">
+          <div className="profile-avatar-circle">
+            {(displayResume.candidate_name || "U").charAt(0).toUpperCase()}
+          </div>
+          <div>
+            <h2 style={{ fontSize: "1.6rem", fontWeight: 800, color: "#0F172A", marginBottom: "4px" }}>
+              {displayResume.candidate_name}
+            </h2>
+            <p style={{ fontSize: "0.95rem", color: "#475569", marginBottom: "10px" }}>
+              {[
+                (displayResume.target_roles || []).join(" • "),
+                displayResume.years_of_experience > 0
+                  ? `${displayResume.years_of_experience}+ years experience`
+                  : displayResume.seniority_level && displayResume.seniority_level !== "Unknown" ? displayResume.seniority_level : "",
+              ].filter(Boolean).join(" • ")}
+            </p>
+            <div style={{ display: "flex", gap: "16px", fontSize: "0.84rem", color: "#64748B", flexWrap: "wrap" }}>
+              {displayResume.email && <span><Mail size={13} aria-hidden="true" /> {displayResume.email}</span>}
+              {displayResume.phone && <span><Phone size={13} aria-hidden="true" /> {displayResume.phone}</span>}
+              {displayResume.linkedin && <span><Linkedin size={13} aria-hidden="true" /> {displayResume.linkedin}</span>}
+              {displayResume.github && <span><Github size={13} aria-hidden="true" /> {displayResume.github}</span>}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ borderTop: "1px solid #E2E8F0", paddingTop: "24px" }}>
+          <h3 style={{ fontSize: "1.1rem", fontWeight: 700, color: "#0F172A", marginBottom: "16px" }}>
+            Skills Taxonomy ({displayResume.skills ? displayResume.skills.length : 0} skills extracted)
+          </h3>
+          {Object.entries(displayResume.categorized_skills || {}).length > 0 ? (
+            Object.entries(displayResume.categorized_skills || {}).map(([cat, sks]) => (
+              <div key={cat} className="skill-category-block">
+                <h4 className="category-name">
+                  {cat} ({sks.length})
+                </h4>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                  {sks.map((s, i) => (
+                    <span key={i} className="skill-chip">
+                      {s}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))
+          ) : (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+              {(displayResume.skills || []).map((s, i) => (
+                <span key={i} className="skill-chip">
+                  {s}
+                </span>
+              ))}
+              {(!displayResume.skills || displayResume.skills.length === 0) && (
+                <span style={{ fontSize: "0.85rem", color: "#64748B" }}>No skills listed yet. Click "Edit & Boost Profile" above to add your technical skills.</span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InsightsView({ platforms = [] }) {
   const [stats, setStats] = useState(null);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     fetch(`${API_BASE}/api/stats`)
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`Could not load statistics (${r.status})`);
+        return r.json();
+      })
       .then(setStats)
-      .catch(console.error);
+      .catch((err) => setError(err.message || "Could not load statistics."));
   }, []);
 
+  if (error) return <div className="content-container"><div className="pipeline-error">{error}</div></div>;
   if (!stats) return <div className="content-container">Loading analytics...</div>;
+
+  // A platform counts as active when it has jobs stored from a real scrape.
+  const activePlatforms = platforms.filter((p) => (p.stored_jobs_count || 0) > 0);
 
   return (
     <div className="content-container">
       <h1 className="page-title">Job Market & Skill Insights</h1>
-      <p className="page-subtitle">Real-time stats from SQLite storage across all 8 ATS networks.</p>
+      <p className="page-subtitle">Stats from the jobs stored in the local database.</p>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "20px", margin: "24px 0" }}>
         <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: "16px", padding: "24px" }}>
@@ -5717,21 +5933,25 @@ function InsightsView() {
           <h2 style={{ fontSize: "2.2rem", fontWeight: 800, color: "#2563EB", marginTop: "6px" }}>
             {stats.total_active_jobs}
           </h2>
-          <p style={{ fontSize: "0.78rem", color: "#10B981", marginTop: "4px" }}>✓ Stored in local database</p>
+          <p style={{ fontSize: "0.78rem", color: "#10B981", marginTop: "4px" }}><Check size={13} aria-hidden="true" /> Stored in local database</p>
         </div>
 
         <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: "16px", padding: "24px" }}>
           <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "#64748B" }}>ACTIVE PLATFORMS</span>
-          <h2 style={{ fontSize: "2.2rem", fontWeight: 800, color: "#0F172A", marginTop: "6px" }}>8 / 8</h2>
+          <h2 style={{ fontSize: "2.2rem", fontWeight: 800, color: "#0F172A", marginTop: "6px" }}>
+            {activePlatforms.length} / {platforms.length}
+          </h2>
           <p style={{ fontSize: "0.78rem", color: "#64748B", marginTop: "4px" }}>
-            Greenhouse, Ashby, Workday, Lever, Workable, Oracle Cloud, Breezy, Pinpoint
+            {activePlatforms.length > 0
+              ? activePlatforms.map((p) => p.name || p.id).join(", ")
+              : "No platform has stored jobs yet."}
           </p>
         </div>
       </div>
 
       <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: "16px", padding: "24px" }}>
         <h3 style={{ fontSize: "1.1rem", fontWeight: 800, color: "#0F172A", marginBottom: "16px" }}>
-          Most In-Demand Skills Across Verified Jobs
+          Most In-Demand Skills Across Stored Jobs
         </h3>
         {(stats.top_skills || []).map((item, idx) => (
           <div
@@ -5750,6 +5970,48 @@ function InsightsView() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function SettingsView() {
+  const [health, setHealth] = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/health`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`Could not reach the backend (${r.status})`);
+        return r.json();
+      })
+      .then(setHealth)
+      .catch((err) => setError(err.message || "Could not reach the backend."));
+  }, []);
+
+  return (
+    <div className="content-container">
+      <h1 className="page-title">Settings</h1>
+      <p className="page-subtitle">Current status of the Cafy Agent backend.</p>
+      {error && <div className="pipeline-error">{error}</div>}
+      {!health && !error && <p>Loading status...</p>}
+      {health && (
+        <div className="settings-card">
+          <div className="setting-item">
+            <div>
+              <strong>Background Scraper Service</strong>
+              <p>Scrapes all configured ATS platforms every 6 hours while the backend is running.</p>
+            </div>
+            <span className="badge-pill">{health.scheduler_active ? "Running" : "Stopped"}</span>
+          </div>
+          <div className="setting-item">
+            <div>
+              <strong>Supported ATS platforms</strong>
+              <p>{health.total_active_jobs} jobs currently stored.</p>
+            </div>
+            <span className="badge-pill">{health.platforms_supported}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -5870,217 +6132,91 @@ function ApplicationTrackingView({
   pipelineJobIds,
   allJobs,
   onSelectJob,
-  onTogglePipeline,
 }) {
   const [filter, setFilter] = useState("all");
+  // Statuses the user sets here; every job starts as "In pipeline".
   const [statusMap, setStatusMap] = useState({});
 
-  // Real pipeline jobs from user's active session/database
+  const STATUS_FLOW = ["In pipeline", "Applied", "Interview", "Rejected"];
   const pipelineJobs = allJobs.filter((j) => pipelineJobIds.has(j.id));
+  const getStatus = (job) => statusMap[job.id] || STATUS_FLOW[0];
+  const getStatusKey = (status) => status.toLowerCase().replace(/\s+/g, "_");
 
-  // Benchmark tracked applications matching Image 2
-  const benchmarkApps = [
-    {
-      id: "bm-google-ai",
-      company: "Google",
-      companyInitial: "G",
-      avatarColor: "#EA4335",
-      title: "AI Engineer",
-      location: "London, UK",
-      defaultStatus: "Applied",
-      timeAgo: "2 days ago",
-    },
-    {
-      id: "bm-amazon-ml",
-      company: "Amazon",
-      companyInitial: "a",
-      avatarColor: "#FF9900",
-      title: "ML Engineer",
-      location: "Dublin, Ireland",
-      defaultStatus: "In Progress",
-      timeAgo: "1 day ago",
-    },
-    {
-      id: "bm-meta-ds",
-      company: "Meta",
-      companyInitial: "∞",
-      avatarColor: "#0668E1",
-      title: "Data Scientist",
-      location: "London, UK",
-      defaultStatus: "Interview",
-      timeAgo: "5 days ago",
-    },
-    {
-      id: "bm-msft-aai",
-      company: "Microsoft",
-      companyInitial: "⊞",
-      avatarColor: "#00A4EF",
-      title: "Applied AI Engineer",
-      location: "Dublin, Ireland",
-      defaultStatus: "Applied",
-      timeAgo: "1 week ago",
-    },
-    {
-      id: "bm-nv-re",
-      company: "NVIDIA",
-      companyInitial: "N",
-      avatarColor: "#76B900",
-      title: "Research Engineer",
-      location: "Cambridge, UK",
-      defaultStatus: "Rejected",
-      timeAgo: "1 week ago",
-    },
-  ];
-
-  const pipelineAppList = pipelineJobs.map((job) => ({
-    id: job.id,
-    company: job.company || "Company",
-    companyInitial: (job.company || "C").charAt(0).toUpperCase(),
-    avatarColor: "#2563EB",
-    title: job.title,
-    location: job.location || "London, UK",
-    defaultStatus: "Applied",
-    timeAgo: "Just now",
-    realJob: job,
-    isPipelineJob: true,
-  }));
-
-  const combinedList = [...pipelineAppList, ...benchmarkApps];
-
-  const getStatus = (app) => statusMap[app.id] || app.defaultStatus;
-
-  const cycleStatus = (appId) => {
-    const current = statusMap[appId] || "Applied";
-    const flow = ["Applied", "In Progress", "Interview", "Rejected"];
-    const nextIdx = (flow.indexOf(current) + 1) % flow.length;
-    setStatusMap((prev) => ({ ...prev, [appId]: flow[nextIdx] }));
+  const cycleStatus = (jobId) => {
+    setStatusMap((prev) => {
+      const current = prev[jobId] || STATUS_FLOW[0];
+      return { ...prev, [jobId]: STATUS_FLOW[(STATUS_FLOW.indexOf(current) + 1) % STATUS_FLOW.length] };
+    });
   };
 
-  const getStatusKey = (s) => s.toLowerCase().replace(/\s+/g, "_");
-
-  const counts = {
-    all: combinedList.length,
-    applied: combinedList.filter((a) => getStatusKey(getStatus(a)) === "applied").length,
-    in_progress: combinedList.filter((a) => getStatusKey(getStatus(a)) === "in_progress").length,
-    interview: combinedList.filter((a) => getStatusKey(getStatus(a)) === "interview").length,
-    rejected: combinedList.filter((a) => getStatusKey(getStatus(a)) === "rejected").length,
-  };
-
-  const filteredApps = combinedList.filter((app) => {
-    if (filter === "all") return true;
-    return getStatusKey(getStatus(app)) === filter;
-  });
+  const tabs = [{ key: "all", label: "All" }, ...STATUS_FLOW.map((st) => ({ key: getStatusKey(st), label: st }))];
+  const countFor = (key) =>
+    key === "all" ? pipelineJobs.length : pipelineJobs.filter((j) => getStatusKey(getStatus(j)) === key).length;
+  const filteredJobs = pipelineJobs.filter((j) => filter === "all" || getStatusKey(getStatus(j)) === filter);
 
   return (
     <div className="content-container">
       <div className="tracking-container" style={{ marginTop: 0 }}>
         <div className="tracking-title-bar">
           <div className="tracking-heading">
-            <span className="tracking-badge-circle">6</span>
             <div>
               <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 800, color: "#0F172A" }}>
-                Application Tracking (After Apply)
+                Application Tracking
               </h2>
               <p style={{ margin: "3px 0 0", color: "#64748B", fontSize: "0.85rem" }}>
-                Track all your applications in one place.
+                Jobs you added to your pipeline. Click a status to update it.
               </p>
             </div>
           </div>
         </div>
 
         <div className="tracking-tabs">
-          <button
-            type="button"
-            className={`tracking-tab-btn ${filter === "all" ? "active" : ""}`}
-            onClick={() => setFilter("all")}
-          >
-            All ({counts.all})
-          </button>
-          <button
-            type="button"
-            className={`tracking-tab-btn ${filter === "applied" ? "active" : ""}`}
-            onClick={() => setFilter("applied")}
-          >
-            Applied ({counts.applied})
-          </button>
-          <button
-            type="button"
-            className={`tracking-tab-btn ${filter === "in_progress" ? "active" : ""}`}
-            onClick={() => setFilter("in_progress")}
-          >
-            In Progress ({counts.in_progress})
-          </button>
-          <button
-            type="button"
-            className={`tracking-tab-btn ${filter === "interview" ? "active" : ""}`}
-            onClick={() => setFilter("interview")}
-          >
-            Interview ({counts.interview})
-          </button>
-          <button
-            type="button"
-            className={`tracking-tab-btn ${filter === "rejected" ? "active" : ""}`}
-            onClick={() => setFilter("rejected")}
-          >
-            Rejected ({counts.rejected})
-          </button>
+          {tabs.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              className={`tracking-tab-btn ${filter === tab.key ? "active" : ""}`}
+              onClick={() => setFilter(tab.key)}
+            >
+              {tab.label} ({countFor(tab.key)})
+            </button>
+          ))}
         </div>
 
         <div className="tracking-cards-list">
-          {filteredApps.length === 0 ? (
+          {filteredJobs.length === 0 ? (
             <div style={{ textAlign: "center", padding: "32px 16px", color: "#64748B" }}>
-              No applications in this category.
+              {pipelineJobs.length === 0
+                ? "No tracked applications yet. Add jobs to your pipeline from Find Jobs."
+                : "No applications in this category."}
             </div>
           ) : (
-            filteredApps.map((app) => {
-              const currentStatus = getStatus(app);
-              const statusKey = getStatusKey(currentStatus);
+            filteredJobs.map((job) => {
+              const currentStatus = getStatus(job);
               return (
-                <div
-                  key={app.id}
-                  className="tracking-card-item"
-                  style={app.isPipelineJob ? { border: "1.5px solid #3B82F6", background: "#EFF6FF" } : {}}
-                >
+                <div key={job.id} className="tracking-card-item">
                   <div className="tracking-item-left">
-                    <div
-                      className="tracking-item-avatar"
-                      style={{ color: app.avatarColor, fontWeight: 800 }}
-                    >
-                      {app.companyInitial}
+                    <div className="tracking-item-avatar" style={{ fontWeight: 800 }}>
+                      {(job.company || "?").charAt(0).toUpperCase()}
                     </div>
                     <div className="tracking-item-details">
-                      <strong>{app.title}</strong>
-                      <span>{app.company} · {app.location}</span>
+                      <strong>{job.title}</strong>
+                      <span>{job.company || "Company not listed"} · {job.location || "Location not listed"}</span>
                     </div>
                   </div>
                   <div className="tracking-item-right">
                     <button
                       type="button"
-                      className={`tracking-status-pill ${statusKey}`}
+                      className={`tracking-status-pill ${getStatusKey(currentStatus)}`}
                       style={{ cursor: "pointer", border: "none" }}
-                      title="Click to cycle status"
-                      onClick={() => cycleStatus(app.id)}
+                      title="Click to change status"
+                      onClick={() => cycleStatus(job.id)}
                     >
-                      {currentStatus} ▾
+                      {currentStatus} <ChevronDown size={12} aria-hidden="true" />
                     </button>
-                    <span style={{ fontSize: "0.74rem", color: "#64748B" }}>{app.timeAgo}</span>
-                    {app.realJob ? (
-                      <button
-                        type="button"
-                        className="btn-tracking-view"
-                        onClick={() => onSelectJob(app.realJob)}
-                      >
-                        View
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        className="btn-tracking-view"
-                        onClick={() => cycleStatus(app.id)}
-                      >
-                        View
-                      </button>
-                    )}
+                    <button type="button" className="btn-tracking-view" onClick={() => onSelectJob(job)}>
+                      View
+                    </button>
                   </div>
                 </div>
               );
@@ -6092,5 +6228,5 @@ function ApplicationTrackingView({
   );
 }
 
-export { DirectoryView, JobDetailModal, ApplicationTrackingView };
+export { DirectoryView, JobDetailModal, ApplicationTrackingView, ProfileStrengthMeter, ResumeProfileView };
 export default App;

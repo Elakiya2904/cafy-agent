@@ -55,7 +55,7 @@ class ScraperManager:
     def _init_health_status(self):
         for p in self.scrapers.keys():
             self.health_status[p] = {
-                "status": "uninitialized",
+                "status": "never_run",
                 "last_run": None,
                 "jobs_collected": 0,
                 "duration_seconds": 0.0,
@@ -74,7 +74,7 @@ class ScraperManager:
                 "color": cfg.get("color", "#2563EB"),
                 "companies": companies,
                 "companies_count": len(companies),
-                "status": health.get("status", "ready"),
+                "status": health.get("status", "never_run"),
                 "last_run": health.get("last_run"),
                 "jobs_collected": health.get("jobs_collected", 0),
                 "last_error": health.get("last_error")

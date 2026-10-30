@@ -143,12 +143,136 @@ class ResumeGenerationService:
             raise ResumeGenerationError("AI rewriting service is temporarily unavailable.") from err
 
         if response.status_code != 200:
+            logger.warning("Groq section rewrite returned HTTP %s: %s", response.status_code, response.text[:500])
             raise ResumeGenerationError(f"AI rewriting failed with status {response.status_code}.")
 
-        rewritten = response.json()["choices"][0]["message"]["content"].strip()
+        try:
+            rewritten = response.json()["choices"][0]["message"]["content"].strip()
+        except (KeyError, IndexError, TypeError, ValueError) as err:
+            raise ResumeGenerationError("AI rewriting returned an invalid response.") from err
         if not rewritten:
             raise ResumeGenerationError("AI rewriting returned empty response.")
         return self._clean_text(rewritten)
+
+    # Tokens that would indicate a new factual claim: numbers (metrics, years, counts).
+    _NUMBER_PATTERN = re.compile(r"\d+(?:[.,]\d+)?")
+
+    def rewrite_full(self, tailored: Dict[str, Any], job: Dict[str, Any], skill_extractor) -> Dict[str, Any]:
+        """Rewrite every text part of a tailored resume for the job without adding facts.
+
+        Only the summary, experience/project descriptions and bullets are rewritten. Titles,
+        employers, dates, education, certifications and the skills list are kept as-is. Any
+        rewritten line that introduces a number or a technology that does not appear anywhere
+        in the original resume is rejected and the original line is kept.
+
+        Returns {"resume": <rewritten tailored resume>, "rejected_lines": int}.
+        """
+        api_key = os.getenv("groq_api_key") or os.getenv("GROQ_API_KEY")
+        if not api_key:
+            raise ResumeGenerationError("AI rewriting is not configured. Add GROQ_API_KEY to the environment.")
+
+        def entry_payload(entries: Any) -> List[Dict[str, Any]]:
+            return [
+                {"index": i, "description": e.get("description") or "", "bullets": list(e.get("bullets") or [])}
+                for i, e in enumerate(entries or []) if isinstance(e, dict)
+            ]
+
+        payload = {
+            "job": {
+                "title": job.get("title"),
+                "company": job.get("company"),
+                "description": str(job.get("description") or "")[:3500],
+            },
+            "resume": {
+                "professional_summary": tailored.get("professional_summary") or "",
+                "skills": tailored.get("skills") or [],
+                "experience": entry_payload(tailored.get("experience")),
+                "projects": entry_payload(tailored.get("projects")),
+            },
+        }
+        system = (
+            "You are an expert resume writer. Rewrite the candidate's professional_summary and every experience and "
+            "project description and bullet so they are concise, outcome-focused, start with strong action verbs and "
+            "align with the job. STRICT RULES: use ONLY facts already present in the resume. Never add numbers, metrics, "
+            "percentages, dates, employers, tools, technologies, skills or achievements that are not already in the resume. "
+            "Never add new bullets beyond the original count for an entry. Keep each entry's index. "
+            "Return JSON only: {\"professional_summary\": str, \"experience\": [{\"index\": int, \"description\": str, "
+            "\"bullets\": [str]}], \"projects\": [same shape]}."
+        )
+        try:
+            response = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={
+                    "model": os.getenv("GROQ_MODEL") or "openai/gpt-oss-20b",
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": json.dumps(payload, ensure_ascii=True)},
+                    ],
+                    "temperature": 0.2,
+                    "max_tokens": 4096,
+                    "response_format": {"type": "json_object"},
+                },
+                timeout=(5, 45),
+            )
+        except requests.RequestException as err:
+            raise ResumeGenerationError("AI rewriting service is temporarily unavailable.") from err
+        if response.status_code != 200:
+            raise ResumeGenerationError(f"AI rewriting failed with status {response.status_code}.")
+        try:
+            rewritten = json.loads(response.json()["choices"][0]["message"]["content"])
+        except (KeyError, IndexError, TypeError, ValueError) as err:
+            raise ResumeGenerationError("AI rewriting returned an invalid structure.") from err
+
+        return self.merge_rewrite(tailored, rewritten, skill_extractor)
+
+    @classmethod
+    def merge_rewrite(cls, tailored: Dict[str, Any], rewritten: Dict[str, Any], skill_extractor) -> Dict[str, Any]:
+        """Apply AI-rewritten text onto ``tailored``, keeping the original wherever a line adds facts."""
+        original_text = json.dumps(tailored, ensure_ascii=False).lower()
+        original_numbers = set(cls._NUMBER_PATTERN.findall(original_text))
+        original_skills = {s.lower() for s in skill_extractor.extract_skills(original_text)}
+        rejected = 0
+
+        def accept(new: Any, old: str) -> str:
+            nonlocal rejected
+            candidate = cls._clean_text(new)
+            if not candidate:
+                return old
+            lowered = candidate.lower()
+            new_numbers = set(cls._NUMBER_PATTERN.findall(lowered)) - original_numbers
+            new_skills = {s.lower() for s in skill_extractor.extract_skills(lowered)} - original_skills
+            if new_numbers or new_skills:
+                rejected += 1
+                return old
+            return candidate
+
+        result = json.loads(json.dumps(tailored))  # deep copy
+        if not isinstance(rewritten, dict):
+            rewritten = {}
+        result["professional_summary"] = accept(
+            rewritten.get("professional_summary"), tailored.get("professional_summary") or ""
+        )
+        for section in ("experience", "projects"):
+            entries = result.get(section) or []
+            by_index = {
+                item.get("index"): item for item in (rewritten.get(section) or [])
+                if isinstance(item, dict) and isinstance(item.get("index"), int)
+            }
+            for i, entry in enumerate(entries):
+                new = by_index.get(i)
+                if not isinstance(entry, dict) or not new:
+                    continue
+                if entry.get("description"):
+                    entry["description"] = accept(new.get("description"), entry["description"])
+                old_bullets = list(entry.get("bullets") or [])
+                new_bullets = cls._normalize_bullets(new.get("bullets"))
+                # Same number of bullets as before; each one checked against the original facts.
+                entry["bullets"] = [
+                    accept(new_bullets[j] if j < len(new_bullets) else "", old)
+                    for j, old in enumerate(old_bullets)
+                ]
+        return {"resume": result, "rejected_lines": rejected}
 
     def _tailor_with_groq(self, resume: Dict[str, Any], job: Dict[str, Any], source_text: str) -> Dict[str, Any]:
         api_key = os.getenv("groq_api_key") or os.getenv("GROQ_API_KEY")
@@ -164,6 +288,10 @@ class ResumeGenerationService:
                 "github": resume.get("github"),
                 "skills": resume.get("skills", []),
                 "summary": resume.get("summary", ""),
+                "experience": resume.get("experience") or [],
+                "education": resume.get("education") or [],
+                "projects": resume.get("projects") or [],
+                "certifications": resume.get("certifications") or [],
                 "full_resume_text": source_text[:12000],
             },
             "job": {
@@ -180,6 +308,8 @@ class ResumeGenerationService:
             "Use ONLY the genuine facts, real project names, real company names, real dates, real degrees, and verified skills from the candidate's resume. "
             "Never invent employers, dates, degrees, achievements, metrics, skills, links, or qualifications not present in the original resume. "
             "Preserve the candidate's real personal information, contact links (LinkedIn, GitHub, portfolio), education, and projects exactly as stated. "
+            "The structured fields (summary, skills, experience, education, projects, certifications) are the candidate's latest approved edits; "
+            "where they differ from full_resume_text, the structured fields take precedence. "
             "STRICT 1-PAGE A4 REQUIREMENT: The tailored resume MUST fit on exactly one single A4 page with balanced vertical proportion. "
             "Return JSON only with keys: personal_info, professional_summary, education, experience, projects, certifications, skills. "
             "Limit professional_summary to 2-3 concise, high-impact sentences. "
@@ -370,13 +500,13 @@ class ResumeGenerationService:
 
         res = {
             "personal_info": {
-                "name": self._clean_text(p_info.get("name") or resume.get("candidate_name") or "Candidate"),
+                "name": self._clean_text(p_info.get("name") or resume.get("candidate_name") or ""),
                 "email": self._clean_text(p_info.get("email") or resume.get("email") or ""),
                 "phone": self._clean_text(p_info.get("phone") or resume.get("phone") or ""),
                 "linkedin": clean_linkedin,
                 "github": clean_github,
                 "portfolio": clean_portfolio,
-                "location": self._clean_text(p_info.get("location") or resume.get("location") or job.get("location") or ""),
+                "location": self._clean_text(p_info.get("location") or resume.get("location") or ""),
             },
             "target_role": self._clean_text(job.get("title") or generated.get("target_role") or ""),
             "company": self._clean_text(job.get("company") or generated.get("company") or ""),
@@ -467,17 +597,18 @@ class ResumeGenerationService:
             section.right_margin = Inches(0.7)
 
         p_info = structured.get("personal_info", {})
-        name = p_info.get("name") or "Candidate"
+        name = p_info.get("name") or ""
         target_role = structured.get("target_role") or ""
 
-        # Title / Name
-        p_name = doc.add_paragraph()
-        p_name.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run_name = p_name.add_run(name)
-        run_name.bold = True
-        run_name.font.size = Pt(20)
-        run_name.font.name = "Calibri"
-        run_name.font.color.rgb = RGBColor(15, 23, 42)
+        # Title / Name (omitted when the résumé has no name; never a placeholder)
+        if name:
+            p_name = doc.add_paragraph()
+            p_name.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run_name = p_name.add_run(name)
+            run_name.bold = True
+            run_name.font.size = Pt(20)
+            run_name.font.name = "Calibri"
+            run_name.font.color.rgb = RGBColor(15, 23, 42)
 
         if target_role:
             p_role = doc.add_paragraph()
@@ -536,14 +667,14 @@ class ResumeGenerationService:
                 p_item = doc.add_paragraph()
                 p_item.paragraph_format.space_before = Pt(4)
                 p_item.paragraph_format.space_after = Pt(1)
-                r_title = p_item.add_run(item.get("title") or "Role")
+                r_title = p_item.add_run(item.get("title") or "")
                 r_title.bold = True
                 r_title.font.name = "Calibri"
                 r_title.font.size = Pt(10.5)
 
                 org = item.get("organization") or item.get("company")
                 if org:
-                    r_org = p_item.add_run(f" | {org}")
+                    r_org = p_item.add_run(f" | {org}" if item.get("title") else org)
                     r_org.font.name = "Calibri"
                     r_org.font.size = Pt(10)
 
@@ -576,7 +707,7 @@ class ResumeGenerationService:
                 p_item = doc.add_paragraph()
                 p_item.paragraph_format.space_before = Pt(4)
                 p_item.paragraph_format.space_after = Pt(1)
-                r_title = p_item.add_run(item.get("title") or item.get("name") or "Project")
+                r_title = p_item.add_run(item.get("title") or item.get("name") or "")
                 r_title.bold = True
                 r_title.font.name = "Calibri"
                 r_title.font.size = Pt(10.5)
@@ -610,14 +741,14 @@ class ResumeGenerationService:
                 p_item = doc.add_paragraph()
                 p_item.paragraph_format.space_before = Pt(3)
                 p_item.paragraph_format.space_after = Pt(1)
-                r_deg = p_item.add_run(item.get("degree") or item.get("title") or "Degree")
+                r_deg = p_item.add_run(item.get("degree") or item.get("title") or "")
                 r_deg.bold = True
                 r_deg.font.name = "Calibri"
                 r_deg.font.size = Pt(10)
 
                 inst = item.get("institution") or item.get("organization") or item.get("school")
                 if inst:
-                    r_inst = p_item.add_run(f" | {inst}")
+                    r_inst = p_item.add_run(f" | {inst}" if (item.get("degree") or item.get("title")) else inst)
                     r_inst.font.name = "Calibri"
                     r_inst.font.size = Pt(10)
 
@@ -650,12 +781,13 @@ class ResumeGenerationService:
             for item in certs:
                 p_item = doc.add_paragraph()
                 p_item.paragraph_format.space_after = Pt(2)
-                r_name = p_item.add_run(item.get("name") or item.get("title") or "Certification")
+                r_name = p_item.add_run(item.get("name") or item.get("title") or "")
                 r_name.bold = True
                 r_name.font.name = "Calibri"
                 r_name.font.size = Pt(10)
                 if item.get("issuer") or item.get("organization"):
-                    r_iss = p_item.add_run(f" - {item.get('issuer') or item.get('organization')}")
+                    issuer = item.get('issuer') or item.get('organization')
+                    r_iss = p_item.add_run(f" - {issuer}" if (item.get("name") or item.get("title")) else issuer)
                     r_iss.font.name = "Calibri"
                     r_iss.font.size = Pt(9.5)
                 if item.get("dates"):

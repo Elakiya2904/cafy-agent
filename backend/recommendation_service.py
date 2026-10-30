@@ -137,10 +137,11 @@ class RecommendationService:
         self,
         resume_data: Dict[str, Any],
         jobs: List[Dict[str, Any]],
-        min_score: int = 85,
+        min_score: int = 60,
         platform_filter: str = "all"
     ) -> List[Dict[str, Any]]:
-        min_score = max(85, min_score if min_score is not None else 85)
+        # Honour the caller's threshold exactly; no artificial floor.
+        min_score = 60 if min_score is None else min_score
 
         # If no verified jobs exist in the database, return clean empty list
         if not jobs:
@@ -149,7 +150,7 @@ class RecommendationService:
         candidate_skills = resume_data.get("skills", [])
         resume_skills_set = {s.lower() for s in candidate_skills}
         target_roles = [r.lower() for r in resume_data.get("target_roles", [])]
-        seniority = resume_data.get("seniority_level", "Mid-Level").lower()
+        seniority = (resume_data.get("seniority_level") or "").lower()
         raw_years = resume_data.get("years_of_experience")
         try:
             candidate_years = max(0, int(raw_years)) if raw_years is not None else 0
@@ -167,7 +168,7 @@ class RecommendationService:
         resume_corpus = (
             " ".join(resume_data.get("skills", [])) * 3 + " " +
             " ".join(resume_data.get("target_roles", [])) * 2 + " " +
-            resume_data.get("summary", "")
+            (resume_data.get("summary") or "")
         )
 
         job_texts = []
@@ -278,7 +279,7 @@ class RecommendationService:
                 if is_role_match:
                     break
 
-            role_score = 0.95 if is_role_match else 0.40
+            role_score = 1.0 if is_role_match else 0.0
 
             seniority_bonus = 0.0
             if "senior" in seniority and any(w in title_lower for w in ["senior", "staff", "principal", "lead"]):
@@ -291,21 +292,20 @@ class RecommendationService:
             # 3. Textual Content Similarity (TF-IDF)
             semantic = min(1.0, tfidf_scores[idx] * 3.0)
 
-            base_pct = 85 + min(8, (len(matched) - 4) * 2)
-            if is_role_match:
-                base_pct += 3
+            # Honest score: weighted blend of the real signals computed above.
+            raw_pct = 100.0 * (0.6 * skill_score + 0.25 * role_score + 0.15 * semantic)
             if seniority_bonus > 0:
-                base_pct += 2
-            base_pct += min(3, int(round(semantic * 5)))
-            percentage = min(98, max(85, base_pct))
+                raw_pct += 3  # small bonus only when title seniority genuinely matches
+            percentage = int(max(0, min(100, round(raw_pct))))
 
-            fit_level = (
-                "Exceptional Match" if percentage >= 85 else (
-                    "Strong Match" if percentage >= 70 else (
-                        "Good Fit" if percentage >= 50 else "Potential Fit"
-                    )
-                )
-            )
+            if percentage >= 80:
+                fit_level = "Strong Match"
+            elif percentage >= 65:
+                fit_level = "Good Match"
+            elif percentage >= 50:
+                fit_level = "Fair Match"
+            else:
+                fit_level = "Partial Match"
 
             # Explainable match reasons
             reasons = []

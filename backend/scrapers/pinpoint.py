@@ -32,7 +32,7 @@ class PinpointScraper(BaseScraper):
         normalized_jobs = []
         for item in data_list:
             loc_obj = item.get("location") or {}
-            city = loc_obj.get("city") or loc_obj.get("name") or "Remote"
+            city = loc_obj.get("city") or loc_obj.get("name") or ""
             workplace = item.get("workplace_type") or ""
             is_remote = (
                 bool(loc_obj.get("remote"))
@@ -42,7 +42,7 @@ class PinpointScraper(BaseScraper):
 
             job_data = item.get("job") or {}
             dept_obj = item.get("department") or job_data.get("department")
-            dept_name = dept_obj.get("name", "Engineering") if isinstance(dept_obj, dict) else "Engineering"
+            dept_name = (dept_obj.get("name") or "") if isinstance(dept_obj, dict) else ""
 
             raw_job = {
                 "source_id": str(item.get("id")),
@@ -56,7 +56,7 @@ class PinpointScraper(BaseScraper):
                 "employment_type": (
                     item.get("employment_type_text")
                     or item.get("employment_type")
-                    or "Full-time"
+                    or ""
                 )
             }
 

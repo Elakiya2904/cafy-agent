@@ -54,9 +54,9 @@ class WorkableScraper(BaseScraper):
                     for key in ("city", "region", "country")
                     if loc_obj.get(key)
                 ]
-                loc = ", ".join(loc_parts) or "Remote"
+                loc = ", ".join(loc_parts)
             else:
-                loc = str(loc_obj or "Remote")
+                loc = str(loc_obj or "")
 
             if not item.get("location") and item.get("locations"):
                 locations = item["locations"]
@@ -69,7 +69,7 @@ class WorkableScraper(BaseScraper):
                             locations[0].get("country"),
                         )
                         if part
-                    ) or "Remote"
+                    )
 
             workplace = str(item.get("workplace") or "").lower()
             is_remote = (
@@ -79,13 +79,13 @@ class WorkableScraper(BaseScraper):
                 or "remote" in loc.lower()
             )
             job_url = item.get("url") or f"https://apply.workable.com/{token}/j/{shortcode}/"
-            department = item.get("department") or "Engineering"
+            department = item.get("department") or ""
             if isinstance(department, list):
                 department = ", ".join(str(value) for value in department if value)
             elif isinstance(department, dict):
-                department = department.get("name") or "Engineering"
+                department = department.get("name") or ""
 
-            employment_type = item.get("employment_type") or item.get("type") or "Full-time"
+            employment_type = item.get("employment_type") or item.get("type") or ""
             if employment_type == "full":
                 employment_type = "Full-time"
             elif employment_type == "part":

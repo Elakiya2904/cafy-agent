@@ -57,7 +57,7 @@ class WorkdayScraper(BaseScraper):
 
                 source_id = ext_path.strip("/").replace("/", "_")
                 job_url = f"https://{host}/en-US/{tenant}/{site}{ext_path}"
-                loc = item.get("locationsText") or "United States"
+                loc = item.get("locationsText") or ""
 
                 raw_job = {
                     "source_id": source_id,
@@ -66,8 +66,8 @@ class WorkdayScraper(BaseScraper):
                     "location": loc,
                     "is_remote": "remote" in loc.lower(),
                     "url": job_url,
-                    "description": f"Position: {item.get('title')} at {name}. Location: {loc}.",
-                    "department": "Engineering & Technology",
+                    "description": f"Position: {item.get('title')} at {name}." + (f" Location: {loc}." if loc else ""),
+                    "department": "",
                     "posted_at": item.get("postedOn")
                 }
 

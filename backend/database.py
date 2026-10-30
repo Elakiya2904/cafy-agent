@@ -84,6 +84,37 @@ class JobDatabase:
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_tailored_resumes_job_id ON tailored_resumes(job_id)")
 
+            # 4. Tailored Resume Version History (one row per generated resume)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tailored_resume_versions (
+                id TEXT PRIMARY KEY,
+                resume_id TEXT NOT NULL UNIQUE,
+                job_id TEXT NOT NULL,
+                job_title TEXT,
+                company TEXT,
+                structured_data TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """)
+
+            # kind: "generated" (AI tailoring) or "edited" (user saved changes);
+            # based_on: resume_id of the version an edit started from.
+            version_columns = {row[1] for row in cursor.execute("PRAGMA table_info(tailored_resume_versions)")}
+            if "kind" not in version_columns:
+                cursor.execute("ALTER TABLE tailored_resume_versions ADD COLUMN kind TEXT NOT NULL DEFAULT 'generated'")
+            if "based_on" not in version_columns:
+                cursor.execute("ALTER TABLE tailored_resume_versions ADD COLUMN based_on TEXT")
+
+            # Backfill versions for tailored resumes saved before version history existed.
+            cursor.execute("""
+            INSERT INTO tailored_resume_versions (id, resume_id, job_id, job_title, company, structured_data, created_at, updated_at)
+            SELECT lower(hex(randomblob(16))), t.resume_id, t.job_id, j.title, j.company, t.structured_data, t.created_at, t.updated_at
+            FROM tailored_resumes t
+            LEFT JOIN jobs j ON j.id = t.job_id
+            WHERE t.resume_id NOT IN (SELECT resume_id FROM tailored_resume_versions)
+            """)
+
             conn.commit()
             logger.info(f"[JobDatabase] Initialized SQLite schema at {self.db_path}")
 
@@ -311,6 +342,87 @@ class JobDatabase:
                 "updated_at": row["updated_at"],
                 "created_at": row["created_at"],
             }
+
+    def save_resume_version(
+        self,
+        resume_id: str,
+        job_id: str,
+        structured_data: Dict[str, Any],
+        job_title: Optional[str] = None,
+        company: Optional[str] = None,
+        kind: str = "generated",
+        based_on: Optional[str] = None,
+    ) -> None:
+        """Insert a version for ``resume_id``, or update its content if it already exists."""
+        now_iso = datetime.now(timezone.utc).isoformat()
+        serialized = json.dumps(structured_data, ensure_ascii=False)
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM tailored_resume_versions WHERE resume_id = ?", (resume_id,))
+            if cursor.fetchone():
+                cursor.execute(
+                    """
+                    UPDATE tailored_resume_versions
+                    SET structured_data = ?, updated_at = ?,
+                        job_title = COALESCE(?, job_title), company = COALESCE(?, company)
+                    WHERE resume_id = ?
+                    """,
+                    (serialized, now_iso, job_title, company, resume_id),
+                )
+            else:
+                import uuid
+                cursor.execute(
+                    """
+                    INSERT INTO tailored_resume_versions
+                        (id, resume_id, job_id, job_title, company, structured_data, created_at, updated_at, kind, based_on)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (uuid.uuid4().hex, resume_id, job_id, job_title, company, serialized, now_iso, now_iso, kind, based_on),
+                )
+            conn.commit()
+
+    def get_resume_version(self, resume_id: str) -> Optional[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT * FROM tailored_resume_versions WHERE resume_id = ?", (resume_id,)).fetchone()
+        if not row:
+            return None
+        try:
+            data = json.loads(row["structured_data"])
+        except Exception:
+            data = {}
+        return {"resume_id": row["resume_id"], "job_id": row["job_id"], "kind": row["kind"], "resume": data}
+
+    def list_resume_versions(self) -> List[Dict[str, Any]]:
+        """All generated resume versions, newest first, numbered from 1 (oldest)."""
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM tailored_resume_versions ORDER BY created_at ASC, rowid ASC"
+            ).fetchall()
+        versions = []
+        for number, row in enumerate(rows, start=1):
+            try:
+                data = json.loads(row["structured_data"])
+            except Exception:
+                data = {}
+            versions.append({
+                "version_number": number,
+                "resume_id": row["resume_id"],
+                "job_id": row["job_id"],
+                "job_title": row["job_title"],
+                "company": row["company"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+                "kind": row["kind"],
+                "based_on": row["based_on"],
+                "resume": data,
+            })
+        number_by_id = {v["resume_id"]: v["version_number"] for v in versions}
+        for version in versions:
+            version["based_on_version_number"] = number_by_id.get(version["based_on"])
+        versions.reverse()
+        for idx, version in enumerate(versions):
+            version["is_current"] = idx == 0
+        return versions
 
     def record_scraper_run(
         self,

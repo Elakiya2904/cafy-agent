@@ -45,12 +45,12 @@ class JobNormalizer:
         clean_desc = JobNormalizer.clean_description(raw_desc)
 
         # 6. Location & Remote detection
-        location = (raw.get("location") or "Remote").strip()
+        location = (raw.get("location") or "").strip()
         is_remote = JobNormalizer.detect_remote(location, title, clean_desc, raw.get("is_remote"))
 
         # 7. Employment type & Department
-        employment_type = (raw.get("employment_type") or "Full-time").strip()
-        department = (raw.get("department") or "Engineering").strip()
+        employment_type = (raw.get("employment_type") or "").strip()
+        department = (raw.get("department") or "").strip()
         posted_at = raw.get("posted_at")
 
         # 8. Skill extraction from title + description
@@ -97,12 +97,13 @@ class JobNormalizer:
     def detect_remote(location: str, title: str, description: str, explicit_remote: Optional[bool] = None) -> bool:
         if explicit_remote is True:
             return True
-        loc_lower = location.lower()
+        # An unknown/empty location is NOT evidence of a remote role.
+        loc_lower = (location or "").lower()
         if "remote" in loc_lower or "anywhere" in loc_lower or "virtual" in loc_lower or "wfh" in loc_lower:
             return True
-        if "remote" in title.lower():
+        if "remote" in (title or "").lower():
             return True
         # Check first 200 chars of description
-        if "100% remote" in description[:200].lower() or "fully remote" in description[:200].lower():
+        if "100% remote" in (description or "")[:200].lower() or "fully remote" in (description or "")[:200].lower():
             return True
         return False

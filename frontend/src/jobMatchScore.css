@@ -1,0 +1,84 @@
+/* Live job-match score in the Resume Editor (JobMatchScore.jsx) */
+.tone-strong { --jms-tone: #059669; --jms-tone-bg: #ECFDF5; }
+.tone-partial { --jms-tone: #D97706; --jms-tone-bg: #FFFBEB; }
+.tone-weak { --jms-tone: #DC2626; --jms-tone-bg: #FEF2F2; }
+.tone-na { --jms-tone: #64748B; --jms-tone-bg: #F1F5F9; }
+
+.jms-muted {
+  color: var(--slate-500);
+  font-size: 0.82rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jms-spin {
+  animation: jms-spin 0.9s linear infinite;
+}
+
+@keyframes jms-spin {
+  to { transform: rotate(360deg); }
+}
+
+.jms-editor-score {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  border: 1px solid var(--slate-200);
+  border-left: 4px solid var(--jms-tone, var(--slate-300));
+  border-radius: 10px;
+  background: var(--bg-card);
+}
+
+.jms-editor-score-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.85rem;
+  color: var(--slate-700);
+}
+
+.jms-editor-score-main strong {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--jms-tone);
+}
+
+.jms-editor-score-main em {
+  font-style: normal;
+  font-weight: 700;
+}
+
+.jms-editor-score-main em.up { color: #059669; }
+.jms-editor-score-main em.down { color: #DC2626; }
+
+.jms-editor-score-sections {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.jms-editor-chip {
+  font-size: 0.74rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--jms-tone-bg);
+  color: var(--slate-700);
+}
+
+.jms-editor-chip b { color: var(--jms-tone); }
+
+.jms-score-badge {
+  margin-left: auto;
+  font-size: 0.75rem;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--jms-tone-bg);
+  color: var(--jms-tone);
+  white-space: nowrap;
+}
+
+.jms-score-badge + .editor-chevron { margin-left: 8px; }
