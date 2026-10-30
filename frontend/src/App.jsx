@@ -1557,9 +1557,9 @@ function JobCard({ job, inPipeline, onTogglePipeline, onViewDetails }) {
           {job.visa_sponsored && (
             <span
               className="visa-sponsored-badge"
-              title={`Employer legal name matches the official UK Sponsor Register as ${job.visa_sponsor_registered_names?.join(", ") || "a listed organisation"}, and the role location is confirmed UK. This does not guarantee sponsorship for this vacancy.`}
+              title={`Employer matches the official UK Sponsor Register as ${job.visa_sponsor_registered_names?.join(", ") || "a listed organisation"}. This does not guarantee sponsorship for this vacancy.`}
             >
-              UK Sponsor Listed
+              Visa Sponsored
             </span>
           )}
         </div>
@@ -2727,10 +2727,6 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
     }
   };
 
-  const handleContinueToApplication = () => {
-    setWorkspaceTab("scenarios");
-  };
-
   const handleOpenCareerPortal = () => {
     const targetUrl = job.url || job.apply_url || job.application_url;
     if (targetUrl) {
@@ -2899,7 +2895,7 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
                 <div className="workspace-header-meta">
                   <span className="badge-location"><MapPin size={13} aria-hidden="true" /> {job.location || "Location not listed"}</span>
                   {job.visa_sponsored && (
-                    <span className="badge-visa-sponsored" title="UK Sponsor Listed">
+                    <span className="badge-visa-sponsored" title="Employer is listed on the UK Sponsor Register for this UK location">
                       <Check size={13} aria-hidden="true" /> Visa Sponsored
                     </span>
                   )}
@@ -2982,8 +2978,8 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
                     <strong>{job.location || "Location not listed"}</strong>
                   </div>
                   <div>
-                    <span className="muted-label">Sponsor status</span>
-                    <strong>{job.visa_sponsored ? "UK Sponsor Listed" : "Not specified"}</strong>
+                    <span className="muted-label">Visa sponsorship</span>
+                    <strong>{job.visa_sponsored ? "Visa Sponsored" : "Not listed"}</strong>
                   </div>
                 </div>
               </div>
@@ -3076,10 +3072,6 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
                           <span>Not listed</span>
                         )}
                       </div>
-                      <div className="company-summary-row">
-                        <span className="company-summary-label">Sponsorship</span>
-                        <span>{job.visa_sponsored ? "UK Sponsor Listed" : "Not specified"}</span>
-                      </div>
                     </div>
                   );
                 })()}
@@ -3162,15 +3154,6 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
                         aria-selected={workspaceTab === "suggestions"}
                       >
                         Suggestions
-                      </button>
-                      <button
-                        type="button"
-                        className={workspaceTab === "scenarios" ? "active" : ""}
-                        onClick={() => setWorkspaceTab("scenarios")}
-                        role="tab"
-                        aria-selected={workspaceTab === "scenarios"}
-                      >
-                        Continue to Application
                       </button>
                     </div>
                   </div>
@@ -4020,9 +4003,8 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
                     </div>
                   )}
 
-                  {/* BOTTOM ACTION BAR (Toolbar matching resume-pipeline.jpeg Screen 3 - hidden inside Continue to Application view) */}
-                  {workspaceTab !== "scenarios" && (
-                    <div className="workflow-output-row" style={{ marginTop: 24 }}>
+                  {/* Bottom actions keep the official application link next to the resume download. */}
+                  <div className="workflow-output-row" style={{ marginTop: 24 }}>
                       <div className="editor-toolbar-actions" style={{ width: "100%" }}>
                         <button
                           type="button"
@@ -4061,14 +4043,14 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
                         <button
                           type="button"
                           className="btn-continue-app"
-                          onClick={handleContinueToApplication}
-                          title="Continue to application scenarios"
+                          onClick={handleOpenCareerPortal}
+                          disabled={!(job.url || job.apply_url || job.application_url)}
+                          title="Open the official job application page"
                         >
                           Continue to Application <ArrowRight size={14} aria-hidden="true" />
                         </button>
                       </div>
-                    </div>
-                  )}
+                  </div>
                 </div>
               )}
             </div>
@@ -4100,33 +4082,6 @@ function splitFilterTerms(value) {
     .split(",")
     .map((term) => term.trim().toLowerCase())
     .filter(Boolean);
-}
-
-const JOB_SECTORS = [
-  { value: "technology", label: "IT & Technology", pattern: /\b(software|information technology|technology|tech|cloud computing|cyber[\s-]?security|data science|machine learning|artificial intelligence|saas|developer|programming|telecommunications)\b/i },
-  { value: "healthcare", label: "Healthcare & Life Sciences", pattern: /\b(healthcare|health care|clinical|hospital|nurs(?:e|ing)|medical|pharma(?:ceutical)?|biotech|life sciences|patient care|medicine)\b/i },
-  { value: "manufacturing", label: "Manufacturing & Industrial", pattern: /\b(manufactur(?:e|er|ers|ing)|factory|factories|industrial|assembly line|production operator|production engineer|plant operations|machinist|fabrication)\b/i },
-  { value: "finance", label: "Finance & Banking", pattern: /\b(finance|financial services|banking|bank|accounting|investment|insurance|fintech|payments|audit|actuarial)\b/i },
-  { value: "retail", label: "Retail & E-commerce", pattern: /\b(retail|e[\s-]?commerce|store operations|merchandising|point of sale|consumer goods)\b/i },
-  { value: "education", label: "Education", pattern: /\b(education|educational|school|university|teaching|teacher|academic|curriculum|student services)\b/i },
-  { value: "energy", label: "Energy & Utilities", pattern: /\b(energy|utilities|utility|renewable|solar|wind power|oil and gas|power generation|electric grid)\b/i },
-  { value: "media", label: "Media & Entertainment", pattern: /\b(media|entertainment|broadcast|journalism|publishing|film|music industry|gaming|video production)\b/i },
-  { value: "transport", label: "Transport & Logistics", pattern: /\b(transportation|logistics|supply chain|freight|shipping|warehousing|aviation|airline|fleet|delivery operations)\b/i },
-  { value: "hospitality", label: "Hospitality & Tourism", pattern: /\b(hospitality|tourism|hotel|restaurant|food service|travel industry|guest services)\b/i },
-  { value: "government", label: "Government & Public Sector", pattern: /\b(government|public sector|civil service|municipal|public administration|defen[cs]e)\b/i },
-  { value: "construction", label: "Construction & Real Estate", pattern: /\b(construction|real estate|property development|architecture|building trades|civil engineering)\b/i },
-  { value: "professional-services", label: "Professional Services & Consulting", pattern: /\b(consulting|consultancy|professional services|legal services|law firm|management advisory|business services)\b/i }
-];
-
-function jobMatchesSector(job, sectorValue) {
-  if (sectorValue === "all") return true;
-  const sector = JOB_SECTORS.find((item) => item.value === sectorValue);
-  if (!sector) return true;
-
-  const listingText = [job.title, job.department, job.company, job.description]
-    .filter(Boolean)
-    .join(" ");
-  return sector.pattern.test(listingText);
 }
 
 function getJobSearchText(job) {
@@ -4194,9 +4149,7 @@ function DirectoryView({
   const [selectedLocation, setSelectedLocation] = useState("");
   const [selectedEmploymentType, setSelectedEmploymentType] = useState("all");
   const [selectedWorkMode, setSelectedWorkMode] = useState("all");
-  const [selectedSector, setSelectedSector] = useState("all");
-  const [visaSponsoredOnly, setVisaSponsoredOnly] = useState(false);
-  const [freshOnly, setFreshOnly] = useState(true);
+  const [selectedPostedWithin, setSelectedPostedWithin] = useState("any");
   const [discoverySubmitted, setDiscoverySubmitted] = useState(false);
   const [salaryError, setSalaryError] = useState("");
   const [discoveryFilters, setDiscoveryFilters] = useState({
@@ -4206,8 +4159,6 @@ function DirectoryView({
     sources: ["greenhouse", "lever", "ashby", "workday", "workable", "oracle_cloud", "breezyhr", "pinpoint"],
     workModes: [],
     employmentType: "all",
-    sector: "all",
-    visaSponsoredOnly: false,
     relocationAssistance: false,
     salaryMin: "",
     salaryMax: "",
@@ -4311,13 +4262,6 @@ function DirectoryView({
           return false;
         }
 
-        if (!jobMatchesSector(j, discoveryFilters.sector)) {
-          return false;
-        }
-
-        if (discoveryFilters.visaSponsoredOnly && !j.visa_sponsored) {
-          return false;
-        }
 
         if (discoveryFilters.workModes.length) {
           const isHybrid = /\bhybrid\b/i.test(jobText);
@@ -4376,10 +4320,6 @@ function DirectoryView({
 
       if (resume) {
         const jobText = getJobSearchText(j);
-        if (!jobMatchesSector(j, selectedSector)) {
-          return false;
-        }
-
         const locationQuery = selectedLocation.trim().toLowerCase();
         if (
           locationQuery
@@ -4407,9 +4347,16 @@ function DirectoryView({
           return false;
         }
 
-        if (visaSponsoredOnly && !j.visa_sponsored) {
-          return false;
+        if (selectedPostedWithin !== "any") {
+          const postedDate = getPostedDate(j);
+          const ageInDays = postedDate
+            ? (Date.now() - postedDate.getTime()) / (24 * 60 * 60 * 1000)
+            : Number.POSITIVE_INFINITY;
+          if (!postedDate || ageInDays < 0 || ageInDays > Number(selectedPostedWithin)) {
+            return false;
+          }
         }
+
       }
 
       // Platform filter
@@ -4438,8 +4385,7 @@ function DirectoryView({
     selectedLocation,
     selectedEmploymentType,
     selectedWorkMode,
-    selectedSector,
-    visaSponsoredOnly,
+    selectedPostedWithin,
     filterQuery,
     resume,
     discoveryFilters
@@ -4678,33 +4624,6 @@ function DirectoryView({
                 </select>
               </div>
 
-              <div className="discovery-field">
-                <label htmlFor="discovery-sector">Sector</label>
-                <select
-                  id="discovery-sector"
-                  value={discoveryFilters.sector}
-                  onChange={(event) => updateDiscoveryFilter("sector", event.target.value)}
-                >
-                  <option value="all">Any sector</option>
-                  {JOB_SECTORS.map((sector) => (
-                    <option key={sector.value} value={sector.value}>{sector.label}</option>
-                  ))}
-                </select>
-                <span className="discovery-hint">Inferred from the job title, department, employer, and listing text.</span>
-              </div>
-
-              <fieldset className="discovery-field discovery-choice-group">
-                <legend>Visa sponsor country: United Kingdom</legend>
-                <label className="discovery-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={discoveryFilters.visaSponsoredOnly}
-                    onChange={(event) => updateDiscoveryFilter("visaSponsoredOnly", event.target.checked)}
-                  />
-                  <span>Only jobs matching the employer and UK location</span>
-                </label>
-                <span className="discovery-hint">Checks the UK Worker and Temporary Worker register and the job location. Unspecified or ambiguous locations are excluded. A listed employer is not a guarantee that a specific role offers sponsorship.</span>
-              </fieldset>
             </div>
 
             <div className="discovery-form-footer">
@@ -4749,15 +4668,20 @@ function DirectoryView({
           />
         </div>
 
-        {/* Fresh pill button */}
-        <button
-          type="button"
-          className={`pill-filter-btn ${freshOnly ? "active" : ""}`}
-          onClick={() => setFreshOnly(!freshOnly)}
-          title="Toggle recently posted roles"
-        >
-          <span>Fresh</span>
-        </button>
+        <div className="pill-select-wrapper">
+          <select
+            className="pill-select"
+            aria-label="Posted Within"
+            value={selectedPostedWithin}
+            onChange={(event) => setSelectedPostedWithin(event.target.value)}
+          >
+            <option value="any">Posted Within</option>
+            <option value="1">24 hours</option>
+            <option value="7">7 days</option>
+            <option value="14">14 days</option>
+            <option value="30">30 days</option>
+          </select>
+        </div>
 
         {/* Company filter dropdown */}
         <div className="pill-select-wrapper">
@@ -4790,20 +4714,6 @@ function DirectoryView({
         <div className="pill-select-wrapper">
           <select
             className="pill-select"
-            aria-label="Filter by sector"
-            value={selectedSector}
-            onChange={(event) => setSelectedSector(event.target.value)}
-          >
-            <option value="all">Sector</option>
-            {JOB_SECTORS.map((sector) => (
-              <option key={sector.value} value={sector.value}>{sector.label}</option>
-            ))}
-          </select>
-        </div>
-
-        <div className="pill-select-wrapper">
-          <select
-            className="pill-select"
             aria-label="Filter by work mode"
             value={selectedWorkMode}
             onChange={(event) => setSelectedWorkMode(event.target.value)}
@@ -4814,16 +4724,6 @@ function DirectoryView({
             <option value="on-site">On-site</option>
           </select>
         </div>
-
-        <button
-          type="button"
-          className={`pill-filter-btn ${visaSponsoredOnly ? "active" : ""}`}
-          aria-pressed={visaSponsoredOnly}
-          onClick={() => setVisaSponsoredOnly((current) => !current)}
-          title="Show jobs matching both an employer on the United Kingdom Worker and Temporary Worker register and a UK job location."
-        >
-          <span>UK Sponsor Listed</span>
-        </button>
 
         {/* Platform filter dropdown */}
         <div className="pill-select-wrapper">

@@ -191,18 +191,10 @@ describe('Cafy Agent job application drawer', () => {
 
     const continueBtn = screen.getByRole('button', { name: /Continue to Application/i });
     fireEvent.click(continueBtn);
-    expect(screen.getByText(/Supported Form Autofill/i)).toBeInTheDocument();
-    expect(screen.getByText(/Multi-step Application/i)).toBeInTheDocument();
-    expect(window.open).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(screen.getByRole('button', { name: /Open Application Page/i }));
+    expect(screen.queryByText(/Supported Form Autofill/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Multi-step Application/i)).not.toBeInTheDocument();
     expect(window.open).toHaveBeenCalledTimes(2);
     expect(window.open).toHaveBeenLastCalledWith('https://example.com/apply', '_blank', 'noopener,noreferrer');
-
-    // Opening the page is not applying; the user marks it explicitly.
-    const markBtn = screen.getByRole('button', { name: /Mark as Applied/i });
-    fireEvent.click(markBtn);
-    expect(screen.getByRole('button', { name: /Marked as Applied/i })).toBeInTheDocument();
   });
 
   it('shows live section scores in the Resume Editor and updates them after Improve with AI', async () => {

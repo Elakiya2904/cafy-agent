@@ -3,7 +3,7 @@
 An intelligent ATS scraper, automated job recommendation engine, and AI career assistant with real-time matching and career chat intelligence.
 
 ## Features
-- **ATS Scraper Support**: Integrations with Greenhouse, Ashby, Lever, Workday, Workable, Oracle Cloud, BreezyHR, and Pinpoint.
+- **ATS Scraper Support**: Integrations with Greenhouse, Ashby, Lever, Workday, Workable, Oracle Cloud, BreezyHR, and Pinpoint. Scraping is restricted to jobs located in the United Kingdom or Ireland; ambiguous or overseas locations are excluded.
 - **Precision Matching**: Match scores dynamically calibrated against candidate profiles (>=85% for 4+ matching skills).
 - **Cafy Agent Chatbot**: Career chat dock powered by Groq and grounded intelligence for job prioritisation, skill gap analysis, and application strategy.
 - **UK Sponsor Verification**: Verification against the official UK Home Office Register.

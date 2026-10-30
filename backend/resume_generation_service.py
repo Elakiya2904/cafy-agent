@@ -79,7 +79,7 @@ class ResumeGenerationService:
             "validation": {
                 "ats_friendly": True,
                 "factual_consistency": True,
-                "page_length": "1-2 pages",
+                "page_length": "1 page",
                 "unsupported_claims": [],
             },
         }

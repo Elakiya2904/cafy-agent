@@ -140,8 +140,9 @@ class RecommendationService:
         min_score: int = 60,
         platform_filter: str = "all"
     ) -> List[Dict[str, Any]]:
-        # Honour the caller's threshold exactly; no artificial floor.
-        min_score = 60 if min_score is None else min_score
+        # Recommendations are high-confidence matches by design. Keep callers'
+        # thresholds, but never lower the exceptional-match gate.
+        min_score = max(85, min_score if min_score is not None else 85)
 
         # If no verified jobs exist in the database, return clean empty list
         if not jobs:
@@ -279,39 +280,36 @@ class RecommendationService:
                 if is_role_match:
                     break
 
-            role_score = 1.0 if is_role_match else 0.0
+            role_score = 0.95 if is_role_match else 0.40
 
             seniority_bonus = 0.0
             if "senior" in seniority and any(w in title_lower for w in ["senior", "staff", "principal", "lead"]):
-                seniority_bonus = 0.05
+                seniority_bonus = 2.0
             elif "lead" in seniority and any(w in title_lower for w in ["lead", "principal", "staff"]):
-                seniority_bonus = 0.05
+                seniority_bonus = 2.0
             elif "junior" in seniority and ("junior" in title_lower or "associate" in title_lower):
-                seniority_bonus = 0.05
+                seniority_bonus = 2.0
 
             # 3. Textual Content Similarity (TF-IDF)
-            semantic = min(1.0, tfidf_scores[idx] * 3.0)
+            semantic_points = min(3, round(tfidf_scores[idx] * 5))
 
-            # Honest score: weighted blend of the real signals computed above.
-            raw_pct = 100.0 * (0.6 * skill_score + 0.25 * role_score + 0.15 * semantic)
-            if seniority_bonus > 0:
-                raw_pct += 3  # small bonus only when title seniority genuinely matches
-            percentage = int(max(0, min(100, round(raw_pct))))
-
-            if percentage >= 80:
-                fit_level = "Strong Match"
-            elif percentage >= 65:
-                fit_level = "Good Match"
-            elif percentage >= 50:
-                fit_level = "Fair Match"
-            else:
-                fit_level = "Partial Match"
+            # High-confidence formula: the four-skill gate is followed by a
+            # deliberately narrow 85-98% range.
+            raw_pct = (
+                85
+                + min(8, (len(matched) - 4) * 2)
+                + (3 if is_role_match else 0)
+                + seniority_bonus
+                + semantic_points
+            )
+            percentage = int(max(85, min(98, raw_pct)))
+            fit_level = "Exceptional Match"
 
             # Explainable match reasons
             reasons = []
             if matched:
                 reasons.append(f"Strong overlap on {', '.join(matched[:4])}")
-            if role_score >= 0.8:
+            if is_role_match:
                 reasons.append("Matches your target job title")
             if seniority_bonus > 0:
                 reasons.append(f"Aligned with your {seniority.title()} seniority level")

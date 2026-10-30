@@ -7,6 +7,28 @@ from urllib.parse import urlparse
 from ..resume_service import ResumeService
 
 _resume_svc = ResumeService()
+UK_IRELAND_LOCATION_PATTERN = re.compile(
+    r"\b(?:u\.?k\.?|united kingdom|great britain|britain|england|scotland|"
+    r"wales|northern ireland|ireland|republic of ireland|eire)\b",
+    re.IGNORECASE,
+)
+UK_IRELAND_CITY_PATTERN = re.compile(
+    r"\b(?:aberdeen|belfast|birmingham|bradford|brighton|bristol|cambridge|"
+    r"cardiff|cork|derry|dublin|dundee|edinburgh|exeter|galway|glasgow|"
+    r"leeds|limerick|liverpool|london|manchester|newcastle|norwich|"
+    r"nottingham|oxford|reading|sheffield|southampton|swansea|waterford|"
+    r"york)\b",
+    re.IGNORECASE,
+)
+NON_UK_IRELAND_COUNTRY_PATTERN = re.compile(
+    r"\b(?:new[-\s]+york(?: city)?|san francisco|seattle|united states|u\.?s\.?a?\.?|canada|australia|india|singapore|"
+    r"new zealand|netherlands|germany|france|spain|italy|japan|china|"
+    r"taiwan|malaysia|mexico|romania|israel|poland|sweden|switzerland|"
+    r"belgium|brazil|philippines|indonesia|south korea|thailand|vietnam|"
+    r"portugal|denmark|norway|finland|austria|south africa|czech republic|"
+    r"turkey|argentina|colombia|hong kong|united arab emirates|uae)\b",
+    re.IGNORECASE,
+)
 
 class JobNormalizer:
     """
@@ -14,6 +36,19 @@ class JobNormalizer:
     Ensures all jobs have verified URLs, clean descriptions, and extracted skills.
     Rejects malformed or incomplete records.
     """
+
+    @staticmethod
+    def is_uk_or_ireland_location(location: str) -> bool:
+        """Return whether a location identifies a UK or Ireland role."""
+        normalized_location = (location or "").strip()
+        if not normalized_location:
+            return False
+        if NON_UK_IRELAND_COUNTRY_PATTERN.search(normalized_location):
+            return False
+        return bool(
+            UK_IRELAND_LOCATION_PATTERN.search(normalized_location)
+            or UK_IRELAND_CITY_PATTERN.search(normalized_location)
+        )
 
     @staticmethod
     def normalize_job(raw: Dict[str, Any], platform: str, default_company: str = "") -> Optional[Dict[str, Any]]:

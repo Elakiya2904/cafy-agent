@@ -14,6 +14,7 @@ from .workable import WorkableScraper
 from .oracle_cloud import OracleCloudScraper
 from .breezyhr import BreezyHRScraper
 from .pinpoint import PinpointScraper
+from .job_normalizer import JobNormalizer
 
 logger = logging.getLogger("cafy.scrapers.manager")
 SOURCES_PATH = os.path.join(os.path.dirname(__file__), "sources.yaml")
@@ -107,7 +108,16 @@ class ScraperManager:
         logger.info(f"[ScraperManager] Starting scrape for '{p_key}' with {len(companies)} companies")
 
         try:
-            jobs = scraper.scrape_all(companies)
+            scraped_jobs = scraper.scrape_all(companies)
+            jobs = [
+                job for job in scraped_jobs
+                if JobNormalizer.is_uk_or_ireland_location(job.get("location", ""))
+            ]
+            excluded_count = len(scraped_jobs) - len(jobs)
+            if excluded_count:
+                logger.info(
+                    f"[ScraperManager] Excluded {excluded_count} non-UK/Ireland jobs from '{p_key}'"
+                )
             if not jobs and companies:
                 status = "empty"
         except Exception as e:

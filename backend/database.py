@@ -5,6 +5,8 @@ import logging
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timezone
 
+from .scrapers.job_normalizer import JobNormalizer
+
 logger = logging.getLogger("cafy.database")
 DB_PATH = os.path.join(os.path.dirname(__file__), "cafy_jobs.db")
 
@@ -115,6 +117,26 @@ class JobDatabase:
             WHERE t.resume_id NOT IN (SELECT resume_id FROM tailored_resume_versions)
             """)
 
+            # Keep legacy worldwide listings out of the active feed after the
+            # scraper scope changed to UK and Ireland only.
+            legacy_rows = cursor.execute(
+                "SELECT id, location FROM jobs WHERE status = 'active'"
+            ).fetchall()
+            out_of_scope_ids = [
+                row["id"]
+                for row in legacy_rows
+                if not JobNormalizer.is_uk_or_ireland_location(row["location"] or "")
+            ]
+            if out_of_scope_ids:
+                cursor.executemany(
+                    "UPDATE jobs SET status = 'inactive' WHERE id = ?",
+                    [(job_id,) for job_id in out_of_scope_ids],
+                )
+                logger.info(
+                    "[JobDatabase] Deactivated %d legacy non-UK/Ireland jobs",
+                    len(out_of_scope_ids),
+                )
+
             conn.commit()
             logger.info(f"[JobDatabase] Initialized SQLite schema at {self.db_path}")
 
@@ -136,6 +158,12 @@ class JobDatabase:
             for job in jobs:
                 job_id = job.get("id")
                 if not job_id:
+                    continue
+                if not JobNormalizer.is_uk_or_ireland_location(job.get("location", "")):
+                    logger.info(
+                        "[JobDatabase] Skipping non-UK/Ireland job %s",
+                        job_id,
+                    )
                     continue
 
                 skills_json = json.dumps(job.get("extracted_skills", []))
