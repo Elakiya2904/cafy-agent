@@ -128,6 +128,29 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('Cafy Agent job application drawer', () => {
+  it('normalizes HTML job descriptions in the tailor textarea', async () => {
+    const htmlJob = {
+      ...job,
+      description: '<p><strong>Build products</strong>&nbsp;&amp; lead teams.</p><p>Use React.</p>',
+    };
+
+    render(
+      <JobDetailModal
+        job={htmlJob}
+        resume={resume}
+        onClose={() => {}}
+        onTogglePipeline={() => {}}
+        inPipeline={false}
+        resumeOnly
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Tailor with Cafy/i }));
+    const description = await screen.findByDisplayValue('Build products & lead teams.\nUse React.');
+    expect(description).not.toHaveValue(expect.stringContaining('<p>'));
+    expect(description).not.toHaveValue(expect.stringContaining('&nbsp;'));
+  });
+
   it('opens the application drawer and switches tabs', async () => {
     function DrawerHarness() {
       const [selectedJob, setSelectedJob] = React.useState(null);

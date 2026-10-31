@@ -568,11 +568,17 @@ const QUICK_ACTIONS = [
 
 function sanitizeDisplayText(value) {
   if (value == null) return "";
-  let text = String(value)
+  const source = String(value);
+  const withBreaks = source.replace(
+    /<\s*\/?(?:br|p|div|li|h[1-6]|tr|section|article|ul|ol)[^>]*>/gi,
+    (tag) => /^<\s*\/|<\s*br/i.test(tag) ? "\n" : ""
+  );
+  const decoded = typeof DOMParser !== "undefined"
+    ? new DOMParser().parseFromString(withBreaks, "text/html").body.textContent || ""
+    : withBreaks;
+  let text = decoded
     .replace(/\u00a0/g, " ")
     .replace(/\u200b/g, "")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]+>/g, " ")
     .replace(/\|{2,}/g, " ")
     .replace(/\r/g, "")
     .replace(/(^|\n)\s*#{1,6}\s*/g, "$1")
@@ -1098,7 +1104,7 @@ function Sidebar({ activeTab, setActiveTab, totalJobsCount, hasResume, highMatch
         <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
       </svg>
     )},
-    { section: "2 · Apply", section: "2. Apply", id: "my-applications", label: "My Applications", badge: pipelineCount > 0 ? pipelineCount : undefined, icon: (
+    { section: "2. Apply", id: "my-applications", badge: pipelineCount > 0 ? pipelineCount : undefined, icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M9 11l3 3L22 4"></path>
         <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
@@ -1117,13 +1123,13 @@ function Sidebar({ activeTab, setActiveTab, totalJobsCount, hasResume, highMatch
         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
       </svg>
     )},
-    { section: "3 · Follow up", section: "3. Follow Up", id: "follow-ups", label: "Email Agent", icon: (
+    { section: "3 · Follow up", id: "follow-ups", label: "Email Agent", icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <line x1="22" y1="2" x2="11" y2="13"></line>
         <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
       </svg>
     )},
-    { section: "Account", section: "Insights", id: "insights", label: "Analytics", icon: (
+    { section: "Account", id: "insights", label: "Analytics", icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <line x1="18" y1="20" x2="18" y2="10"></line>
         <line x1="12" y1="20" x2="12" y2="4"></line>
@@ -2316,7 +2322,7 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
   // Outcome of the last full "Rewrite with AI": lines kept unchanged + skills to consider adding.
   const [rewriteResult, setRewriteResult] = useState(null);
   // Tailor flow inputs (Screen 2): the job description is pre-filled from the job and can be edited.
-  const [tailorJobDescription, setTailorJobDescription] = useState(job?.description || "");
+  const [tailorJobDescription, setTailorJobDescription] = useState(() => sanitizeDisplayText(job?.description || ""));
   const [additionalInstructions, setAdditionalInstructions] = useState("");
 
   // Live job-match scoring of the tailored resume while it is open in the editor. Re-runs
