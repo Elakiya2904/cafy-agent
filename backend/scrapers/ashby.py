@@ -39,12 +39,12 @@ class AshbyScraper(BaseScraper):
                 "source_id": str(item.get("id")),
                 "title": item.get("title"),
                 "company": name,
-                "location": loc or "Remote",
+                "location": loc or "",
                 "is_remote": item.get("isRemote", False),
                 "url": item.get("jobUrl") or f"https://jobs.ashbyhq.com/{token}/{item.get('id')}",
                 "description": item.get("descriptionHtml") or item.get("descriptionPlain") or "",
-                "department": item.get("departmentName") or "Engineering",
-                "employment_type": item.get("employmentType") or "Full-time",
+                "department": item.get("departmentName") or "",
+                "employment_type": item.get("employmentType") or "",
                 "posted_at": item.get("publishedAt")
             }
 

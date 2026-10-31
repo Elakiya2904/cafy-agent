@@ -39,3 +39,5 @@ file
 # OS
 .DS_Store
 Thumbs.db
+# Uploaded original resumes (personal data)
+backend/uploaded_resumes/

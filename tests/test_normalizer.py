@@ -66,5 +66,27 @@ class TestJobNormalizer(unittest.TestCase):
         self.assertTrue(JobNormalizer.detect_remote("London, UK", "Backend Developer", "This is a 100% remote role."))
         self.assertFalse(JobNormalizer.detect_remote("Austin, TX (On-site)", "Systems Engineer", "Must work in office."))
 
+    def test_uk_and_ireland_location_scope(self):
+        for location in (
+            "London, United Kingdom",
+            "Remote - UK",
+            "Dublin, Ireland",
+            "Cork",
+        ):
+            with self.subTest(location=location):
+                self.assertTrue(JobNormalizer.is_uk_or_ireland_location(location))
+
+        for location in (
+            "Remote",
+            "Remote - US",
+            "New York, NY",
+            "Seattle, New-York, San Francisco",
+            "Toronto, Canada",
+            "London, Canada",
+            "",
+        ):
+            with self.subTest(location=location):
+                self.assertFalse(JobNormalizer.is_uk_or_ireland_location(location))
+
 if __name__ == "__main__":
     unittest.main()

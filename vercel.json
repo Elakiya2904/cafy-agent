@@ -17,5 +17,43 @@
       "source": "/(.*)",
       "destination": "/index.html"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/email-agent/cron/poll",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/scrape?platform=greenhouse",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/scrape?platform=ashby",
+      "schedule": "7 */6 * * *"
+    },
+    {
+      "path": "/api/cron/scrape?platform=workday",
+      "schedule": "14 */6 * * *"
+    },
+    {
+      "path": "/api/cron/scrape?platform=lever",
+      "schedule": "21 */6 * * *"
+    },
+    {
+      "path": "/api/cron/scrape?platform=workable",
+      "schedule": "28 */6 * * *"
+    },
+    {
+      "path": "/api/cron/scrape?platform=oracle_cloud",
+      "schedule": "35 */6 * * *"
+    },
+    {
+      "path": "/api/cron/scrape?platform=breezyhr",
+      "schedule": "42 */6 * * *"
+    },
+    {
+      "path": "/api/cron/scrape?platform=pinpoint",
+      "schedule": "49 */6 * * *"
+    }
   ]
 }

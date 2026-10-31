@@ -36,9 +36,9 @@ class LeverScraper(BaseScraper):
         normalized_jobs = []
         for item in data:
             cats = item.get("categories") or {}
-            loc = cats.get("location") or "Remote"
-            team = cats.get("team") or "Engineering"
-            commitment = cats.get("commitment") or "Full-time"
+            loc = cats.get("location") or ""
+            team = cats.get("team") or ""
+            commitment = cats.get("commitment") or ""
             workplace = cats.get("workplaceType") or ""
 
             desc = item.get("descriptionPlain") or item.get("description") or ""

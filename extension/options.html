@@ -1,0 +1,19 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Cafy Application Assistant – Settings</title>
+<style>
+  body { font: 14px system-ui, sans-serif; max-width: 460px; margin: 32px auto; color: #0f172a; }
+  label { display: block; margin: 14px 0 4px; font-weight: 600; }
+  input { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #cbd5e1; border-radius: 8px; }
+  button { margin-top: 16px; padding: 8px 14px; border-radius: 8px; border: 0; background: #0f172a; color: #fff; cursor: pointer; }
+  #msg { margin-top: 12px; color: #166534; } p { color: #475569; }
+</style>
+<h1>Cafy Application Assistant</h1>
+<p>Point the extension at your Cafy server. It never submits an application until you approve it in Cafy.</p>
+<label for="url">Cafy server URL</label><input id="url" placeholder="http://127.0.0.1:8000">
+<label for="tok">Access token</label><input id="tok" type="password" placeholder="Paste from Cafy → Copy extension token">
+<p>Needed for a signed-in server. Tokens expire after about an hour; paste a fresh one when the extension reports "Sign in required".</p>
+<label for="cid">Candidate ID (local dev server only)</label><input id="cid" placeholder="local">
+<button id="save">Save</button>
+<div id="msg" role="status"></div>
+<script src="options.js"></script>

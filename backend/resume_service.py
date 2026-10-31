@@ -1,9 +1,14 @@
 import os
 import re
 import io
-from typing import Dict, List, Any, Set, Optional
+from typing import Dict, List, Any, Set, Optional, Tuple
 import pypdf
 import docx
+
+try:
+    from .profile_strength_service import evaluate_profile_strength
+except ImportError:
+    from profile_strength_service import evaluate_profile_strength
 
 # Comprehensive Skills Ontology & Categorization
 SKILL_TAXONOMY = {
@@ -73,8 +78,34 @@ SKILL_ALIASES = {
     "llm": "LLMs",
     "llms": "LLMs",
     "genai": "Generative AI",
-    "rag": "RAG"
+    "rag": "RAG",
+    "crm": "CRM",
+    "b2b sales": "B2B Sales",
+    "biz dev": "Business Development",
+    "bd": "Business Development",
+    "cold-calling": "Cold Calling",
+    "pre sales": "Pre-Sales",
+    "microsoft excel": "Excel",
+    "microsoft powerpoint": "PowerPoint",
+    "sales navigator": "LinkedIn Sales Navigator",
+    "cross selling": "Cross-selling",
+    "up-selling": "Upselling",
+    "upselling": "Upselling"
 }
+
+# Non-engineering professions (teaching, accounting, finance, hardware, healthcare, ...)
+from .skill_matching import text_has_skill
+from .skill_catalog import (
+    ALIASES as CATALOG_ALIASES,
+    GENERAL_SKILLS,
+    all_roles as catalog_roles,
+    domain_skill_taxonomy,
+)
+for _cat, _skills in domain_skill_taxonomy().items():
+    SKILL_TAXONOMY.setdefault(_cat, [])
+    SKILL_TAXONOMY[_cat] = list(dict.fromkeys(SKILL_TAXONOMY[_cat] + _skills))
+SKILL_TAXONOMY["General & Soft Skills"] = list(GENERAL_SKILLS)
+SKILL_ALIASES.update({k: v for k, v in CATALOG_ALIASES.items() if k not in SKILL_ALIASES})
 
 ALL_CANONICAL_SKILLS = []
 for cat_skills in SKILL_TAXONOMY.values():
@@ -85,7 +116,7 @@ ALL_CANONICAL_SKILLS = sorted(list(set(ALL_CANONICAL_SKILLS)), key=lambda s: len
 class ResumeService:
     """
     Service responsible for extracting text, candidate metadata, and skills
-    from uploaded resumes (PDF, DOCX, TXT).
+    from uploaded resumes (PDF, DOCX, TXT), as well as evaluating profile strength.
     """
 
     def parse_resume(self, filename: str, content_bytes: bytes) -> Dict[str, Any]:
@@ -114,7 +145,6 @@ class ResumeService:
         return "\n".join([p.text for p in doc.paragraphs if p.text])
 
     def analyze_text(self, text: str, filename: str = "Uploaded_Resume.pdf") -> Dict[str, Any]:
-        cleaned_text = re.sub(r"\s+", " ", text).strip()
 
         # Contact Info strictly from resume (no fake fallbacks)
         email_match = re.search(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", text)
@@ -130,8 +160,16 @@ class ResumeService:
         # Name heuristic
         candidate_name = self._detect_name(text, filename)
 
-        # Skill Extraction
+        # Skill Extraction: catalog skills found anywhere + skills the résumé lists itself
         skills = self.extract_skills(text)
+        sections = self._extract_sections(text)
+        known = {k.lower() for k in skills}
+        for listed in self._extract_listed_skills(sections.get("skills", "")):
+            normalized = self._normalize(listed)
+            if normalized.lower() not in known:
+                known.add(normalized.lower())
+                skills.append(normalized)
+        skills = sorted(skills)
 
         # Group by category
         categorized: Dict[str, List[str]] = {}
@@ -140,12 +178,24 @@ class ResumeService:
             matches = [s for s in skills if s.lower() in cat_lower]
             if matches:
                 categorized[cat] = matches
+        uncategorized = [s for s in skills if not any(s in m for m in categorized.values())]
+        if uncategorized:
+            categorized["Other Skills"] = uncategorized
 
         # Experience & Seniority
         years, seniority = self._detect_experience(text)
-        target_roles = self._detect_roles(text)
 
-        return {
+        # Extract structured sections
+        experience = self._parse_experience(sections.get("experience", ""))
+        target_roles = self._detect_roles(text, experience)
+        education = self._parse_education(sections.get("education", ""))
+        projects = self._parse_projects(sections.get("projects", ""))
+        certifications = self._parse_certifications(sections.get("certifications", ""))
+
+        # Only use a summary the résumé actually contains; never paste raw text in.
+        summary = sections.get("summary", "").strip()
+
+        result: Dict[str, Any] = {
             "filename": filename,
             "raw_text": text[:20000],
             "candidate_name": candidate_name,
@@ -160,8 +210,16 @@ class ResumeService:
             "years_of_experience": years,
             "seniority_level": seniority,
             "target_roles": target_roles,
-            "summary": cleaned_text[:350] + ("..." if len(cleaned_text) > 350 else "")
+            "summary": summary,
+            "experience": experience,
+            "education": education,
+            "projects": projects,
+            "certifications": certifications,
         }
+
+        # Calculate profile strength score & recommendations
+        result["profile_strength"] = evaluate_profile_strength(result)
+        return result
 
     def extract_skills(self, text: str) -> List[str]:
         if not text:
@@ -187,8 +245,7 @@ class ResumeService:
         for canonical in ALL_CANONICAL_SKILLS:
             if len(canonical) <= 2 and canonical not in ["Go", "R", "C"]:
                 continue
-            pat = rf"\b{re.escape(canonical.lower())}\b"
-            if re.search(pat, lower_text):
+            if text_has_skill(canonical, lower_text, loose=False):
                 found.add(self._normalize(canonical))
 
         return sorted(list(found))
@@ -209,8 +266,9 @@ class ResumeService:
             if 2 <= len(words) <= 3 and all(w.isalpha() for w in words):
                 if line.lower() not in ["resume", "curriculum vitae", "contact information"]:
                     return line
-        name_clean = re.sub(r"[_\W]+", " ", os.path.splitext(filename)[0]).strip().title()
-        return name_clean or "Candidate"
+        # No name detected in the document: leave it empty rather than guessing
+        # from the filename or inventing a placeholder.
+        return ""
 
     def _detect_experience(self, text: str) -> tuple[int, str]:
         matches = re.findall(r"(\d+)\+?\s*(?:years|yrs)(?:\s*of)?\s*(?:experience)?", text, re.IGNORECASE)
@@ -221,27 +279,339 @@ class ResumeService:
                 years = max(nums)
 
         lower = text.lower()
+        # Word boundaries so "Lead Generation" / "middle" don't read as seniority.
+        is_lead = re.search(r"\blead\b(?!\s+(?:generation|gen|qualification|scoring|management|nurturing))", lower)
         if "principal" in lower or "director" in lower:
             seniority = "Principal / Lead"
-        elif "senior" in lower or years >= 5:
+        elif re.search(r"\bsenior\b", lower) or years >= 5:
             seniority = "Senior"
-        elif "lead" in lower:
+        elif is_lead:
             seniority = "Lead"
-        elif "mid" in lower or (2 <= years < 5):
+        elif re.search(r"\bmid(?:-level)?\b", lower) or (2 <= years < 5):
             seniority = "Mid-Level"
-        elif "junior" in lower or "intern" in lower or years < 2:
+        elif "junior" in lower or re.search(r"\bintern(?:ship)?\b", lower) or (matches and years < 2):
             seniority = "Junior / Entry"
         else:
-            seniority = "Mid-Level"
+            # No stated years and no seniority keyword: don't assume a level.
+            seniority = "Unknown"
 
         return years, seniority
 
-    def _detect_roles(self, text: str) -> List[str]:
-        roles = [
-            "Full Stack Engineer", "Software Engineer", "Frontend Engineer", "Backend Engineer",
-            "DevOps Engineer", "Cloud Engineer", "Data Scientist", "Machine Learning Engineer",
-            "AI Engineer", "Data Engineer", "Site Reliability Engineer"
-        ]
+    _SOFTWARE_ROLES = [
+        "Full Stack Engineer", "Software Engineer", "Frontend Engineer", "Backend Engineer",
+        "DevOps Engineer", "Cloud Engineer", "Data Scientist", "Machine Learning Engineer",
+        "AI Engineer", "Data Engineer", "Site Reliability Engineer",
+    ]
+    # Single-word phrases only count as a role when they name a person (teacher, nurse, ...).
+    _AGENT_NOUN = re.compile(r"(?:er|or|ist|ant|ian)$")
+
+    def _detect_roles(self, text: str, experience: Optional[List[Dict[str, Any]]] = None) -> List[str]:
         lower = text.lower()
-        detected = [r for r in roles if r.lower() in lower]
-        return detected if detected else ["Software Engineer"]
+
+        def present(phrase: str) -> bool:
+            return re.search(r"(?<![a-z0-9])" + re.escape(phrase.lower()) + r"(?![a-z0-9])", lower) is not None
+
+        detected = [r for r in self._SOFTWARE_ROLES if r.lower() in lower]
+        for role, phrases in catalog_roles().items():
+            if role in detected:
+                continue
+            if present(role) or any(
+                present(p) for p in phrases
+                if " " in p or (len(p) >= 6 and self._AGENT_NOUN.search(p))
+            ):
+                detected.append(role)
+
+        # "Sales Executive" etc. imply the broader sales roles employers also post.
+        if "Sales Executive" in detected:
+            for extra in ("Account Executive", "Business Development Representative"):
+                if extra not in detected:
+                    detected.append(extra)
+
+        # Nothing recognised: fall back to the job titles the résumé itself lists.
+        if not detected and experience:
+            for entry in experience:
+                title = (entry.get("title") or "").strip()
+                if 2 < len(title) <= 60 and title not in detected:
+                    detected.append(title)
+                if len(detected) >= 3:
+                    break
+        return detected
+
+    def _extract_listed_skills(self, skills_section: str) -> List[str]:
+        """Skills the résumé lists itself, so professions outside the catalog still count."""
+        found: List[str] = []
+        for line in (skills_section or "").split("\n"):
+            line = re.sub(r"^[\s\-\*•·▪●\d\.\)]+", "", line).strip()
+            if ":" in line:
+                line = line.split(":", 1)[1]
+            for item in re.split(r"[,;|•·/]|\s{2,}|\s+&\s+(?=[A-Z])", line):
+                item = item.strip(" .-–")
+                words = item.split()
+                if 2 <= len(item) <= 40 and 1 <= len(words) <= 4 and not re.search(r"\d{4}|@|http", item):
+                    found.append(item)
+        return found
+
+    # ---------------- Section Parsers ----------------
+
+    def _extract_sections(self, text: str) -> Dict[str, str]:
+        """Segments resume text into named sections based on header patterns."""
+        headers = {
+            "summary": re.compile(r"^(?:professional\s+summary|executive\s+summary|summary|profile|about\s+me)\b", re.I),
+            "skills": re.compile(r"^(?:key\s+skills|technical\s+skills|top\s+skills|areas\s+of\s+expertise|skills\s*(?:&|and)\s*technologies|core\s+competencies|skills)\b", re.I),
+            "experience": re.compile(r"^(?:work\s+experience|professional\s+experience|employment\s+history|experience)\b", re.I),
+            "education": re.compile(r"^(?:education|academic\s+background|qualifications)\b", re.I),
+            "projects": re.compile(r"^(?:technical\s+projects|key\s+projects|portfolio\s+projects|personal\s+projects|projects)\b", re.I),
+            "certifications": re.compile(r"^(?:certifications\s*(?:&|and)\s*licenses|certifications|licenses|certificates)\b", re.I),
+        }
+
+        current_section = "preamble"
+        section_lines: Dict[str, List[str]] = {k: [] for k in headers}
+        section_lines["preamble"] = []
+
+        lines = text.split("\n")
+        for line in lines:
+            trimmed = line.strip()
+            if not trimmed:
+                continue
+
+            # Check if this line is a section header (usually short, <= 45 chars)
+            matched_sec = None
+            if len(trimmed) <= 45:
+                # Strip leading/trailing hashes, asterisks or dashes
+                clean_heading = re.sub(r"^[\s#\-\*•:]+|[\s#\-\*•:]+$", "", trimmed)
+                for sec_key, pattern in headers.items():
+                    if pattern.search(clean_heading):
+                        matched_sec = sec_key
+                        break
+
+            if matched_sec:
+                current_section = matched_sec
+            else:
+                section_lines[current_section].append(trimmed)
+
+        return {k: "\n".join(v) for k, v in section_lines.items()}
+
+    def _parse_experience(self, text: str) -> List[Dict[str, Any]]:
+        """Parses job experience entries from experience section text."""
+        if not text:
+            return []
+
+        entries = []
+        current: Optional[Dict[str, Any]] = None
+
+        date_pat = re.compile(r"(?:\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+)?\b(?:19|20)\d{2}\s*(?:-|–|to)\s*(?:(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+)?(?:19|20)\d{2}|Present|Current)", re.I)
+
+        lines = text.split("\n")
+        for line in lines:
+            line_str = line.strip()
+            if not line_str:
+                continue
+
+            is_bullet = bool(re.match(r"^[\s\-\*•\d\.\)]+", line_str))
+            clean_line = re.sub(r"^[\s\-\*•\d\.\)]+", "", line_str).strip()
+
+            # Check if line looks like a job header: has '|' or ' - ' or dates
+            has_dates = bool(date_pat.search(line_str))
+            has_separator = ("|" in line_str or " - " in line_str or " at " in line_str.lower())
+
+            if (has_dates or has_separator) and not is_bullet and len(line_str) < 120:
+                if current:
+                    entries.append(current)
+
+                title = ""
+                company = ""
+                dates = ""
+
+                # Extract dates if present
+                d_match = date_pat.search(line_str)
+                if d_match:
+                    dates = d_match.group(0).strip("()")
+                    remainder = line_str[:d_match.start()] + line_str[d_match.end():]
+                else:
+                    remainder = line_str
+
+                # Split title and company
+                if "|" in remainder:
+                    parts = [p.strip() for p in remainder.split("|") if p.strip()]
+                    title = parts[0]
+                    company = parts[1] if len(parts) > 1 else ""
+                elif " - " in remainder:
+                    parts = [p.strip() for p in remainder.split(" - ") if p.strip()]
+                    title = parts[0]
+                    company = parts[1] if len(parts) > 1 else ""
+                elif " at " in remainder.lower():
+                    parts = re.split(r"\s+at\s+", remainder, flags=re.I)
+                    title = parts[0].strip()
+                    company = parts[1].strip() if len(parts) > 1 else ""
+                else:
+                    title = remainder.strip()
+
+                current = {
+                    "title": title.strip("()[] "),
+                    "company": company.strip("()[] "),
+                    "organization": company.strip("()[] "),
+                    "dates": dates.strip(),
+                    "location": "",
+                    "description": "",
+                    "bullets": [],
+                }
+            elif current:
+                if is_bullet:
+                    current["bullets"].append(clean_line)
+                else:
+                    if not current["description"]:
+                        current["description"] = clean_line
+                    else:
+                        current["bullets"].append(clean_line)
+
+        if current:
+            entries.append(current)
+
+        return entries
+
+    def _parse_education(self, text: str) -> List[Dict[str, Any]]:
+        """Parses education entries from education section text."""
+        if not text:
+            return []
+
+        entries = []
+        deg_pat = re.compile(r"\b(?:B\.?S\.?|M\.?S\.?|B\.?A\.?|M\.?A\.?|B\.?Tech|M\.?Tech|Ph\.?D\.?|Bachelor|Master|Doctorate|Diploma|Associate)\b", re.I)
+        year_pat = re.compile(r"\b(?:19|20)\d{2}\s*(?:-|–|to)?\s*(?:(?:19|20)\d{2}|Present)?\b")
+
+        lines = text.split("\n")
+        current: Optional[Dict[str, Any]] = None
+
+        for line in lines:
+            line_str = line.strip()
+            if not line_str:
+                continue
+
+            is_bullet = bool(re.match(r"^[\s\-\*•]+", line_str))
+            clean_line = re.sub(r"^[\s\-\*•]+", "", line_str).strip()
+
+            if (deg_pat.search(line_str) or "university" in line_str.lower() or "college" in line_str.lower()) and not is_bullet:
+                if current:
+                    entries.append(current)
+
+                dates = ""
+                y_match = year_pat.search(line_str)
+                if y_match:
+                    dates = y_match.group(0).strip("()")
+                    remainder = line_str[:y_match.start()] + line_str[y_match.end():]
+                else:
+                    remainder = line_str
+
+                if "|" in remainder:
+                    parts = [p.strip() for p in remainder.split("|") if p.strip()]
+                    deg = parts[0]
+                    inst = parts[1] if len(parts) > 1 else ""
+                elif " - " in remainder:
+                    parts = [p.strip() for p in remainder.split(" - ") if p.strip()]
+                    deg = parts[0]
+                    inst = parts[1] if len(parts) > 1 else ""
+                elif "," in remainder:
+                    parts = [p.strip() for p in remainder.split(",") if p.strip()]
+                    deg = parts[0]
+                    inst = parts[1] if len(parts) > 1 else ""
+                else:
+                    deg = remainder.strip()
+                    inst = ""
+
+                current = {
+                    "degree": deg.strip(),
+                    "title": deg.strip(),
+                    "institution": inst.strip(),
+                    "organization": inst.strip(),
+                    "dates": dates.strip(),
+                    "bullets": [],
+                }
+            elif current:
+                if is_bullet:
+                    current["bullets"].append(clean_line)
+                elif not current.get("institution"):
+                    current["institution"] = clean_line
+                    current["organization"] = clean_line
+                else:
+                    current["bullets"].append(clean_line)
+
+        if current:
+            entries.append(current)
+
+        return entries
+
+    def _parse_projects(self, text: str) -> List[Dict[str, Any]]:
+        """Parses project entries from projects section text."""
+        if not text:
+            return []
+
+        entries = []
+        current: Optional[Dict[str, Any]] = None
+
+        lines = text.split("\n")
+        for line in lines:
+            line_str = line.strip()
+            if not line_str:
+                continue
+
+            is_bullet = bool(re.match(r"^[\s\-\*•]+", line_str))
+            clean_line = re.sub(r"^[\s\-\*•]+", "", line_str).strip()
+
+            if not is_bullet and ("|" in line_str or ":" in line_str or len(line_str) < 70):
+                if current:
+                    entries.append(current)
+                title = line_str.split("|")[0].split(":")[0].strip()
+                current = {
+                    "title": title,
+                    "name": title,
+                    "description": line_str,
+                    "bullets": [],
+                    "dates": "",
+                }
+            elif current:
+                if is_bullet:
+                    current["bullets"].append(clean_line)
+                else:
+                    current["description"] += " " + clean_line
+
+        if current:
+            entries.append(current)
+
+        return entries
+
+    def _parse_certifications(self, text: str) -> List[Dict[str, Any]]:
+        """Parses certification entries from certifications section text."""
+        if not text:
+            return []
+
+        entries = []
+        year_pat = re.compile(r"\b(?:19|20)\d{2}\b")
+
+        for line in text.split("\n"):
+            line_str = line.strip()
+            if not line_str:
+                continue
+            clean_line = re.sub(r"^[\s\-\*•]+", "", line_str).strip()
+            dates = ""
+            y_m = year_pat.search(clean_line)
+            if y_m:
+                dates = y_m.group(0)
+
+            name = clean_line
+            issuer = ""
+            if " - " in clean_line:
+                parts = clean_line.split(" - ")
+                name = parts[0].strip()
+                issuer = parts[1].strip()
+            elif "|" in clean_line:
+                parts = clean_line.split("|")
+                name = parts[0].strip()
+                issuer = parts[1].strip()
+
+            entries.append({
+                "name": name,
+                "title": name,
+                "issuer": issuer,
+                "dates": dates,
+            })
+
+        return entries

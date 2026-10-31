@@ -4,6 +4,8 @@ import re
 from collections import Counter
 from typing import List, Dict, Any, Optional, Tuple
 from .resume_service import ResumeService
+from .skill_catalog import WEAK_MATCH_SKILLS, role_matches_title
+from .skill_matching import stems, text_has_skill
 
 try:
     from sklearn.feature_extraction.text import TfidfVectorizer
@@ -137,9 +139,11 @@ class RecommendationService:
         self,
         resume_data: Dict[str, Any],
         jobs: List[Dict[str, Any]],
-        min_score: int = 85,
+        min_score: int = 60,
         platform_filter: str = "all"
     ) -> List[Dict[str, Any]]:
+        # Recommendations are high-confidence matches by design. Keep callers'
+        # thresholds, but never lower the exceptional-match gate.
         min_score = max(85, min_score if min_score is not None else 85)
 
         # If no verified jobs exist in the database, return clean empty list
@@ -149,7 +153,9 @@ class RecommendationService:
         candidate_skills = resume_data.get("skills", [])
         resume_skills_set = {s.lower() for s in candidate_skills}
         target_roles = [r.lower() for r in resume_data.get("target_roles", [])]
-        seniority = resume_data.get("seniority_level", "Mid-Level").lower()
+        # lower-cased role -> original role (catalog lookup is case-sensitive)
+        role_originals = {r.lower(): [r] for r in resume_data.get("target_roles", [])}
+        seniority = (resume_data.get("seniority_level") or "").lower()
         raw_years = resume_data.get("years_of_experience")
         try:
             candidate_years = max(0, int(raw_years)) if raw_years is not None else 0
@@ -167,7 +173,7 @@ class RecommendationService:
         resume_corpus = (
             " ".join(resume_data.get("skills", [])) * 3 + " " +
             " ".join(resume_data.get("target_roles", [])) * 2 + " " +
-            resume_data.get("summary", "")
+            (resume_data.get("summary") or "")
         )
 
         job_texts = []
@@ -228,31 +234,20 @@ class RecommendationService:
             title_lower = (job.get("title") or "").lower()
             desc_lower = f"{title_lower} {job.get('description', '')}".lower()
             matched_lower = {m.lower() for m in matched}
+            doc_stems = stems(desc_lower)
             for c_skill in candidate_skills:
                 c_lower = c_skill.lower()
-                if c_lower not in matched_lower:
-                    if len(c_lower) <= 3:
-                        if re.search(r'\b' + re.escape(c_lower) + r'\b', desc_lower):
-                            matched.append(c_skill)
-                            matched_lower.add(c_lower)
-                    else:
-                        if c_lower in desc_lower:
-                            matched.append(c_skill)
-                            matched_lower.add(c_lower)
+                if c_lower not in matched_lower and text_has_skill(c_skill, desc_lower, doc_stems):
+                    matched.append(c_skill)
+                    matched_lower.add(c_lower)
 
-            # Only show high-confidence recommendations with four or more shared skills.
-            if len(matched) < 4:
-                continue
-
-            # Skill score: candidate coverage & job coverage
-            candidate_coverage = len(matched) / max(len(candidate_skills), 1)
-            job_coverage = len(matched) / max(len(job_skills), 1) if job_skills else candidate_coverage
-            skill_score = min(1.0, candidate_coverage * 0.4 + job_coverage * 0.6)
+            # Generic skills (communication, teamwork, ...) appear in every posting and prove nothing.
+            matched = [m for m in matched if m.lower() not in WEAK_MATCH_SKILLS]
 
             # 2. Role Title & Domain Alignment
             title_lower = (job.get("title") or "").lower()
             is_role_match = False
-            GENERIC_TITLE_WORDS = {"engineer", "developer", "lead", "senior", "manager", "director", "intern", "specialist", "associate", "consultant"}
+            GENERIC_TITLE_WORDS = {"engineer", "developer", "lead", "senior", "manager", "director", "intern", "specialist", "associate", "consultant", "executive", "assistant", "officer", "analyst", "coordinator"}
             # Broader role matching: also match by domain keywords (e.g. "fullstack", "backend", "frontend")
             ROLE_DOMAIN_KEYWORDS = {
                 "full stack": ["fullstack", "full stack", "full-stack"],
@@ -268,6 +263,9 @@ class RecommendationService:
                 r_lower = r.lower().strip()
                 if r_lower in title_lower:
                     is_role_match = True; break
+                # Catalog phrases cover every profession (teacher, accountant, hardware engineer, ...)
+                if role_matches_title(r, title_lower) or any(role_matches_title(orig, title_lower) for orig in role_originals.get(r_lower, [])):
+                    is_role_match = True; break
                 non_generic = [w for w in r_lower.split() if w not in GENERIC_TITLE_WORDS and len(w) > 2]
                 if non_generic and all(tok in title_lower for tok in non_generic):
                     is_role_match = True; break
@@ -278,40 +276,45 @@ class RecommendationService:
                 if is_role_match:
                     break
 
+            # High confidence needs four shared skills, or a title match backed by at least three.
+            if len(matched) < 4 and not (is_role_match and len(matched) >= 3):
+                continue
+
+            # Skill score: candidate coverage & job coverage
+            candidate_coverage = len(matched) / max(len(candidate_skills), 1)
+            job_coverage = len(matched) / max(len(job_skills), 1) if job_skills else candidate_coverage
+            skill_score = min(1.0, candidate_coverage * 0.4 + job_coverage * 0.6)
+
             role_score = 0.95 if is_role_match else 0.40
 
             seniority_bonus = 0.0
             if "senior" in seniority and any(w in title_lower for w in ["senior", "staff", "principal", "lead"]):
-                seniority_bonus = 0.05
+                seniority_bonus = 2.0
             elif "lead" in seniority and any(w in title_lower for w in ["lead", "principal", "staff"]):
-                seniority_bonus = 0.05
+                seniority_bonus = 2.0
             elif "junior" in seniority and ("junior" in title_lower or "associate" in title_lower):
-                seniority_bonus = 0.05
+                seniority_bonus = 2.0
 
             # 3. Textual Content Similarity (TF-IDF)
-            semantic = min(1.0, tfidf_scores[idx] * 3.0)
+            semantic_points = min(3, round(tfidf_scores[idx] * 5))
 
-            base_pct = 85 + min(8, (len(matched) - 4) * 2)
-            if is_role_match:
-                base_pct += 3
-            if seniority_bonus > 0:
-                base_pct += 2
-            base_pct += min(3, int(round(semantic * 5)))
-            percentage = min(98, max(85, base_pct))
-
-            fit_level = (
-                "Exceptional Match" if percentage >= 85 else (
-                    "Strong Match" if percentage >= 70 else (
-                        "Good Fit" if percentage >= 50 else "Potential Fit"
-                    )
-                )
+            # High-confidence formula: the four-skill gate is followed by a
+            # deliberately narrow 85-98% range.
+            raw_pct = (
+                85
+                + min(8, max(0, len(matched) - 4) * 2)
+                + (3 if is_role_match else 0)
+                + seniority_bonus
+                + semantic_points
             )
+            percentage = int(max(85, min(98, raw_pct)))
+            fit_level = "Exceptional Match"
 
             # Explainable match reasons
             reasons = []
             if matched:
                 reasons.append(f"Strong overlap on {', '.join(matched[:4])}")
-            if role_score >= 0.8:
+            if is_role_match:
                 reasons.append("Matches your target job title")
             if seniority_bonus > 0:
                 reasons.append(f"Aligned with your {seniority.title()} seniority level")

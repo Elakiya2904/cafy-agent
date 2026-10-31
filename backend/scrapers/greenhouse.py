@@ -34,17 +34,17 @@ class GreenhouseScraper(BaseScraper):
         normalized_jobs = []
         for item in raw_jobs:
             departments = [d.get("name", "") for d in item.get("departments", []) if d.get("name")]
-            dept_str = ", ".join(departments) if departments else "General"
+            dept_str = ", ".join(departments) if departments else ""
 
             raw_job = {
                 "source_id": str(item.get("id")),
                 "title": item.get("title"),
                 "company": name,
-                "location": item.get("location", {}).get("name") if isinstance(item.get("location"), dict) else str(item.get("location") or "Remote"),
+                "location": item.get("location", {}).get("name") if isinstance(item.get("location"), dict) else str(item.get("location") or ""),
                 "url": item.get("absolute_url") or f"https://boards.greenhouse.io/{token}/jobs/{item.get('id')}",
                 "description": item.get("content", ""),
                 "department": dept_str,
-                "posted_at": item.get("updated_at")
+                "posted_at": item.get("first_published") or item.get("updated_at")
             }
 
             norm = JobNormalizer.normalize_job(raw_job, self.platform_name, default_company=name)

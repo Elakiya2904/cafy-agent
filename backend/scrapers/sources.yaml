@@ -1,96 +1,378 @@
 platforms:
   greenhouse:
-    name: "Greenhouse"
-    color: "#00B259"
+    name: Greenhouse
+    color: '#00B259'
     companies:
-      - token: "stripe"
-        name: "Stripe"
-      - token: "figma"
-        name: "Figma"
-      - token: "reddit"
-        name: "Reddit"
-      - token: "databricks"
-        name: "Databricks"
-      - token: "cloudflare"
-        name: "Cloudflare"
-      - token: "twitch"
-        name: "Twitch"
-
+    - token: stripe
+      name: Stripe
+    - token: figma
+      name: Figma
+    - token: reddit
+      name: Reddit
+    - token: databricks
+      name: Databricks
+    - token: cloudflare
+      name: Cloudflare
+    - token: twitch
+      name: Twitch
+    - token: oliver
+      name: OLIVER SERVICES LTD
+    - token: toast
+      name: Toast
+    - token: pingidentity
+      name: Ping Identity Limited
+    - token: redwoodsoftware
+      name: Redwood Software UK Ltd
+    - token: mirakl
+      name: Mirakl Ltd
+    - token: yotpo
+      name: Yotpo UK Ltd
+    - token: a24
+      name: A24 Group Ltd
+    - token: aavantgardebio
+      name: AAVantgarde Bio UK Ltd
+    - token: affirm
+      name: AFFIRM UK LTD
+    - token: akqa
+      name: AKQA Ltd
+    - token: agoda
+      name: Agoda
+    - token: airbnb
+      name: Airbnb
+    - token: airtable
+      name: Airtable
+    - token: anthropic
+      name: Anthropic
+    - token: asana
+      name: Asana
+    - token: attentive
+      name: Attentive
+    - token: beyond
+      name: Beyond
+    - token: bird
+      name: Bird
+    - token: brex
+      name: Brex
+    - token: carta
+      name: Carta
+    - token: chime
+      name: Chime
+    - token: cloudbeds
+      name: Cloudbeds
+    - token: coinbase
+      name: Coinbase
+    - token: datadog
+      name: Datadog
+    - token: discord
+      name: Discord
+    - token: dropbox
+      name: Dropbox
+    - token: duolingo
+      name: Duolingo
+    - token: engine
+      name: Engine
+    - token: fareharbor
+      name: Fareharbor
+    - token: flexport
+      name: Flexport
+    - token: flix
+      name: Flix
+    - token: getyourguide
+      name: Getyourguide
+    - token: gitlab
+      name: Gitlab
+    - token: gusto
+      name: Gusto
+    - token: hopskipdrive
+      name: Hopskipdrive
+    - token: instacart
+      name: Instacart
+    - token: kayak
+      name: Kayak
+    - token: lighthouse
+      name: Lighthouse
+    - token: lyft
+      name: Lyft
+    - token: marqeta
+      name: Marqeta
+    - token: mercury
+      name: Mercury
+    - token: mongodb
+      name: Mongodb
+    - token: nuitee
+      name: Nuitee
+    - token: okta
+      name: Okta
+    - token: opentable
+      name: Opentable
+    - token: robinhood
+      name: Robinhood
+    - token: samsara
+      name: Samsara
+    - token: scaleai
+      name: Scaleai
+    - token: seatgeek
+      name: Seatgeek
+    - token: skyscanner
+      name: Skyscanner
+    - token: squarespace
+      name: Squarespace
+    - token: taskrabbit
+      name: Taskrabbit
+    - token: thefork
+      name: Thefork
+    - token: tripactions
+      name: Tripactions
+    - token: tripadvisor
+      name: Tripadvisor
+    - token: twilio
+      name: Twilio
+    - token: uplift
+      name: Uplift
+    - token: vacasa
+      name: Vacasa
+    - token: vercel
+      name: Vercel
+    - token: waymo
+      name: Waymo
+    - token: wheelhouse
+      name: Wheelhouse
+    - token: wppmedia
+      name: WPP Media UK Limited
+    - token: quberesearchandtechnologies
+      name: Qube Research & Technologies Limited
+    - token: agency
+      name: Agency Inc Ltd
+    - token: flohealth
+      name: Flo Health UK Limited
+    - token: krollbondratingagency
+      name: Kroll Bond Rating Agency UK Limited
+    - token: squarepointcapital
+      name: Squarepoint Capital LLP
+    - token: modulrfinance
+      name: Modulr Finance
+    - token: gsacapital
+      name: GSA Capital Services Limited
+    - token: capstoneinvestmentadvisors
+      name: Capstone Investment Advisors  (UK) LLP
+    - token: clearviewhealthcarepartners
+      name: Clearview Healthcare Partners (UK) Limited
+    - token: designbridge
+      name: Design Bridge Ltd
+    - token: adaptivefinancialconsulting
+      name: Adaptive Financial Consulting Ltd
+    - token: towerresearchcapital
+      name: Tower Research Capital Europe Limited
+    - token: bottomlinetechnologies
+      name: Bottomline Technologies Limited
+    - token: icgmedical
+      name: ICG Medical Limited
+    - token: modoenergy
+      name: Modo Energy
+    - token: suitsupply
+      name: Suit Supply UK Limited
+    - token: bayasystems
+      name: Baya Systems Limited
+    - token: flatironhealth
+      name: Flatiron Health UK Ltd
+    - token: superpayments
+      name: Super Payments Ltd
+    - token: assetreality
+      name: Asset Reality Ltd
+    - token: elwoodtechnologies
+      name: Elwood Technologies Services Limited
+    - token: lunarenergy
+      name: Lunar Energy Limited
+    - token: mewssystems
+      name: Mews Systems Limited
+    - token: rimestechnologies
+      name: Rimes Technologies Limited
+    - token: stemhealthcare
+      name: STEM Healthcare Limited
+    - token: sambanovasystems
+      name: SambaNova Systems UK Limited
+    - token: avadolearning
+      name: Avado Learning Limited
+    - token: nearwatercapital
+      name: Nearwater Capital UK Limited
+    - token: peregrinetechnologies
+      name: Peregrine Technologies UK Ltd
+    - token: quadraturecapital
+      name: Quadrature Capital Limited
+    - token: quantbot-technologies
+      name: Quantbot Technologies Ltd
+    - token: armada
+      name: THE ARMADA GROUP (HOSPITALITY) LIMITED
   ashby:
-    name: "Ashby"
-    color: "#6366F1"
+    name: Ashby
+    color: '#6366F1'
     companies:
-      - token: "ramp"
-        name: "Ramp"
-      - token: "notion"
-        name: "Notion"
-      - token: "linear"
-        name: "Linear"
-      - token: "zapier"
-        name: "Zapier"
-      - token: "docker"
-        name: "Docker"
-
+    - token: ramp
+      name: Ramp
+    - token: notion
+      name: Notion
+    - token: linear
+      name: Linear
+    - token: zapier
+      name: Zapier
+    - token: docker
+      name: Docker
+    - token: smarkets
+      name: Smarkets Limited
+    - token: trading212
+      name: Trading 212 UK Ltd
+    - token: mapbox
+      name: Mapbox UK Ltd
+    - token: phasebiolabs
+      name: Phase Biolabs Ltd
+    - token: 9fin
+      name: 9fin Limited
+    - token: airtable
+      name: Airtable
+    - token: ashby
+      name: Ashby
+    - token: cursor
+      name: Cursor
+    - token: deel
+      name: Deel
+    - token: duffel
+      name: Duffel
+    - token: elevenlabs
+      name: Elevenlabs
+    - token: fig
+      name: Fig
+    - token: hopper
+      name: Hopper
+    - token: junipersquare
+      name: Junipersquare
+    - token: kayak
+      name: Kayak
+    - token: marqeta
+      name: Marqeta
+    - token: mercury
+      name: Mercury
+    - token: midjourney
+      name: Midjourney
+    - token: openai
+      name: Openai
+    - token: opentable
+      name: Opentable
+    - token: perplexity
+      name: Perplexity
+    - token: reddit
+      name: Reddit
+    - token: replit
+      name: Replit
+    - token: siteminder
+      name: Siteminder
+    - token: skyscanner
+      name: Skyscanner
+    - token: snowflake
+      name: Snowflake
+    - token: supabase
+      name: Supabase
+    - token: tripactions
+      name: Tripactions
+    - token: vanta
+      name: Vanta
+    - token: vercel
+      name: Vercel
+    - token: zip
+      name: Zip
+    - token: neko-health
+      name: Neko Health UK Limited
+    - token: allica-bank
+      name: Allica Bank
+    - token: vertical-aerospace
+      name: Vertical Aerospace Group Ltd
+    - token: second-front-systems
+      name: Second Front Systems Limited
+    - token: cloudcapital
+      name: Cloud Capital LLP
+    - token: slingshot-aerospace
+      name: Slingshot Aerospace Limited
+    - token: strider-technologies
+      name: Strider Technologies UK Limited
   workday:
-    name: "Workday"
-    color: "#F58220"
+    name: Workday
+    color: '#F58220'
     companies:
-      - tenant: "nvidia"
-        name: "NVIDIA"
-        host: "nvidia.wd5.myworkdayjobs.com"
-        site: "NVIDIAExternalCareerSite"
-      - tenant: "target"
-        name: "Target"
-        host: "target.wd5.myworkdayjobs.com"
-        site: "targetcareers"
-      - tenant: "salesforce"
-        name: "Salesforce"
-        host: "salesforce.wd12.myworkdayjobs.com"
-        site: "External_Career_Site"
-
+    - tenant: nvidia
+      name: NVIDIA
+      host: nvidia.wd5.myworkdayjobs.com
+      site: NVIDIAExternalCareerSite
+    - tenant: target
+      name: Target
+      host: target.wd5.myworkdayjobs.com
+      site: targetcareers
+    - tenant: salesforce
+      name: Salesforce
+      host: salesforce.wd12.myworkdayjobs.com
+      site: External_Career_Site
   lever:
-    name: "Lever"
-    color: "#0A66C2"
+    name: Lever
+    color: '#0A66C2'
     companies:
-      - token: "spotify"
-        name: "Spotify"
-
+    - token: spotify
+      name: Spotify
+    - token: airdna
+      name: Airdna
+    - token: duffel
+      name: Duffel
+    - token: engine
+      name: Engine
+    - token: palantir
+      name: Palantir
+    - token: placemakr
+      name: Placemakr
+    - token: mulberry
+      name: MULBERRY CO (DESIGN) LTD
+    - token: lyrahealth
+      name: Lyra Health International Limited
+    - token: level-zero-health
+      name: Level Zero Health
+    - token: capital
+      name: CAPITAL UK GROUP SERVICES LTD
+    - token: recognisebank
+      name: Recognise Bank Limited
+    - token: afin-bank
+      name: Afin Bank Limited
+    - token: investorflow
+      name: InvestorFlow UK Limited
+    - token: ansatzcapital
+      name: Ansatz Capital UK Ltd
   workable:
-    name: "Workable"
-    color: "#00877C"
+    name: Workable
+    color: '#00877C'
     companies:
-      - token: "cloudtalk"
-        name: "Cloudtalk"
-
+    - token: cloudtalk
+      name: Cloudtalk
   oracle_cloud:
-    name: "Oracle Cloud"
-    color: "#C74634"
+    name: Oracle Cloud
+    color: '#C74634'
     companies:
-      - token: "oracle"
-        name: "Oracle Corporation"
-        host: "eeho.fa.us2.oraclecloud.com"
-        site_id: "CX_45001"
-        careers_url: "https://careers.oracle.com/en/sites/jobsearch"
-
+    - token: oracle
+      name: Oracle Corporation
+      host: eeho.fa.us2.oraclecloud.com
+      site_id: CX_45001
+      careers_url: https://careers.oracle.com/en/sites/jobsearch
   breezyhr:
-    name: "BreezyHR"
-    color: "#1DA1F2"
+    name: BreezyHR
+    color: '#1DA1F2'
     companies:
-      - token: "freeeup"
-        name: "FreeUp"
-      - token: "embraer"
-        name: "Embraer"
-      - token: "webox-jobs"
-        name: "WeBox"
-      - token: "switchboard"
-        name: "Switchboard"
-
+    - token: freeeup
+      name: FreeUp
+    - token: embraer
+      name: Embraer
+    - token: webox-jobs
+      name: WeBox
+    - token: switchboard
+      name: Switchboard
   pinpoint:
-    name: "Pinpoint"
-    color: "#8B5CF6"
+    name: Pinpoint
+    color: '#8B5CF6'
     companies:
-      - token: "cfc"
-        name: "CFC"
-      - token: "article"
-        name: "Article"
-
+    - token: cfc
+      name: CFC
+    - token: article
+      name: Article

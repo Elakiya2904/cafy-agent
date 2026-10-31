@@ -21,7 +21,7 @@ class TestJobDatabase(unittest.TestCase):
             "title": "Software Engineer, Core",
             "company": "Stripe",
             "platform": "greenhouse",
-            "location": "San Francisco, CA",
+            "location": "London, UK",
             "is_remote": False,
             "url": "https://boards.greenhouse.io/stripe/jobs/101",
             "description": "Initial description text.",
@@ -74,6 +74,25 @@ class TestJobDatabase(unittest.TestCase):
         self.assertEqual(len(stats["recent_runs"]), 1)
         self.assertEqual(stats["recent_runs"][0]["platform"], "greenhouse")
         self.assertEqual(stats["recent_runs"][0]["jobs_found"], 25)
+
+    def test_non_uk_and_ireland_jobs_are_not_stored(self):
+        job = {
+            "id": "greenhouse_stripe_us",
+            "source_job_id": "us-1",
+            "title": "Software Engineer",
+            "company": "Stripe",
+            "platform": "greenhouse",
+            "location": "Seattle, United States",
+            "url": "https://boards.greenhouse.io/stripe/jobs/us-1",
+            "description": "Build software.",
+            "extracted_skills": ["Python"],
+        }
+
+        result = self.db.save_or_update_jobs([job])
+
+        self.assertEqual(result["new"], 0)
+        self.assertEqual(self.db.get_jobs(), [])
+        self.assertEqual(self.db.get_stats()["total_active_jobs"], 0)
 
 if __name__ == "__main__":
     unittest.main()

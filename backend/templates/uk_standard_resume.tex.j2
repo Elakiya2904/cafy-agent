@@ -20,7 +20,7 @@
 
 \begin{document}
 \begin{center}
-  {\LARGE\bfseries (( personal_info.name | texescape ))}\\[2pt]
+  ((*- if personal_info.name *)){\LARGE\bfseries (( personal_info.name | texescape ))}\\[2pt]((*- endif *))
   ((*- if target_role *))((  target_role | texescape ))((*- endif *))\\[3pt]
   ((*- if personal_info.email *))\href{mailto:(( personal_info.email ))}{(( personal_info.email | texescape ))}((*- endif *))
   ((*- if personal_info.phone *)) \textbar{} \href{tel:(( personal_info.phone ))}{(( personal_info.phone | texescape ))}((*- endif *))

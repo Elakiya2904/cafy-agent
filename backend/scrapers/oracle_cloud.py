@@ -76,7 +76,7 @@ class OracleCloudScraper(BaseScraper):
             if not req_id:
                 continue
 
-            loc = item.get("PrimaryLocation") or "United States"
+            loc = item.get("PrimaryLocation") or ""
             workplace = item.get("WorkplaceType") or item.get("WorkplaceTypeCode") or ""
             is_remote = (
                 bool(item.get("RemoteFlag"))
@@ -101,7 +101,7 @@ class OracleCloudScraper(BaseScraper):
                     or item.get("ShortDescriptionStr")
                     or ""
                 ),
-                "department": item.get("Department") or "Cloud & Technology",
+                "department": item.get("Department") or "",
                 "posted_at": item.get("PostedDate")
             }
 

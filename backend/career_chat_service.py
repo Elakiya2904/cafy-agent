@@ -9,6 +9,14 @@ import requests
 
 logger = logging.getLogger("cafy.career_chat")
 
+EMOJI_PATTERN = re.compile("[\U0001F000-\U0001FFFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u200D]")
+
+
+def strip_emojis(text: str) -> str:
+    """Remove emoji and pictograph code points so AI answers render as plain text."""
+    cleaned = EMOJI_PATTERN.sub("", text)
+    return re.sub(r"[ \t]{2,}", " ", cleaned)
+
 EARLY_CAREER_TERMS = (
     "intern", "internship", "graduate", "junior", "entry-level", "entry level", "early career",
     "new grad", "new graduate", "fresh graduate", "fresher", "freshers", "0-2 years", "0 to 2 years",
@@ -284,10 +292,10 @@ def build_career_context(
         "intent": intent,
         "mode": mode,
         "candidate": {
-            "name": resume.get("candidate_name") or "Candidate",
+            "name": resume.get("candidate_name") or None,
             "skills": resume.get("skills", [])[:40],
             "target_roles": target_roles[:8],
-            "seniority_level": resume.get("seniority_level") or "Early career / Graduate",
+            "seniority_level": resume.get("seniority_level") or "unknown",
             "years_of_experience": resume.get("years_of_experience", 0),
         } if resume else None,
         "database_summary": {
@@ -334,7 +342,8 @@ class CareerChatService:
             "6. Counts in database_summary describe only the supplied analyzed job set, not the entire database or market. For skill gaps and market questions, never extrapolate these counts or add employers not present in the evidence.\n"
             "7. Keep responses clean, insightful, professional, and concise. Use Markdown tables only when they materially improve readability.\n"
             "8. Never emit Markdown heading markers like #, ##, or ### in the final answer. Use plain text labels or bold text instead.\n"
-            "9. Do not repeat full card JSON in text because the UI automatically renders interactive job cards below your answer."
+            "9. Do not repeat full card JSON in text because the UI automatically renders interactive job cards below your answer.\n"
+            "10. Never use emojis, emoticons, or decorative pictographs anywhere in the answer."
         )
 
         messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
@@ -419,4 +428,4 @@ class CareerChatService:
         if not isinstance(answer, str) or not answer.strip():
             logger.warning("Groq chat response did not contain an answer")
             raise CareerChatError("Career Analyst returned an empty response. Please try again.")
-        return answer.strip()
+        return strip_emojis(answer).strip()

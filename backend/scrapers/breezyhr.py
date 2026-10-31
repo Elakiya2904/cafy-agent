@@ -35,12 +35,12 @@ class BreezyHRScraper(BaseScraper):
         for item in data:
             loc_val = item.get("location")
             if isinstance(loc_val, dict):
-                loc = loc_val.get("name") or "Remote"
+                loc = loc_val.get("name") or ""
             else:
-                loc = str(loc_val or "Remote")
+                loc = str(loc_val or "")
 
             type_val = item.get("type")
-            emp_type = type_val.get("name", "Full-time") if isinstance(type_val, dict) else "Full-time"
+            emp_type = (type_val.get("name") or "") if isinstance(type_val, dict) else ""
             is_remote = "remote" in loc.lower() or (isinstance(type_val, dict) and type_val.get("id") == "remote")
 
             raw_job = {
@@ -51,7 +51,7 @@ class BreezyHRScraper(BaseScraper):
                 "is_remote": is_remote,
                 "url": item.get("url") or f"https://{token}.breezy.hr/p/{item.get('id')}",
                 "description": item.get("description", ""),
-                "department": item.get("department") or "Engineering",
+                "department": item.get("department") or "",
                 "employment_type": emp_type,
                 "posted_at": item.get("published_date")
             }

@@ -14,6 +14,7 @@ from .workable import WorkableScraper
 from .oracle_cloud import OracleCloudScraper
 from .breezyhr import BreezyHRScraper
 from .pinpoint import PinpointScraper
+from .job_normalizer import JobNormalizer
 
 logger = logging.getLogger("cafy.scrapers.manager")
 SOURCES_PATH = os.path.join(os.path.dirname(__file__), "sources.yaml")
@@ -55,7 +56,7 @@ class ScraperManager:
     def _init_health_status(self):
         for p in self.scrapers.keys():
             self.health_status[p] = {
-                "status": "uninitialized",
+                "status": "never_run",
                 "last_run": None,
                 "jobs_collected": 0,
                 "duration_seconds": 0.0,
@@ -74,7 +75,7 @@ class ScraperManager:
                 "color": cfg.get("color", "#2563EB"),
                 "companies": companies,
                 "companies_count": len(companies),
-                "status": health.get("status", "ready"),
+                "status": health.get("status", "never_run"),
                 "last_run": health.get("last_run"),
                 "jobs_collected": health.get("jobs_collected", 0),
                 "last_error": health.get("last_error")
@@ -107,7 +108,16 @@ class ScraperManager:
         logger.info(f"[ScraperManager] Starting scrape for '{p_key}' with {len(companies)} companies")
 
         try:
-            jobs = scraper.scrape_all(companies)
+            scraped_jobs = scraper.scrape_all(companies)
+            jobs = [
+                job for job in scraped_jobs
+                if JobNormalizer.is_uk_or_ireland_location(job.get("location", ""))
+            ]
+            excluded_count = len(scraped_jobs) - len(jobs)
+            if excluded_count:
+                logger.info(
+                    f"[ScraperManager] Excluded {excluded_count} non-UK/Ireland jobs from '{p_key}'"
+                )
             if not jobs and companies:
                 status = "empty"
         except Exception as e:
