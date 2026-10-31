@@ -61,6 +61,11 @@ class UserStore:
         meta["resume"] = json.loads(meta.pop("parsed_resume") or "{}")
         return meta
 
+    def clear_file(self, candidate: str) -> None:
+        with self.db._get_connection() as conn:
+            conn.execute("DELETE FROM user_resume_files WHERE candidate_id = ?", (candidate,))
+            conn.commit()
+
     def file_content(self, candidate: str) -> Optional[Dict[str, Any]]:
         with self.db._get_connection() as conn:
             row = conn.execute("SELECT filename, content_type, content FROM user_resume_files WHERE candidate_id = ?", (candidate,)).fetchone()

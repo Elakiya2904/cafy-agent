@@ -65,9 +65,9 @@ import {
 
 const API_BASE =
   typeof window !== "undefined" &&
-  (window.location?.hostname === "localhost" || window.location?.hostname === "127.0.0.1") &&
-  window.location?.port &&
-  ["5173", "5174", "3000"].includes(window.location?.port)
+    (window.location?.hostname === "localhost" || window.location?.hostname === "127.0.0.1") &&
+    window.location?.port &&
+    ["5173", "5174", "3000"].includes(window.location?.port)
     ? "http://127.0.0.1:8000"
     : "";
 
@@ -146,15 +146,6 @@ function App() {
 
   useEffect(() => {
     loadPlatformsAndJobs();
-    fetch(`${API_BASE}/api/resume/current`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data && data.resume) {
-          setCurrentResume(data.resume);
-          if (data.matched_jobs) setMatchedJobs(data.matched_jobs);
-        }
-      })
-      .catch(() => {});
   }, [loadPlatformsAndJobs]);
 
   // Handle File Upload
@@ -182,7 +173,7 @@ function App() {
       setMatchedJobs(data.matched_jobs || []);
       setCurrentStep(3);
       showToast(`Analyzed résumé. Found ${data.matched_jobs?.length || 0} matching roles.`);
-      
+
       // Auto-redirect to Find Jobs tab
       setTimeout(() => {
         setActiveTab("find-jobs");
@@ -415,20 +406,20 @@ function CompanyBrandLogo({ company }) {
   if (c.includes("google")) {
     return (
       <svg width="22" height="22" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
-        <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"/>
-        <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"/>
-        <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.98 0 12s.45 3.82 1.25 5.42l4.03-3.15z"/>
-        <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.93 6.72-4.93z"/>
+        <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z" />
+        <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z" />
+        <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.98 0 12s.45 3.82 1.25 5.42l4.03-3.15z" />
+        <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.93 6.72-4.93z" />
       </svg>
     );
   }
   if (c.includes("microsoft")) {
     return (
       <svg width="20" height="20" viewBox="0 0 23 23" style={{ flexShrink: 0 }}>
-        <path fill="#f35325" d="M1 1h10v10H1z"/>
-        <path fill="#81bc06" d="M12 1h10v10H12z"/>
-        <path fill="#05a6f0" d="M1 12h10v10H1z"/>
-        <path fill="#ffba08" d="M12 12h10v10H12z"/>
+        <path fill="#f35325" d="M1 1h10v10H1z" />
+        <path fill="#81bc06" d="M12 1h10v10H12z" />
+        <path fill="#05a6f0" d="M1 12h10v10H1z" />
+        <path fill="#ffba08" d="M12 12h10v10H12z" />
       </svg>
     );
   }
@@ -437,7 +428,7 @@ function CompanyBrandLogo({ company }) {
       <div style={{ width: "24px", height: "24px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
           <text x="3" y="16" fontFamily="Inter, system-ui, sans-serif" fontWeight="900" fontSize="17" fill="#0F172A">a</text>
-          <path d="M4 18.5c4 2.2 10.5 2.2 14.5 0" stroke="#FF9900" strokeWidth="2.2" strokeLinecap="round"/>
+          <path d="M4 18.5c4 2.2 10.5 2.2 14.5 0" stroke="#FF9900" strokeWidth="2.2" strokeLinecap="round" />
         </svg>
       </div>
     );
@@ -445,9 +436,9 @@ function CompanyBrandLogo({ company }) {
   if (c.includes("databricks")) {
     return (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }} aria-hidden="true">
-        <path d="M12 2L2 7l10 5 10-5-10-5z" fill="#FF3621"/>
-        <path d="M2 12l10 5 10-5-10-5-10 5z" fill="#FF3621" opacity="0.85"/>
-        <path d="M2 17l10 5 10-5-10-5-10 5z" fill="#FF3621" opacity="0.7"/>
+        <path d="M12 2L2 7l10 5 10-5-10-5z" fill="#FF3621" />
+        <path d="M2 12l10 5 10-5-10-5-10 5z" fill="#FF3621" opacity="0.85" />
+        <path d="M2 17l10 5 10-5-10-5-10 5z" fill="#FF3621" opacity="0.7" />
       </svg>
     );
   }
@@ -455,7 +446,7 @@ function CompanyBrandLogo({ company }) {
     return (
       <div style={{ width: "22px", height: "22px", borderRadius: "5px", background: "#635BFF", display: "grid", placeItems: "center", flexShrink: 0 }} aria-hidden="true">
         <svg width="12" height="14" viewBox="0 0 12 14" fill="#FFFFFF">
-          <path d="M4.8 5.4c0-.6.5-.9 1.4-.9 1.2 0 2.8.4 4 .9V1.7C8.9 1.3 7.5 1.1 6.2 1.1 2.8 1.1.9 2.9.9 5.6c0 4.2 5.8 3.5 5.8 5.3 0 .7-.6 1-1.6 1-1.5 0-3.4-.6-4.9-1.4v3.8c1.6.7 3.3 1 4.9 1 3.6 0 5.8-1.7 5.8-4.6-.1-4.4-6.1-3.7-6.1-5.3z"/>
+          <path d="M4.8 5.4c0-.6.5-.9 1.4-.9 1.2 0 2.8.4 4 .9V1.7C8.9 1.3 7.5 1.1 6.2 1.1 2.8 1.1.9 2.9.9 5.6c0 4.2 5.8 3.5 5.8 5.3 0 .7-.6 1-1.6 1-1.5 0-3.4-.6-4.9-1.4v3.8c1.6.7 3.3 1 4.9 1 3.6 0 5.8-1.7 5.8-4.6-.1-4.4-6.1-3.7-6.1-5.3z" />
         </svg>
       </div>
     );
@@ -464,7 +455,7 @@ function CompanyBrandLogo({ company }) {
     return (
       <div style={{ width: "22px", height: "22px", borderRadius: "5px", background: "#5E6AD2", display: "grid", placeItems: "center", flexShrink: 0 }} aria-hidden="true">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2.5">
-          <line x1="4" y1="20" x2="20" y2="4" strokeLinecap="round"/>
+          <line x1="4" y1="20" x2="20" y2="4" strokeLinecap="round" />
         </svg>
       </div>
     );
@@ -472,11 +463,11 @@ function CompanyBrandLogo({ company }) {
   if (c.includes("figma")) {
     return (
       <svg width="16" height="22" viewBox="0 0 38 57" style={{ flexShrink: 0 }} aria-hidden="true">
-        <path fill="#1abcfe" d="M19 28.5a9.5 9.5 0 1 1 19 0 9.5 9.5 0 0 1-19 0z"/>
-        <path fill="#0acf83" d="M0 47.5A9.5 9.5 0 0 1 9.5 38H19v9.5a9.5 9.5 0 1 1-19 0z"/>
-        <path fill="#ff7262" d="M19 0v19h9.5a9.5 9.5 0 1 0 0-19H19z"/>
-        <path fill="#f24e1e" d="M0 9.5A9.5 9.5 0 0 0 9.5 19H19V0H9.5A9.5 9.5 0 0 0 0 9.5z"/>
-        <path fill="#a259ff" d="M0 28.5A9.5 9.5 0 0 0 9.5 38H19V19H9.5A9.5 9.5 0 0 0 0 28.5z"/>
+        <path fill="#1abcfe" d="M19 28.5a9.5 9.5 0 1 1 19 0 9.5 9.5 0 0 1-19 0z" />
+        <path fill="#0acf83" d="M0 47.5A9.5 9.5 0 0 1 9.5 38H19v9.5a9.5 9.5 0 1 1-19 0z" />
+        <path fill="#ff7262" d="M19 0v19h9.5a9.5 9.5 0 1 0 0-19H19z" />
+        <path fill="#f24e1e" d="M0 9.5A9.5 9.5 0 0 0 9.5 19H19V0H9.5A9.5 9.5 0 0 0 0 9.5z" />
+        <path fill="#a259ff" d="M0 28.5A9.5 9.5 0 0 0 9.5 38H19V19H9.5A9.5 9.5 0 0 0 0 28.5z" />
       </svg>
     );
   }
@@ -510,7 +501,7 @@ const QUICK_ACTIONS = [
     prompt: "Analyse my opportunities",
     icon: (
       <svg width="15" height="15" viewBox="0 0 24 24" fill="#0066FF" stroke="#0066FF" strokeWidth="1">
-        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" />
       </svg>
     )
   },
@@ -520,7 +511,7 @@ const QUICK_ACTIONS = [
     prompt: "Explain why I match this job",
     icon: (
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0066FF" strokeWidth="2.2">
-        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><circle cx="12" cy="11" r="3"/>
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><circle cx="12" cy="11" r="3" />
       </svg>
     )
   },
@@ -530,7 +521,7 @@ const QUICK_ACTIONS = [
     prompt: "Find new jobs",
     icon: (
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0066FF" strokeWidth="2.4" strokeLinecap="round">
-        <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/>
+        <circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.5" y2="16.5" />
       </svg>
     )
   },
@@ -540,7 +531,7 @@ const QUICK_ACTIONS = [
     prompt: "Skill gap analysis",
     icon: (
       <svg width="15" height="15" viewBox="0 0 24 24" fill="#0066FF">
-        <rect x="3" y="12" width="4" height="9" rx="1"/><rect x="10" y="7" width="4" height="14" rx="1"/><rect x="17" y="3" width="4" height="18" rx="1"/>
+        <rect x="3" y="12" width="4" height="9" rx="1" /><rect x="10" y="7" width="4" height="14" rx="1" /><rect x="17" y="3" width="4" height="18" rx="1" />
       </svg>
     )
   },
@@ -550,7 +541,7 @@ const QUICK_ACTIONS = [
     prompt: "Which jobs should I prioritise this week?",
     icon: (
       <svg width="15" height="15" viewBox="0 0 24 24" fill="#0066FF">
-        <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" fill="none" stroke="#0066FF" strokeWidth="2"/>
+        <rect x="2" y="7" width="20" height="14" rx="2" /><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" fill="none" stroke="#0066FF" strokeWidth="2" />
       </svg>
     )
   },
@@ -560,7 +551,7 @@ const QUICK_ACTIONS = [
     prompt: "Show my progress",
     icon: (
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0066FF" strokeWidth="2.2" strokeLinecap="round">
-        <circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>
+        <circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15 14" />
       </svg>
     )
   },
@@ -744,7 +735,7 @@ function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipe
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-  
+
   const createInitialMessages = () => [
     {
       role: "assistant",
@@ -822,7 +813,7 @@ function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipe
       if (typeof data.answer !== "string" || !data.answer.trim()) {
         throw new Error("Career Analyst returned an empty response. Please try again.");
       }
-      
+
       const cards = data.job_cards || [];
       setMessages((prev) => [
         ...prev,
@@ -918,7 +909,7 @@ function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipe
                     <BirdLogo size={24} />
                   </div>
                 )}
-                
+
                 <div className="career-chat-bubble-container">
                   <div className={`career-chat-bubble ${message.role}`}>
                     {message.role === "assistant"
@@ -1030,7 +1021,7 @@ function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipe
             >
               <div className="career-chat-sparkle-icon" aria-hidden="true">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" strokeWidth="1.8">
-                  <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z"/>
+                  <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z" />
                 </svg>
               </div>
               <input
@@ -1056,7 +1047,7 @@ function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipe
                 title="Send"
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="#FFFFFF">
-                  <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                  <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
                 </svg>
               </button>
             </form>
@@ -1073,75 +1064,95 @@ function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipe
 
 function Sidebar({ activeTab, setActiveTab, totalJobsCount, hasResume, highMatchCount = 0, pipelineCount = 0, platformCount = 0 }) {
   const navItems = [
-    { section: "Overview", section: "Overview", id: "home", label: "Home", icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <rect x="3" y="3" width="7" height="7" rx="1.5"></rect>
-        <rect x="14" y="3" width="7" height="7" rx="1.5"></rect>
-        <rect x="14" y="14" width="7" height="7" rx="1.5"></rect>
-        <rect x="3" y="14" width="7" height="7" rx="1.5"></rect>
-      </svg>
-    )},
-    { section: "1 · Discover", section: "1. Discover", id: "find-jobs", label: "Find Jobs", badge: hasResume ? highMatchCount : totalJobsCount, icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <circle cx="11" cy="11" r="8"></circle>
-        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-      </svg>
-    )},
-    { id: "companies", label: "Companies", icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect>
-        <line x1="9" y1="22" x2="9" y2="22.01"></line>
-        <line x1="15" y1="22" x2="15" y2="22.01"></line>
-        <line x1="9" y1="18" x2="9" y2="18.01"></line>
-        <line x1="15" y1="18" x2="15" y2="18.01"></line>
-        <line x1="9" y1="14" x2="9" y2="14.01"></line>
-        <line x1="15" y1="14" x2="15" y2="14.01"></line>
-      </svg>
-    )},
-    { id: "job-alerts", label: "Job Alerts", icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
-        <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
-      </svg>
-    )},
-    { section: "2. Apply", id: "my-applications", badge: pipelineCount > 0 ? pipelineCount : undefined, icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M9 11l3 3L22 4"></path>
-        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
-      </svg>
-    )},
-    { id: "resume", label: "Resume", hasDot: hasResume, icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-        <polyline points="14 2 14 8 20 8"></polyline>
-        <line x1="16" y1="13" x2="8" y2="13"></line>
-        <line x1="16" y1="17" x2="8" y2="17"></line>
-      </svg>
-    )},
-    { id: "files", label: "Files", icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-      </svg>
-    )},
-    { section: "3 · Follow up", id: "follow-ups", label: "Email Agent", icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <line x1="22" y1="2" x2="11" y2="13"></line>
-        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-      </svg>
-    )},
-    { section: "Account", id: "insights", label: "Analytics", icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <line x1="18" y1="20" x2="18" y2="10"></line>
-        <line x1="12" y1="20" x2="12" y2="4"></line>
-        <line x1="6" y1="20" x2="6" y2="14"></line>
-      </svg>
-    )},
-    { id: "settings", label: "Settings", icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <circle cx="12" cy="12" r="3"></circle>
-        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-      </svg>
-    )}
+    {
+      section: "Overview", id: "home", label: "Home", icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <rect x="3" y="3" width="7" height="7" rx="1.5"></rect>
+          <rect x="14" y="3" width="7" height="7" rx="1.5"></rect>
+          <rect x="14" y="14" width="7" height="7" rx="1.5"></rect>
+          <rect x="3" y="14" width="7" height="7" rx="1.5"></rect>
+        </svg>
+      )
+    },
+    {
+      section: "1. Discover", id: "find-jobs", label: "Find Jobs", badge: hasResume ? highMatchCount : totalJobsCount, icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+      )
+    },
+    {
+      id: "companies", label: "Companies", icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect>
+          <line x1="9" y1="22" x2="9" y2="22.01"></line>
+          <line x1="15" y1="22" x2="15" y2="22.01"></line>
+          <line x1="9" y1="18" x2="9" y2="18.01"></line>
+          <line x1="15" y1="18" x2="15" y2="18.01"></line>
+          <line x1="9" y1="14" x2="9" y2="14.01"></line>
+          <line x1="15" y1="14" x2="15" y2="14.01"></line>
+        </svg>
+      )
+    },
+    {
+      id: "job-alerts", label: "Job Alerts", icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+          <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+        </svg>
+      )
+    },
+    {
+      section: "2. Apply", label: "Application", id: "my-applications", badge: pipelineCount > 0 ? pipelineCount : undefined, icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M9 11l3 3L22 4"></path>
+          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+        </svg>
+      )
+    },
+    {
+      id: "resume", label: "Resume", hasDot: hasResume, icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+          <line x1="16" y1="13" x2="8" y2="13"></line>
+          <line x1="16" y1="17" x2="8" y2="17"></line>
+        </svg>
+      )
+    },
+    {
+      id: "files", label: "Files", icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+        </svg>
+      )
+    },
+    {
+      section: "3 · Follow up", id: "follow-ups", label: "Email Agent", icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <line x1="22" y1="2" x2="11" y2="13"></line>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        </svg>
+      )
+    },
+    {
+      section: "Account", id: "insights", label: "Analytics", icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <line x1="18" y1="20" x2="18" y2="10"></line>
+          <line x1="12" y1="20" x2="12" y2="4"></line>
+          <line x1="6" y1="20" x2="6" y2="14"></line>
+        </svg>
+      )
+    },
+    {
+      id: "settings", label: "Settings", icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      )
+    }
   ];
 
   return (
@@ -1159,21 +1170,21 @@ function Sidebar({ activeTab, setActiveTab, totalJobsCount, hasResume, highMatch
       <nav className="sidebar-nav">
         {navItems.map((item) => (
           <React.Fragment key={item.id}>
-          {item.section && <div className="nav-section-label">{item.section}</div>}
-          <a
-            href={`#${item.id}`}
-            className={`nav-item ${activeTab === item.id ? "active" : ""}`}
-            onClick={(e) => {
-              e.preventDefault();
-              setActiveTab(item.id);
-            }}
-          >
-            <span className="nav-icon">{item.icon}</span>
-            <span>{item.label}</span>
-            {item.badge !== undefined && <span className="badge-counter">{item.badge}</span>}
-            {item.tag && <span className="badge-pill">{item.tag}</span>}
-            {item.hasDot && <span className="status-dot active"></span>}
-          </a>
+            {item.section && <div className="nav-section-label">{item.section}</div>}
+            <a
+              href={`#${item.id}`}
+              className={`nav-item ${activeTab === item.id ? "active" : ""}`}
+              onClick={(e) => {
+                e.preventDefault();
+                setActiveTab(item.id);
+              }}
+            >
+              <span className="nav-icon">{item.icon}</span>
+              <span>{item.label}</span>
+              {item.badge !== undefined && <span className="badge-counter">{item.badge}</span>}
+              {item.tag && <span className="badge-pill">{item.tag}</span>}
+              {item.hasDot && <span className="status-dot active"></span>}
+            </a>
           </React.Fragment>
         ))}
       </nav>
@@ -1553,17 +1564,17 @@ function getVisaState(job) {
   if (inIreland) {
     return job.visa_sponsor_registered
       ? {
-          tone: "warn",
-          title: "Not verified",
-          detail: "A UK sponsor, but not found in the Irish employment permit data for this Ireland role",
-          tip: "Verify directly with the employer.",
-        }
+        tone: "warn",
+        title: "Not verified",
+        detail: "A UK sponsor, but not found in the Irish employment permit data for this Ireland role",
+        tip: "Verify directly with the employer.",
+      }
       : {
-          tone: "none",
-          title: "No sponsorship evidence",
-          detail: "Employer not found in the Irish employment permit data or the UK sponsor register",
-          tip: "Verify directly with the employer.",
-        };
+        tone: "none",
+        title: "No sponsorship evidence",
+        detail: "Employer not found in the Irish employment permit data or the UK sponsor register",
+        tip: "Verify directly with the employer.",
+      };
   }
   if (job.visa_sponsor_registered) {
     return {
@@ -1940,11 +1951,11 @@ function normalizeClientResume(raw, masterResume, job) {
   }));
 
   let totalBullets = exps.reduce((acc, e) => acc + (e.bullets?.length || 0), 0) +
-                     projs.reduce((acc, p) => acc + (p.bullets?.length || 0), 0);
+    projs.reduce((acc, p) => acc + (p.bullets?.length || 0), 0);
   if (totalBullets > 12) {
     projs = projs.map((p) => ({ ...p, bullets: (p.bullets || []).slice(0, 2) }));
     totalBullets = exps.reduce((acc, e) => acc + (e.bullets?.length || 0), 0) +
-                   projs.reduce((acc, p) => acc + (p.bullets?.length || 0), 0);
+      projs.reduce((acc, p) => acc + (p.bullets?.length || 0), 0);
     if (totalBullets > 12) {
       exps = exps.map((e) => ({ ...e, bullets: (e.bullets || []).slice(0, 2) }));
     }
@@ -2067,165 +2078,165 @@ function ResumeDocumentPreview({ resume, job, resumeReady, isGeneratingResume })
     <div className="resume-preview-sheet-wrapper">
       <div className="resume-paper-doc" id="resume-printable-doc">
         <div className="resume-paper-content">
-        {/* 1. Header: Sebastian Bennett ATS Style */}
-      {pInfo.name && <h1 style={{ letterSpacing: "0.04em" }}>{pInfo.name.toUpperCase()}</h1>}
-      {targetRole && <div className="paper-role">{targetRole}</div>}
+          {/* 1. Header: Sebastian Bennett ATS Style */}
+          {pInfo.name && <h1 style={{ letterSpacing: "0.04em" }}>{pInfo.name.toUpperCase()}</h1>}
+          {targetRole && <div className="paper-role">{targetRole}</div>}
 
-      <div className="paper-contact-bar">
-        {pInfo.phone && (
-          <span>
-            <Phone size={12} aria-hidden="true" /> <a href={`tel:${pInfo.phone.replace(/[^\d+]/g, "")}`}>{pInfo.phone}</a>
-          </span>
-        )}
-        {pInfo.email && (
-          <span>
-            <Mail size={12} aria-hidden="true" /> <a href={`mailto:${pInfo.email}`}>{pInfo.email}</a>
-          </span>
-        )}
-        {pInfo.location && <span><MapPin size={12} aria-hidden="true" /> {pInfo.location}</span>}
-        {linkedInHandle && (
-          <span>
-            <Linkedin size={12} aria-hidden="true" /> <a href={`https://linkedin.com/in/${linkedInHandle}`} target="_blank" rel="noopener noreferrer">linkedin.com/in/{linkedInHandle}</a>
-          </span>
-        )}
-        {gitHubHandle && (
-          <span>
-            <Github size={12} aria-hidden="true" /> <a href={`https://github.com/${gitHubHandle}`} target="_blank" rel="noopener noreferrer">github.com/{gitHubHandle}</a>
-          </span>
-        )}
-        {portfolioClean && (
-          <span>
-            <Globe size={12} aria-hidden="true" /> <a href={`https://${portfolioClean}`} target="_blank" rel="noopener noreferrer">{portfolioClean}</a>
-          </span>
-        )}
-      </div>
-      <hr className="paper-header-hr" />
-
-      {/* 2. Professional Summary / About Me */}
-      {resume.professional_summary && (
-        <div className="paper-section">
-          <div className="paper-section-title">Professional Summary</div>
-          <p className="paper-summary" style={{ textAlign: "justify" }}>{resume.professional_summary}</p>
-          <hr className="paper-section-hr" />
-        </div>
-      )}
-
-      {/* 3. Work Experience */}
-      {resume.experience && resume.experience.length > 0 && (
-        <div className="paper-section">
-          <div className="paper-section-title">Work Experience</div>
-          {resume.experience.map((exp, idx) => (
-            <div className="paper-entry" key={`exp-${idx}`} style={{ marginBottom: 10 }}>
-              <div className="paper-entry-meta">
-                <span className="paper-entry-company">
-                  {exp.organization || exp.company || ""}
-                  {exp.location ? ` | ${exp.location}` : ""}
-                </span>
-                {exp.dates && <span className="paper-entry-dates">{exp.dates}</span>}
-              </div>
-              {exp.title && <div className="paper-entry-title">{exp.title}</div>}
-              {exp.description && <p className="paper-summary">{exp.description}</p>}
-              {exp.bullets && exp.bullets.length > 0 && (
-                <ul className="paper-bullets">
-                  {exp.bullets.map((b, bIdx) => (
-                    <li key={`exp-${idx}-b-${bIdx}`}><LinkifiedText text={b} /></li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ))}
-          <hr className="paper-section-hr" />
-        </div>
-      )}
-
-      {/* 4. Projects */}
-      {resume.projects && resume.projects.length > 0 && (
-        <div className="paper-section">
-          <div className="paper-section-title">Projects</div>
-          {resume.projects.map((proj, idx) => (
-            <div className="paper-entry" key={`proj-${idx}`} style={{ marginBottom: 10 }}>
-              <div className="paper-entry-meta">
-                <span className="paper-entry-company">
-                  {proj.title || ""}
-                  {proj.organization ? ` | ${proj.organization}` : ""}
-                </span>
-                {proj.dates && <span className="paper-entry-dates">{proj.dates}</span>}
-              </div>
-              {proj.description && <p className="paper-summary"><LinkifiedText text={proj.description} /></p>}
-              {proj.bullets && proj.bullets.length > 0 && (
-                <ul className="paper-bullets">
-                  {proj.bullets.map((b, bIdx) => (
-                    <li key={`proj-${idx}-b-${bIdx}`}><LinkifiedText text={b} /></li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ))}
-          <hr className="paper-section-hr" />
-        </div>
-      )}
-
-      {/* 5. Education */}
-      {resume.education && resume.education.length > 0 && (
-        <div className="paper-section">
-          <div className="paper-section-title">Education</div>
-          {resume.education.map((edu, idx) => (
-            <div className="paper-entry" key={`edu-${idx}`} style={{ marginBottom: 8 }}>
-              <div className="paper-entry-meta">
-                <span className="paper-entry-company">
-                  {edu.institution || edu.organization || edu.school || ""}
-                  {edu.location ? ` | ${edu.location}` : ""}
-                </span>
-                {edu.dates && <span className="paper-entry-dates">{edu.dates}</span>}
-              </div>
-              {(edu.degree || edu.title) && <div className="paper-entry-title">{edu.degree || edu.title}</div>}
-              {edu.description && <p className="paper-summary"><LinkifiedText text={edu.description} /></p>}
-              {edu.bullets && edu.bullets.length > 0 && (
-                <ul className="paper-bullets">
-                  {edu.bullets.map((b, bIdx) => (
-                    <li key={`edu-${idx}-b-${bIdx}`}><LinkifiedText text={b} /></li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ))}
-          <hr className="paper-section-hr" />
-        </div>
-      )}
-
-      {/* 6. Skills in 3-column bulleted grid matching Sebastian Bennett image */}
-      {resume.skills && resume.skills.length > 0 && (
-        <div className="paper-section">
-          <div className="paper-section-title">Core Skills</div>
-          <div className="paper-skills-grid">
-            {resume.skills.map((skill, sIdx) => (
-              <div className="paper-skill-item" key={`sk-${sIdx}`}>
-                <span className="paper-bullet-dot">•</span> {skill}
-              </div>
-            ))}
+          <div className="paper-contact-bar">
+            {pInfo.phone && (
+              <span>
+                <Phone size={12} aria-hidden="true" /> <a href={`tel:${pInfo.phone.replace(/[^\d+]/g, "")}`}>{pInfo.phone}</a>
+              </span>
+            )}
+            {pInfo.email && (
+              <span>
+                <Mail size={12} aria-hidden="true" /> <a href={`mailto:${pInfo.email}`}>{pInfo.email}</a>
+              </span>
+            )}
+            {pInfo.location && <span><MapPin size={12} aria-hidden="true" /> {pInfo.location}</span>}
+            {linkedInHandle && (
+              <span>
+                <Linkedin size={12} aria-hidden="true" /> <a href={`https://linkedin.com/in/${linkedInHandle}`} target="_blank" rel="noopener noreferrer">linkedin.com/in/{linkedInHandle}</a>
+              </span>
+            )}
+            {gitHubHandle && (
+              <span>
+                <Github size={12} aria-hidden="true" /> <a href={`https://github.com/${gitHubHandle}`} target="_blank" rel="noopener noreferrer">github.com/{gitHubHandle}</a>
+              </span>
+            )}
+            {portfolioClean && (
+              <span>
+                <Globe size={12} aria-hidden="true" /> <a href={`https://${portfolioClean}`} target="_blank" rel="noopener noreferrer">{portfolioClean}</a>
+              </span>
+            )}
           </div>
-        </div>
-      )}
+          <hr className="paper-header-hr" />
 
-      {/* 7. Certifications if any */}
-      {resume.certifications && resume.certifications.length > 0 && (
-        <div className="paper-section" style={{ marginTop: 8 }}>
-          <hr className="paper-section-hr" />
-          <div className="paper-section-title">Certifications</div>
-          {resume.certifications.map((cert, idx) => (
-            <div className="paper-entry" key={`cert-${idx}`} style={{ marginBottom: 4 }}>
-              <div className="paper-entry-meta">
-                <span className="paper-entry-title">{cert.name || cert.title || ""}</span>
-                {cert.dates && <span className="paper-entry-dates">{cert.dates}</span>}
-              </div>
-              {cert.issuer && <div className="paper-entry-loc">{cert.issuer}</div>}
+          {/* 2. Professional Summary / About Me */}
+          {resume.professional_summary && (
+            <div className="paper-section">
+              <div className="paper-section-title">Professional Summary</div>
+              <p className="paper-summary" style={{ textAlign: "justify" }}>{resume.professional_summary}</p>
+              <hr className="paper-section-hr" />
             </div>
-          ))}
+          )}
+
+          {/* 3. Work Experience */}
+          {resume.experience && resume.experience.length > 0 && (
+            <div className="paper-section">
+              <div className="paper-section-title">Work Experience</div>
+              {resume.experience.map((exp, idx) => (
+                <div className="paper-entry" key={`exp-${idx}`} style={{ marginBottom: 10 }}>
+                  <div className="paper-entry-meta">
+                    <span className="paper-entry-company">
+                      {exp.organization || exp.company || ""}
+                      {exp.location ? ` | ${exp.location}` : ""}
+                    </span>
+                    {exp.dates && <span className="paper-entry-dates">{exp.dates}</span>}
+                  </div>
+                  {exp.title && <div className="paper-entry-title">{exp.title}</div>}
+                  {exp.description && <p className="paper-summary">{exp.description}</p>}
+                  {exp.bullets && exp.bullets.length > 0 && (
+                    <ul className="paper-bullets">
+                      {exp.bullets.map((b, bIdx) => (
+                        <li key={`exp-${idx}-b-${bIdx}`}><LinkifiedText text={b} /></li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+              <hr className="paper-section-hr" />
+            </div>
+          )}
+
+          {/* 4. Projects */}
+          {resume.projects && resume.projects.length > 0 && (
+            <div className="paper-section">
+              <div className="paper-section-title">Projects</div>
+              {resume.projects.map((proj, idx) => (
+                <div className="paper-entry" key={`proj-${idx}`} style={{ marginBottom: 10 }}>
+                  <div className="paper-entry-meta">
+                    <span className="paper-entry-company">
+                      {proj.title || ""}
+                      {proj.organization ? ` | ${proj.organization}` : ""}
+                    </span>
+                    {proj.dates && <span className="paper-entry-dates">{proj.dates}</span>}
+                  </div>
+                  {proj.description && <p className="paper-summary"><LinkifiedText text={proj.description} /></p>}
+                  {proj.bullets && proj.bullets.length > 0 && (
+                    <ul className="paper-bullets">
+                      {proj.bullets.map((b, bIdx) => (
+                        <li key={`proj-${idx}-b-${bIdx}`}><LinkifiedText text={b} /></li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+              <hr className="paper-section-hr" />
+            </div>
+          )}
+
+          {/* 5. Education */}
+          {resume.education && resume.education.length > 0 && (
+            <div className="paper-section">
+              <div className="paper-section-title">Education</div>
+              {resume.education.map((edu, idx) => (
+                <div className="paper-entry" key={`edu-${idx}`} style={{ marginBottom: 8 }}>
+                  <div className="paper-entry-meta">
+                    <span className="paper-entry-company">
+                      {edu.institution || edu.organization || edu.school || ""}
+                      {edu.location ? ` | ${edu.location}` : ""}
+                    </span>
+                    {edu.dates && <span className="paper-entry-dates">{edu.dates}</span>}
+                  </div>
+                  {(edu.degree || edu.title) && <div className="paper-entry-title">{edu.degree || edu.title}</div>}
+                  {edu.description && <p className="paper-summary"><LinkifiedText text={edu.description} /></p>}
+                  {edu.bullets && edu.bullets.length > 0 && (
+                    <ul className="paper-bullets">
+                      {edu.bullets.map((b, bIdx) => (
+                        <li key={`edu-${idx}-b-${bIdx}`}><LinkifiedText text={b} /></li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+              <hr className="paper-section-hr" />
+            </div>
+          )}
+
+          {/* 6. Skills in 3-column bulleted grid matching Sebastian Bennett image */}
+          {resume.skills && resume.skills.length > 0 && (
+            <div className="paper-section">
+              <div className="paper-section-title">Core Skills</div>
+              <div className="paper-skills-grid">
+                {resume.skills.map((skill, sIdx) => (
+                  <div className="paper-skill-item" key={`sk-${sIdx}`}>
+                    <span className="paper-bullet-dot">•</span> {skill}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 7. Certifications if any */}
+          {resume.certifications && resume.certifications.length > 0 && (
+            <div className="paper-section" style={{ marginTop: 8 }}>
+              <hr className="paper-section-hr" />
+              <div className="paper-section-title">Certifications</div>
+              {resume.certifications.map((cert, idx) => (
+                <div className="paper-entry" key={`cert-${idx}`} style={{ marginBottom: 4 }}>
+                  <div className="paper-entry-meta">
+                    <span className="paper-entry-title">{cert.name || cert.title || ""}</span>
+                    {cert.dates && <span className="paper-entry-dates">{cert.dates}</span>}
+                  </div>
+                  {cert.issuer && <div className="paper-entry-loc">{cert.issuer}</div>}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      )}
       </div>
     </div>
-  </div>
   );
 }
 
@@ -2324,6 +2335,10 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
   // Tailor flow inputs (Screen 2): the job description is pre-filled from the job and can be edited.
   const [tailorJobDescription, setTailorJobDescription] = useState(() => sanitizeDisplayText(job?.description || ""));
   const [additionalInstructions, setAdditionalInstructions] = useState("");
+
+  useEffect(() => {
+    setTailorJobDescription(sanitizeDisplayText(job?.description || ""));
+  }, [job?.id, job?.description]);
 
   // Live job-match scoring of the tailored resume while it is open in the editor. Re-runs
   // (debounced) on every change, including AI rewrites, so section scores stay current.
@@ -2837,7 +2852,7 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
             window.print();
           } finally {
             setTimeout(() => {
-              try { document.body.removeChild(printFrame); } catch (_) {}
+              try { document.body.removeChild(printFrame); } catch (_) { }
             }, 2500);
           }
         }, 350);
@@ -3054,20 +3069,20 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
 
         {/* Drawer Tabs */}
         {!resumeOnly && (
-        <div className="job-modal-tabs drawer-tabs" role="tablist" aria-label="Job details tabs">
-          {tabs.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              className={`job-modal-tab ${activeTab === tab.key ? "active" : ""}`}
-              onClick={() => setActiveTab(tab.key)}
-              role="tab"
-              aria-selected={activeTab === tab.key}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+          <div className="job-modal-tabs drawer-tabs" role="tablist" aria-label="Job details tabs">
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                className={`job-modal-tab ${activeTab === tab.key ? "active" : ""}`}
+                onClick={() => setActiveTab(tab.key)}
+                role="tab"
+                aria-selected={activeTab === tab.key}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
         )}
 
         <div className="modal-body modal-body-tabs drawer-body">
@@ -3528,49 +3543,49 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
                   )}
                   {/* Bottom actions keep the official application link next to the resume download. */}
                   <div className="workflow-output-row" style={{ marginTop: 24 }}>
-                      <div className="editor-toolbar-actions" style={{ width: "100%" }}>
-                        <button
-                          type="button"
-                          className="btn-tool-draft"
-                          onClick={handleSaveDraft}
-                          disabled={isSavingDraft}
-                        >
-                          <Save size={14} aria-hidden="true" /> {isSavingDraft ? "Saving…" : draftSaved ? "Draft Saved" : "Save Draft"}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-tool-ai"
-                          onClick={handleRewriteFull}
-                          disabled={isRewriting}
-                          title="Rewrite the whole resume for this job and save it as a new version"
-                        >
-                          <Sparkles size={14} aria-hidden="true" /> {isRewriting ? "Rewriting…" : "Rewrite with AI"}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-tool-draft"
-                          onClick={() => setWorkspaceTab("editor")}
-                          title="Edit this resume in the built-in editor"
-                        >
-                          <PenLine size={14} aria-hidden="true" /> Edit Resume
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-tool-draft"
-                          onClick={() => handleDownloadResume("pdf")}
-                        >
-                          <Download size={14} aria-hidden="true" /> Download Resume
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-continue-app"
-                          onClick={handleOpenCareerPortal}
-                          disabled={!(job.url || job.apply_url || job.application_url)}
-                          title="Open the official job application page"
-                        >
-                          Continue to Application <ArrowRight size={14} aria-hidden="true" />
-                        </button>
-                      </div>
+                    <div className="editor-toolbar-actions" style={{ width: "100%" }}>
+                      <button
+                        type="button"
+                        className="btn-tool-draft"
+                        onClick={handleSaveDraft}
+                        disabled={isSavingDraft}
+                      >
+                        <Save size={14} aria-hidden="true" /> {isSavingDraft ? "Saving…" : draftSaved ? "Draft Saved" : "Save Draft"}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-tool-ai"
+                        onClick={handleRewriteFull}
+                        disabled={isRewriting}
+                        title="Rewrite the whole resume for this job and save it as a new version"
+                      >
+                        <Sparkles size={14} aria-hidden="true" /> {isRewriting ? "Rewriting…" : "Rewrite with AI"}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-tool-draft"
+                        onClick={() => setWorkspaceTab("editor")}
+                        title="Edit this resume in the built-in editor"
+                      >
+                        <PenLine size={14} aria-hidden="true" /> Edit Resume
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-tool-draft"
+                        onClick={() => handleDownloadResume("pdf")}
+                      >
+                        <Download size={14} aria-hidden="true" /> Download Resume
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-continue-app"
+                        onClick={handleOpenCareerPortal}
+                        disabled={!(job.url || job.apply_url || job.application_url)}
+                        title="Open the official job application page"
+                      >
+                        Continue to Application <ArrowRight size={14} aria-hidden="true" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -4221,147 +4236,147 @@ function DirectoryView({
       )}
 
       {resume && (
-      <>
-      <div className="jd-filters">
-        <label className="jd-field jd-search">
-          <Search size={17} aria-hidden="true" />
-          <input
-            type="text"
-            placeholder="Search roles, skills or company..."
-            aria-label="Search roles, skills or company"
-            value={filterQuery}
-            onChange={(e) => setFilterQuery(e.target.value)}
-          />
-        </label>
+        <>
+          <div className="jd-filters">
+            <label className="jd-field jd-search">
+              <Search size={17} aria-hidden="true" />
+              <input
+                type="text"
+                placeholder="Search roles, skills or company..."
+                aria-label="Search roles, skills or company"
+                value={filterQuery}
+                onChange={(e) => setFilterQuery(e.target.value)}
+              />
+            </label>
 
-        <label className="jd-field">
-          <MapPin size={16} aria-hidden="true" />
-          <span className="jd-field-body">
-            <small>Location</small>
-            <input
-              type="text"
-              placeholder="UK, Ireland"
-              aria-label="Filter by location"
-              value={selectedLocation}
-              onChange={(event) => setSelectedLocation(event.target.value)}
-            />
-          </span>
-        </label>
+            <label className="jd-field">
+              <MapPin size={16} aria-hidden="true" />
+              <span className="jd-field-body">
+                <small>Location</small>
+                <input
+                  type="text"
+                  placeholder="UK, Ireland"
+                  aria-label="Filter by location"
+                  value={selectedLocation}
+                  onChange={(event) => setSelectedLocation(event.target.value)}
+                />
+              </span>
+            </label>
 
-        <label className="jd-field">
-          <CalendarDays size={16} aria-hidden="true" />
-          <span className="jd-field-body">
-            <small>Posted within</small>
-            <select aria-label="Posted Within" value={selectedPostedWithin} onChange={(event) => setSelectedPostedWithin(event.target.value)}>
-              <option value="any">Any time</option>
-              <option value="1">24 hours</option>
-              <option value="7">7 days</option>
-              <option value="14">14 days</option>
-              <option value="30">30 days</option>
-            </select>
-          </span>
-          <ChevronDown size={15} className="jd-caret" aria-hidden="true" />
-        </label>
+            <label className="jd-field">
+              <CalendarDays size={16} aria-hidden="true" />
+              <span className="jd-field-body">
+                <small>Posted within</small>
+                <select aria-label="Posted Within" value={selectedPostedWithin} onChange={(event) => setSelectedPostedWithin(event.target.value)}>
+                  <option value="any">Any time</option>
+                  <option value="1">24 hours</option>
+                  <option value="7">7 days</option>
+                  <option value="14">14 days</option>
+                  <option value="30">30 days</option>
+                </select>
+              </span>
+              <ChevronDown size={15} className="jd-caret" aria-hidden="true" />
+            </label>
 
-        <label className="jd-field">
-          <Building2 size={16} aria-hidden="true" />
-          <span className="jd-field-body">
-            <small>Company</small>
-            <select aria-label="Filter by company" value={selectedCompany} onChange={(e) => setSelectedCompany(e.target.value)}>
-              <option value="all">All companies</option>
-              {companiesList.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </span>
-          <ChevronDown size={15} className="jd-caret" aria-hidden="true" />
-        </label>
+            <label className="jd-field">
+              <Building2 size={16} aria-hidden="true" />
+              <span className="jd-field-body">
+                <small>Company</small>
+                <select aria-label="Filter by company" value={selectedCompany} onChange={(e) => setSelectedCompany(e.target.value)}>
+                  <option value="all">All companies</option>
+                  {companiesList.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </span>
+              <ChevronDown size={15} className="jd-caret" aria-hidden="true" />
+            </label>
 
-        <label className="jd-field">
-          <Briefcase size={16} aria-hidden="true" />
-          <span className="jd-field-body">
-            <small>Experience level</small>
-            <select aria-label="Filter by experience level" value={selectedLevel} onChange={(event) => setSelectedLevel(event.target.value)}>
-              <option value="all">All levels</option>
-              {EXPERIENCE_LEVELS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </select>
-          </span>
-          <ChevronDown size={15} className="jd-caret" aria-hidden="true" />
-        </label>
+            <label className="jd-field">
+              <Briefcase size={16} aria-hidden="true" />
+              <span className="jd-field-body">
+                <small>Experience level</small>
+                <select aria-label="Filter by experience level" value={selectedLevel} onChange={(event) => setSelectedLevel(event.target.value)}>
+                  <option value="all">All levels</option>
+                  {EXPERIENCE_LEVELS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </span>
+              <ChevronDown size={15} className="jd-caret" aria-hidden="true" />
+            </label>
 
-        <label className="jd-field">
-          <User size={16} aria-hidden="true" />
-          <span className="jd-field-body">
-            <small>Work mode</small>
-            <select aria-label="Filter by work mode" value={selectedWorkMode} onChange={(event) => setSelectedWorkMode(event.target.value)}>
-              <option value="all">All modes</option>
-              <option value="remote">Remote</option>
-              <option value="hybrid">Hybrid</option>
-              <option value="on-site">On-site</option>
-            </select>
-          </span>
-          <ChevronDown size={15} className="jd-caret" aria-hidden="true" />
-        </label>
+            <label className="jd-field">
+              <User size={16} aria-hidden="true" />
+              <span className="jd-field-body">
+                <small>Work mode</small>
+                <select aria-label="Filter by work mode" value={selectedWorkMode} onChange={(event) => setSelectedWorkMode(event.target.value)}>
+                  <option value="all">All modes</option>
+                  <option value="remote">Remote</option>
+                  <option value="hybrid">Hybrid</option>
+                  <option value="on-site">On-site</option>
+                </select>
+              </span>
+              <ChevronDown size={15} className="jd-caret" aria-hidden="true" />
+            </label>
 
-        {filtersActive && (
-          <button type="button" className="jd-clear" onClick={clearFilters}>Clear all filters</button>
-        )}
+            {filtersActive && (
+              <button type="button" className="jd-clear" onClick={clearFilters}>Clear all filters</button>
+            )}
 
-        <label className="jd-sort">
-          <span>Sort by</span>
-          <select aria-label="Sort by" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-            <option value="newest">Newest first</option>
-            <option value="best">Best match</option>
-            <option value="company">Company A–Z</option>
-          </select>
-        </label>
-      </div>
+            <label className="jd-sort">
+              <span>Sort by</span>
+              <select aria-label="Sort by" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                <option value="newest">Newest first</option>
+                <option value="best">Best match</option>
+                <option value="company">Company A–Z</option>
+              </select>
+            </label>
+          </div>
 
-      </>
+        </>
       )}
 
       {/* Job list + selected job */}
       {(resume || discoverySubmitted) && (
-      <div className="jd-split" ref={resultsRef}>
-        <div className="jd-list-pane">
-          <div className="jd-list-head">
-            <h2>{visibleJobs.length} Job{visibleJobs.length === 1 ? "" : "s"} Found</h2>
-            <button
-              type="button"
-              className="jd-addall"
-              onClick={() => onAddAllToPipeline(visibleJobs)}
-              disabled={visibleJobs.length === 0 || allVisibleInPipeline}
-            >
-              {allVisibleInPipeline ? "All saved" : "Save all"}
-            </button>
-          </div>
-          {visibleJobs.length === 0 ? (
-            <div className="empty-results-box">
-              <h4>No roles match your filter criteria</h4>
-              <p>Try clearing search keywords or filters.</p>
+        <div className="jd-split" ref={resultsRef}>
+          <div className="jd-list-pane">
+            <div className="jd-list-head">
+              <h2>{visibleJobs.length} Job{visibleJobs.length === 1 ? "" : "s"} Found</h2>
+              <button
+                type="button"
+                className="jd-addall"
+                onClick={() => onAddAllToPipeline(visibleJobs)}
+                disabled={visibleJobs.length === 0 || allVisibleInPipeline}
+              >
+                {allVisibleInPipeline ? "All saved" : "Save all"}
+              </button>
             </div>
-          ) : (
-            <ul className="jd-list">
-              {visibleJobs.map((job) => (
-                <JobListItem
-                  key={job.id}
-                  job={job}
-                  selected={activeJob?.id === job.id}
-                  inPipeline={pipelineJobIds.has(job.id)}
-                  onSelect={() => setActiveJobId(job.id)}
-                  onTogglePipeline={() => onTogglePipeline(job.id)}
-                />
-              ))}
-            </ul>
+            {visibleJobs.length === 0 ? (
+              <div className="empty-results-box">
+                <h4>No roles match your filter criteria</h4>
+                <p>Try clearing search keywords or filters.</p>
+              </div>
+            ) : (
+              <ul className="jd-list">
+                {visibleJobs.map((job) => (
+                  <JobListItem
+                    key={job.id}
+                    job={job}
+                    selected={activeJob?.id === job.id}
+                    inPipeline={pipelineJobIds.has(job.id)}
+                    onSelect={() => setActiveJobId(job.id)}
+                    onTogglePipeline={() => onTogglePipeline(job.id)}
+                  />
+                ))}
+              </ul>
+            )}
+          </div>
+          {activeJob && (
+            <JobDetailPane
+              job={activeJob}
+              inPipeline={pipelineJobIds.has(activeJob.id)}
+              onTogglePipeline={() => onTogglePipeline(activeJob.id)}
+              onOpenWorkspace={() => onSelectJob(activeJob)}
+            />
           )}
         </div>
-        {activeJob && (
-          <JobDetailPane
-            job={activeJob}
-            inPipeline={pipelineJobIds.has(activeJob.id)}
-            onTogglePipeline={() => onTogglePipeline(activeJob.id)}
-            onOpenWorkspace={() => onSelectJob(activeJob)}
-          />
-        )}
-      </div>
       )}
     </div>
   );
@@ -4482,8 +4497,8 @@ function ProfileStrengthMeter({ resume, onUpdateResume, onUploadNew }) {
                 {strength.overall_score >= 88
                   ? "Your profile covers every section well."
                   : strength.overall_score >= 70
-                  ? "Strong profile. A few sections could be filled in further."
-                  : "Profile in progress. Complete the highlighted sections below."}
+                    ? "Strong profile. A few sections could be filled in further."
+                    : "Profile in progress. Complete the highlighted sections below."}
               </h2>
               <p className="profile-strength-desc">
                 Evaluates Skills (25%), Work Experience (25%), Education (15%), Contact & Summary (15%), Projects (10%), and Certifications (10%).

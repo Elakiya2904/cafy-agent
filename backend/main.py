@@ -358,6 +358,8 @@ def _profile_as_resume(profile: Dict[str, Any]) -> Dict[str, Any]:
 @app.get("/api/resume/uploaded")
 def get_uploaded_resume():
     """Metadata for the original uploaded resume file, if one was uploaded."""
+    if not ACTIVE_SESSION.get("resume"):
+        return {"uploaded": None}
     meta = user_store.file_meta(current_candidate())
     if not meta:
         return {"uploaded": None}
@@ -372,6 +374,16 @@ def get_uploaded_resume():
             "download_url": "/api/resume/uploaded/file?download=true",
         }
     }
+
+
+@app.delete("/api/resume")
+def clear_current_resume():
+    """Clear the active resume, file, and match cache."""
+    ACTIVE_SESSION["resume"] = None
+    ACTIVE_SESSION["last_matched_jobs"] = []
+    user_store.set_resume(current_candidate(), None)
+    user_store.clear_file(current_candidate())
+    return {"status": "cleared", "message": "Resume and active profile cleared."}
 
 
 @app.get("/api/resume/uploaded/file")
@@ -545,8 +557,17 @@ def _owned_artifact(resume_id: str, ext: str) -> Path:
 @app.get("/api/resumes/versions")
 def list_resume_versions():
     """Every generated tailored resume, newest first."""
+    if not ACTIVE_SESSION.get("resume"):
+        return {"count": 0, "versions": []}
     versions = [{**v, **_artifact_urls(v["resume_id"])} for v in db.list_resume_versions()]
     return {"count": len(versions), "versions": versions}
+
+
+@app.delete("/api/resumes/versions")
+def clear_resume_versions():
+    """Clear all stored resume versions."""
+    db.clear_resume_versions()
+    return {"status": "cleared", "message": "All resume versions cleared."}
 
 
 @app.post("/api/export")

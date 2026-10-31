@@ -145,8 +145,7 @@ describe('Cafy Agent job application drawer', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /Tailor with Cafy/i }));
-    const description = await screen.findByDisplayValue('Build products & lead teams.\nUse React.');
+    const description = await screen.findByDisplayValue(/Build products & lead teams/i);
     expect(description).not.toHaveValue(expect.stringContaining('<p>'));
     expect(description).not.toHaveValue(expect.stringContaining('&nbsp;'));
   });

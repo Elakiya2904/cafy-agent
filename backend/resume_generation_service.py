@@ -19,8 +19,9 @@ import requests
 logger = logging.getLogger("cafy.resume_generation")
 
 
-# Small, cheap default; override with GROQ_MODEL. (openai/gpt-oss-20b is blocked on some Groq projects.)
-DEFAULT_GROQ_MODEL = "llama-3.1-8b-instant"
+# Active model; override with GROQ_MODEL.
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
+FALLBACK_GROQ_MODELS = ["openai/gpt-oss-20b", "llama-3.3-70b-versatile", "llama-3.1-8b-instant", "qwen/qwen3.8-27b"]
 
 
 class ResumeGenerationError(RuntimeError):

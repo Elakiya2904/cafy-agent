@@ -152,15 +152,6 @@ class JobDatabase:
 
             conn.executescript(USER_SCHEMA)
 
-            # Backfill versions for tailored resumes saved before version history existed.
-            cursor.execute("""
-            INSERT INTO tailored_resume_versions (id, resume_id, job_id, job_title, company, structured_data, created_at, updated_at, candidate_id)
-            SELECT lower(hex(randomblob(16))), t.resume_id, t.job_id, j.title, j.company, t.structured_data, t.created_at, t.updated_at, t.candidate_id
-            FROM tailored_resumes t
-            LEFT JOIN jobs j ON j.id = t.job_id
-            WHERE t.resume_id NOT IN (SELECT resume_id FROM tailored_resume_versions)
-            """)
-
             # 5. Pipeline 3 – Email Agent & Interview Management
             from .email_agent.schema import EMAIL_AGENT_SCHEMA
             conn.executescript(EMAIL_AGENT_SCHEMA)
@@ -519,6 +510,12 @@ class JobDatabase:
         for idx, version in enumerate(versions):
             version["is_current"] = idx == 0
         return versions
+
+    def clear_resume_versions(self) -> None:
+        with self._get_connection() as conn:
+            conn.execute("DELETE FROM tailored_resume_versions WHERE candidate_id = ?", (current_candidate(),))
+            conn.execute("DELETE FROM tailored_resumes WHERE candidate_id = ?", (current_candidate(),))
+            conn.commit()
 
     def record_scraper_run(
         self,
