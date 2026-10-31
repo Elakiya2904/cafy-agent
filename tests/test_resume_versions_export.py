@@ -12,6 +12,16 @@ from unittest import mock
 sys.path.insert(0, ".")
 from backend.database import JobDatabase
 from backend.export_service import build_export_zip
+from backend.user_store import UserSession, UserStore
+
+
+def bind_main_to_db(main, db, resume=None):
+    """Point the app's data layer at ``db`` (a real, temporary database) and give the dev user an optional résumé."""
+    store = UserStore(db)
+    if resume is not None:
+        store.set_resume("local", resume)
+    return [mock.patch.object(main, "db", db), mock.patch.object(main, "user_store", store),
+            mock.patch.object(main, "ACTIVE_SESSION", UserSession(store))]
 
 
 class TestResumeVersions(unittest.TestCase):
@@ -43,7 +53,7 @@ class TestResumeVersions(unittest.TestCase):
 
     def test_backfill_from_existing_tailored_resumes(self):
         self.db.save_tailored_resume("job-x", "legacy-1", {"skills": ["Rust"]})
-        with sqlite3.connect(self.db_path) as conn:
+        with self.db._get_connection() as conn:
             conn.execute("DELETE FROM tailored_resume_versions")
         reopened = JobDatabase(db_path=self.db_path)
         versions = reopened.list_resume_versions()
@@ -83,10 +93,7 @@ class TestExportEndpoints(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.test_db = JobDatabase(db_path=os.path.join(self.tmp.name, "api.db"))
         self.test_db.save_resume_version("api-r1", "job-a", {"skills": ["Python"]}, job_title="SRE", company="Acme")
-        self.patches = [
-            mock.patch.object(main, "db", self.test_db),
-            mock.patch.dict(main.ACTIVE_SESSION, {"resume": {"candidate_name": "Test User"}}),
-        ]
+        self.patches = bind_main_to_db(main, self.test_db, {"candidate_name": "Test User"})
         for p in self.patches:
             p.start()
         self.client = TestClient(main.app)
@@ -130,13 +137,16 @@ class TestUploadedResumeEndpoints(unittest.TestCase):
         from fastapi.testclient import TestClient
         from backend import main
         self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
-        self.patch = mock.patch.object(main, "UPLOADED_RESUME_DIR", Path(self.tmp.name) / "uploads")
-        self.patch.start()
+        self.db = JobDatabase(db_path=os.path.join(self.tmp.name, "uploads.db"))
+        self.patches = bind_main_to_db(main, self.db)
+        for p in self.patches:
+            p.start()
         self.main = main
         self.client = TestClient(main.app)
 
     def tearDown(self):
-        self.patch.stop()
+        for p in self.patches:
+            p.stop()
         self.tmp.cleanup()
 
     def test_no_upload(self):
@@ -156,7 +166,8 @@ class TestUploadedResumeEndpoints(unittest.TestCase):
         download = self.client.get(meta["download_url"])
         self.assertTrue(download.headers["content-disposition"].startswith("attachment"))
         # Only the latest upload is stored.
-        self.assertEqual(sorted(p.name for p in (Path(self.tmp.name) / "uploads").iterdir()), ["latest.json", "latest.pdf"])
+        with self.db._get_connection() as conn:
+            self.assertEqual(conn.execute("SELECT count(*) FROM user_resume_files").fetchone()[0], 1)
 
 
 class TestEditedVersions(unittest.TestCase):
@@ -165,9 +176,7 @@ class TestEditedVersions(unittest.TestCase):
         from backend import main
         self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.test_db = JobDatabase(db_path=os.path.join(self.tmp.name, "edits.db"))
-        self.patches = [
-            mock.patch.object(main, "db", self.test_db),
-            mock.patch.dict(main.ACTIVE_SESSION, {"resume": {"candidate_name": "Test User", "skills": ["Python"]}}),
+        self.patches = bind_main_to_db(main, self.test_db, {"candidate_name": "Test User", "skills": ["Python"]}) + [
             # Don't render LaTeX/DOCX into the real output folder.
             mock.patch.object(main.resume_generation_svc, "update_artifacts", return_value={}),
         ]

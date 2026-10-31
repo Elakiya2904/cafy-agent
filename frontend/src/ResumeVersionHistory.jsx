@@ -1,3 +1,4 @@
+import { withToken } from "./auth.js";
 import React, { useEffect, useMemo, useState } from "react";
 import { ArrowRight, Download, Eye, FileText, FileUp, GitCompare, Loader2, Minus, Plus, X } from "lucide-react";
 import "./documents.css";
@@ -7,7 +8,7 @@ const API_BASE =
   typeof window !== "undefined" &&
   (window.location?.hostname === "localhost" || window.location?.hostname === "127.0.0.1") &&
   window.location?.port &&
-  window.location?.port !== "8000"
+  ["5173", "5174", "3000"].includes(window.location?.port)
     ? "http://127.0.0.1:8000"
     : "";
 
@@ -277,14 +278,14 @@ export default function ResumeVersionHistory({ PreviewComponent }) {
               <button
                 type="button"
                 className="doc-btn-secondary"
-                onClick={() => window.open(`${API_BASE}${uploaded.preview_url}`, "_blank", "noopener")}
+                onClick={() => window.open(withToken(`${API_BASE}${uploaded.preview_url}`), "_blank", "noopener")}
               >
                 <Eye size={14} aria-hidden="true" /> Preview
               </button>
               <button
                 type="button"
                 className="doc-btn-secondary"
-                onClick={() => window.open(`${API_BASE}${uploaded.download_url}`, "_blank", "noopener")}
+                onClick={() => window.open(withToken(`${API_BASE}${uploaded.download_url}`), "_blank", "noopener")}
               >
                 <Download size={14} aria-hidden="true" /> Download
               </button>
@@ -332,7 +333,7 @@ export default function ResumeVersionHistory({ PreviewComponent }) {
                     className="doc-btn-secondary"
                     disabled={!download}
                     title={download ? "Download this version" : "No file available for this version"}
-                    onClick={() => window.open(`${API_BASE}${download}`, "_blank", "noopener")}
+                    onClick={() => window.open(withToken(`${API_BASE}${download}`), "_blank", "noopener")}
                   >
                     <Download size={14} aria-hidden="true" /> Download
                   </button>

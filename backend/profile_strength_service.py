@@ -113,7 +113,7 @@ def evaluate_profile_strength(resume: Optional[Dict[str, Any]]) -> Dict[str, Any
     elif count >= 1:
         skills_score += 10
     else:
-        skills_notes.append("List your primary technical skills")
+        skills_notes.append("List your key professional skills")
 
     num_cats = len([c for c, sks in categorized.items() if len(sks) > 0])
     if num_cats >= 4:
@@ -459,7 +459,7 @@ def evaluate_profile_strength(resume: Optional[Dict[str, Any]]) -> Dict[str, Any
             "priority": "low",
             "impact": "+8%",
             "title": "Add Industry Certifications",
-            "text": "Add cloud or vendor certificates (e.g., AWS Certified Developer, CKA, Terraform Associate).",
+            "text": "Add relevant certificates or licences for your field (e.g., CPA, teaching licence, PMP, AWS).",
         })
 
     return {

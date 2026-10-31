@@ -44,7 +44,7 @@ class GreenhouseScraper(BaseScraper):
                 "url": item.get("absolute_url") or f"https://boards.greenhouse.io/{token}/jobs/{item.get('id')}",
                 "description": item.get("content", ""),
                 "department": dept_str,
-                "posted_at": item.get("updated_at")
+                "posted_at": item.get("first_published") or item.get("updated_at")
             }
 
             norm = JobNormalizer.normalize_job(raw_job, self.platform_name, default_company=name)

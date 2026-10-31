@@ -20,7 +20,7 @@ const API_BASE =
   typeof window !== "undefined" &&
   (window.location?.hostname === "localhost" || window.location?.hostname === "127.0.0.1") &&
   window.location?.port &&
-  window.location?.port !== "8000"
+  ["5173", "5174", "3000"].includes(window.location?.port)
     ? "http://127.0.0.1:8000"
     : "";
 

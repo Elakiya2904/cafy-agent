@@ -2,6 +2,8 @@ import React from 'react';
 import { cleanup, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+// The PDF engine needs a real browser; the editor falls back to its HTML preview when it fails.
+vi.mock('./PdfPreview.jsx', () => ({ default: () => null }));
 import { ApplicationTrackingView, DirectoryView, JobDetailModal } from './App.jsx';
 
 const job = {
@@ -31,6 +33,9 @@ beforeEach(() => {
   window.open = vi.fn();
   global.fetch = vi.fn().mockImplementation((url, opts) => {
     const body = opts?.body ? JSON.parse(opts.body) : {};
+    if (url.includes('/api/job-applications/start')) {
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ application: { id: 'app_1' }, resumed: false }) });
+    }
     if (url.includes('/api/resumes/job/')) {
       return Promise.resolve({
         ok: false,
@@ -123,6 +128,28 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('Cafy Agent job application drawer', () => {
+  it('normalizes HTML job descriptions in the tailor textarea', async () => {
+    const htmlJob = {
+      ...job,
+      description: '<p><strong>Build products</strong>&nbsp;&amp; lead teams.</p><p>Use React.</p>',
+    };
+
+    render(
+      <JobDetailModal
+        job={htmlJob}
+        resume={resume}
+        onClose={() => {}}
+        onTogglePipeline={() => {}}
+        inPipeline={false}
+        resumeOnly
+      />
+    );
+
+    const description = await screen.findByDisplayValue(/Build products & lead teams/i);
+    expect(description).not.toHaveValue(expect.stringContaining('<p>'));
+    expect(description).not.toHaveValue(expect.stringContaining('&nbsp;'));
+  });
+
   it('opens the application drawer and switches tabs', async () => {
     function DrawerHarness() {
       const [selectedJob, setSelectedJob] = React.useState(null);
@@ -146,6 +173,7 @@ describe('Cafy Agent job application drawer', () => {
               onClose={() => setSelectedJob(null)}
               onTogglePipeline={() => {}}
               inPipeline={false}
+              resumeOnly
             />
           )}
         </>
@@ -157,16 +185,27 @@ describe('Cafy Agent job application drawer', () => {
     fireEvent.click(screen.getByRole('button', { name: /Show 1 matching jobs/i }));
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Apply/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Tailor with Cafy/i })).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /Apply/i }));
+    // "Apply Now" is a link to the original posting; "Tailor with Cafy" opens the tailor setup first.
+    expect(screen.getByRole('link', { name: /Apply Now/i })).toHaveAttribute('target', '_blank');
+    fireEvent.click(screen.getByRole('button', { name: /Tailor with Cafy/i }));
 
+    // Inputs and the pre-generation analysis come first; nothing is generated until the user asks.
+    expect(await screen.findByText('Tailor your resume')).toBeInTheDocument();
+    expect(screen.getByText(/Additional instructions/i)).toBeInTheDocument();
     expect(await screen.findByTestId('application-analysis')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('tab', { name: /Requirements/i }));
-    expect(screen.getByText(/Required & preferred skills/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('tab', { name: /Company/i }));
-    expect(screen.getAllByText(/Google/i)[0]).toBeInTheDocument();
+    expect(global.fetch).not.toHaveBeenCalledWith(expect.stringContaining('/api/resumes/generate'), expect.anything());
+
+    fireEvent.change(screen.getByPlaceholderText(/Emphasise my Python/i), { target: { value: 'Emphasise Python' } });
+    fireEvent.click(screen.getByRole('button', { name: /Generate Tailored Resume/i }));
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('/api/resumes/generate'), expect.anything());
+    });
+    const call = global.fetch.mock.calls.find(([u]) => u.includes('/api/resumes/generate'));
+    expect(JSON.parse(call[1].body).additional_instructions).toBe('Emphasise Python');
+    expect(screen.queryByRole('tab', { name: /^Requirements$/i })).not.toBeInTheDocument();
   });
 
   it('generates a tailored resume, downloads it, and opens the application URL', async () => {
@@ -193,8 +232,10 @@ describe('Cafy Agent job application drawer', () => {
     fireEvent.click(continueBtn);
     expect(screen.queryByText(/Supported Form Autofill/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Multi-step Application/i)).not.toBeInTheDocument();
-    expect(window.open).toHaveBeenCalledTimes(2);
+    // The application is registered (duplicate check) before the company page opens.
+    await waitFor(() => expect(window.open).toHaveBeenCalledTimes(2));
     expect(window.open).toHaveBeenLastCalledWith('https://example.com/apply', '_blank', 'noopener,noreferrer');
+    expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('/api/job-applications/start'), expect.anything());
   });
 
   it('shows live section scores in the Resume Editor and updates them after Improve with AI', async () => {

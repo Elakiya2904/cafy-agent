@@ -277,3 +277,11 @@
   gap: 12px;
   margin-top: 16px;
 }
+
+.tailor-setup { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+.tailor-setup-title { margin: 0; font-size: 16px; }
+.tailor-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #475569; }
+.tailor-field input, .tailor-field textarea {
+  font: inherit; color: #0f172a; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; resize: vertical;
+}
+.tailor-field input[readonly] { background: #f8fafc; }

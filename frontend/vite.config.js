@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
+  envDir: '..',  // VITE_SUPABASE_* come from the single project-root .env (only VITE_-prefixed keys reach the browser)
   server: {
     port: 5173,
     host: '0.0.0.0',

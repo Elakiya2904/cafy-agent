@@ -2,32 +2,35 @@
 // CAFY AGENT • REACT APPLICATION
 // ==========================================================================
 
+import { withToken } from "./auth.js";
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
-  EditorMatchScore,
-  SectionScoreBadge,
   tailoredResumeToProfile,
   useJobMatchAnalysis,
 } from "./JobMatchScore.jsx";
 import ApplicationAnalysis from "./ApplicationAnalysis.jsx";
+import ResumeEditor, { saveBlob } from "./ResumeEditor.jsx";
 import ResumeVersionHistory from "./ResumeVersionHistory.jsx";
 import DataExport from "./DataExport.jsx";
+import EmailAgentDashboard from "./EmailAgentDashboard.jsx";
+import MyApplications, { startApplication } from "./MyApplications.jsx";
+import JobIntelligence from "./JobIntelligence.jsx";
 import {
   AlertTriangle,
-  AlignLeft,
-  ArrowDown,
   ArrowRight,
-  ArrowUp,
-  Award,
+  Banknote,
   BarChart3,
+  Bookmark,
+  Building2,
+  CalendarDays,
   ChevronRight,
   Briefcase,
   Check,
   Plus,
   CheckCircle2,
   ChevronDown,
-  ChevronUp,
   Circle,
+  Clock,
   Download,
   ExternalLink,
   Eye,
@@ -38,7 +41,10 @@ import {
   Hourglass,
   Info,
   Lightbulb,
+  Loader2,
+  LayoutGrid,
   Linkedin,
+  List,
   Mail,
   MapPin,
   PenLine,
@@ -47,8 +53,11 @@ import {
   RefreshCw,
   Rocket,
   Save,
+  Search,
   ScrollText,
   Sparkles,
+  Star,
+  Target,
   User,
   Wrench,
   X,
@@ -56,9 +65,9 @@ import {
 
 const API_BASE =
   typeof window !== "undefined" &&
-  (window.location?.hostname === "localhost" || window.location?.hostname === "127.0.0.1") &&
-  window.location?.port &&
-  window.location?.port !== "8000"
+    (window.location?.hostname === "localhost" || window.location?.hostname === "127.0.0.1") &&
+    window.location?.port &&
+    ["5173", "5174", "3000"].includes(window.location?.port)
     ? "http://127.0.0.1:8000"
     : "";
 
@@ -172,9 +181,8 @@ function App() {
       setCurrentResume(data.resume);
       setMatchedJobs(data.matched_jobs || []);
       setCurrentStep(3);
-      setAssistantOpen(true);
       showToast(`Analyzed résumé. Found ${data.matched_jobs?.length || 0} matching roles.`);
-      
+
       // Auto-redirect to Find Jobs tab
       setTimeout(() => {
         setActiveTab("find-jobs");
@@ -207,21 +215,8 @@ function App() {
       {/* MAIN CONTENT AREA */}
       <main className="main-content">
         <header className="main-top-bar">
-          <div className="top-bar-left">
-            <span style={{ fontSize: "0.82rem", color: "#64748B", fontWeight: 500 }}>
-              ATS Scraper & Intelligence{platforms.length > 0 ? ` • ${platforms.length} Connected Platforms` : ""}
-            </span>
-          </div>
+          <div className="top-bar-left" />
           <div className="top-bar-right">
-            <button
-              type="button"
-              className="top-bar-assistant-btn"
-              onClick={() => setAssistantOpen(true)}
-              title="Open Cafy Agent Chatbot"
-            >
-              <BirdLogo size={19} />
-              <span>Cafy Agent</span>
-            </button>
             {currentResume && (
               <div className="user-profile-badge">
                 <span className="user-avatar-circle">
@@ -304,6 +299,7 @@ function App() {
         {activeTab === "insights" && <InsightsView platforms={platforms} />}
 
         {/* TAB: MY APPLICATIONS */}
+        {activeTab === "my-applications" && <MyApplications />}
         {activeTab === "my-applications" && (
           <ApplicationTrackingView
             pipelineJobIds={pipelineJobIds}
@@ -323,15 +319,9 @@ function App() {
           </div>
         )}
 
-        {/* TAB: FOLLOW-UPS */}
+        {/* TAB: EMAIL AGENT (Pipeline 3) */}
         {activeTab === "follow-ups" && (
-          <div className="content-container">
-            <h1 className="page-title">Follow-ups</h1>
-            <p className="page-subtitle">Keep track of recruiter outreach and interview stages.</p>
-            <div className="empty-state-card">
-              <p>Follow-up tracking is not available yet.</p>
-            </div>
-          </div>
+          <EmailAgentDashboard pipelineJobs={allJobs.filter((j) => pipelineJobIds.has(j.id))} />
         )}
 
         {/* TAB: FILES */}
@@ -383,6 +373,7 @@ function App() {
           onTogglePipeline={() => togglePipeline(selectedJob.id)}
           onClose={() => setSelectedJob(null)}
           fullPage
+          resumeOnly
         />
       )}
 
@@ -424,20 +415,20 @@ function CompanyBrandLogo({ company }) {
   if (c.includes("google")) {
     return (
       <svg width="22" height="22" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
-        <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"/>
-        <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"/>
-        <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.98 0 12s.45 3.82 1.25 5.42l4.03-3.15z"/>
-        <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.93 6.72-4.93z"/>
+        <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z" />
+        <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z" />
+        <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.98 0 12s.45 3.82 1.25 5.42l4.03-3.15z" />
+        <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.93 6.72-4.93z" />
       </svg>
     );
   }
   if (c.includes("microsoft")) {
     return (
       <svg width="20" height="20" viewBox="0 0 23 23" style={{ flexShrink: 0 }}>
-        <path fill="#f35325" d="M1 1h10v10H1z"/>
-        <path fill="#81bc06" d="M12 1h10v10H12z"/>
-        <path fill="#05a6f0" d="M1 12h10v10H1z"/>
-        <path fill="#ffba08" d="M12 12h10v10H12z"/>
+        <path fill="#f35325" d="M1 1h10v10H1z" />
+        <path fill="#81bc06" d="M12 1h10v10H12z" />
+        <path fill="#05a6f0" d="M1 12h10v10H1z" />
+        <path fill="#ffba08" d="M12 12h10v10H12z" />
       </svg>
     );
   }
@@ -446,7 +437,7 @@ function CompanyBrandLogo({ company }) {
       <div style={{ width: "24px", height: "24px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
           <text x="3" y="16" fontFamily="Inter, system-ui, sans-serif" fontWeight="900" fontSize="17" fill="#0F172A">a</text>
-          <path d="M4 18.5c4 2.2 10.5 2.2 14.5 0" stroke="#FF9900" strokeWidth="2.2" strokeLinecap="round"/>
+          <path d="M4 18.5c4 2.2 10.5 2.2 14.5 0" stroke="#FF9900" strokeWidth="2.2" strokeLinecap="round" />
         </svg>
       </div>
     );
@@ -454,9 +445,9 @@ function CompanyBrandLogo({ company }) {
   if (c.includes("databricks")) {
     return (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }} aria-hidden="true">
-        <path d="M12 2L2 7l10 5 10-5-10-5z" fill="#FF3621"/>
-        <path d="M2 12l10 5 10-5-10-5-10 5z" fill="#FF3621" opacity="0.85"/>
-        <path d="M2 17l10 5 10-5-10-5-10 5z" fill="#FF3621" opacity="0.7"/>
+        <path d="M12 2L2 7l10 5 10-5-10-5z" fill="#FF3621" />
+        <path d="M2 12l10 5 10-5-10-5-10 5z" fill="#FF3621" opacity="0.85" />
+        <path d="M2 17l10 5 10-5-10-5-10 5z" fill="#FF3621" opacity="0.7" />
       </svg>
     );
   }
@@ -464,7 +455,7 @@ function CompanyBrandLogo({ company }) {
     return (
       <div style={{ width: "22px", height: "22px", borderRadius: "5px", background: "#635BFF", display: "grid", placeItems: "center", flexShrink: 0 }} aria-hidden="true">
         <svg width="12" height="14" viewBox="0 0 12 14" fill="#FFFFFF">
-          <path d="M4.8 5.4c0-.6.5-.9 1.4-.9 1.2 0 2.8.4 4 .9V1.7C8.9 1.3 7.5 1.1 6.2 1.1 2.8 1.1.9 2.9.9 5.6c0 4.2 5.8 3.5 5.8 5.3 0 .7-.6 1-1.6 1-1.5 0-3.4-.6-4.9-1.4v3.8c1.6.7 3.3 1 4.9 1 3.6 0 5.8-1.7 5.8-4.6-.1-4.4-6.1-3.7-6.1-5.3z"/>
+          <path d="M4.8 5.4c0-.6.5-.9 1.4-.9 1.2 0 2.8.4 4 .9V1.7C8.9 1.3 7.5 1.1 6.2 1.1 2.8 1.1.9 2.9.9 5.6c0 4.2 5.8 3.5 5.8 5.3 0 .7-.6 1-1.6 1-1.5 0-3.4-.6-4.9-1.4v3.8c1.6.7 3.3 1 4.9 1 3.6 0 5.8-1.7 5.8-4.6-.1-4.4-6.1-3.7-6.1-5.3z" />
         </svg>
       </div>
     );
@@ -473,7 +464,7 @@ function CompanyBrandLogo({ company }) {
     return (
       <div style={{ width: "22px", height: "22px", borderRadius: "5px", background: "#5E6AD2", display: "grid", placeItems: "center", flexShrink: 0 }} aria-hidden="true">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2.5">
-          <line x1="4" y1="20" x2="20" y2="4" strokeLinecap="round"/>
+          <line x1="4" y1="20" x2="20" y2="4" strokeLinecap="round" />
         </svg>
       </div>
     );
@@ -481,11 +472,11 @@ function CompanyBrandLogo({ company }) {
   if (c.includes("figma")) {
     return (
       <svg width="16" height="22" viewBox="0 0 38 57" style={{ flexShrink: 0 }} aria-hidden="true">
-        <path fill="#1abcfe" d="M19 28.5a9.5 9.5 0 1 1 19 0 9.5 9.5 0 0 1-19 0z"/>
-        <path fill="#0acf83" d="M0 47.5A9.5 9.5 0 0 1 9.5 38H19v9.5a9.5 9.5 0 1 1-19 0z"/>
-        <path fill="#ff7262" d="M19 0v19h9.5a9.5 9.5 0 1 0 0-19H19z"/>
-        <path fill="#f24e1e" d="M0 9.5A9.5 9.5 0 0 0 9.5 19H19V0H9.5A9.5 9.5 0 0 0 0 9.5z"/>
-        <path fill="#a259ff" d="M0 28.5A9.5 9.5 0 0 0 9.5 38H19V19H9.5A9.5 9.5 0 0 0 0 28.5z"/>
+        <path fill="#1abcfe" d="M19 28.5a9.5 9.5 0 1 1 19 0 9.5 9.5 0 0 1-19 0z" />
+        <path fill="#0acf83" d="M0 47.5A9.5 9.5 0 0 1 9.5 38H19v9.5a9.5 9.5 0 1 1-19 0z" />
+        <path fill="#ff7262" d="M19 0v19h9.5a9.5 9.5 0 1 0 0-19H19z" />
+        <path fill="#f24e1e" d="M0 9.5A9.5 9.5 0 0 0 9.5 19H19V0H9.5A9.5 9.5 0 0 0 0 9.5z" />
+        <path fill="#a259ff" d="M0 28.5A9.5 9.5 0 0 0 9.5 38H19V19H9.5A9.5 9.5 0 0 0 0 28.5z" />
       </svg>
     );
   }
@@ -519,7 +510,7 @@ const QUICK_ACTIONS = [
     prompt: "Analyse my opportunities",
     icon: (
       <svg width="15" height="15" viewBox="0 0 24 24" fill="#0066FF" stroke="#0066FF" strokeWidth="1">
-        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" />
       </svg>
     )
   },
@@ -529,7 +520,7 @@ const QUICK_ACTIONS = [
     prompt: "Explain why I match this job",
     icon: (
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0066FF" strokeWidth="2.2">
-        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><circle cx="12" cy="11" r="3"/>
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><circle cx="12" cy="11" r="3" />
       </svg>
     )
   },
@@ -539,7 +530,7 @@ const QUICK_ACTIONS = [
     prompt: "Find new jobs",
     icon: (
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0066FF" strokeWidth="2.4" strokeLinecap="round">
-        <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/>
+        <circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.5" y2="16.5" />
       </svg>
     )
   },
@@ -549,7 +540,7 @@ const QUICK_ACTIONS = [
     prompt: "Skill gap analysis",
     icon: (
       <svg width="15" height="15" viewBox="0 0 24 24" fill="#0066FF">
-        <rect x="3" y="12" width="4" height="9" rx="1"/><rect x="10" y="7" width="4" height="14" rx="1"/><rect x="17" y="3" width="4" height="18" rx="1"/>
+        <rect x="3" y="12" width="4" height="9" rx="1" /><rect x="10" y="7" width="4" height="14" rx="1" /><rect x="17" y="3" width="4" height="18" rx="1" />
       </svg>
     )
   },
@@ -559,7 +550,7 @@ const QUICK_ACTIONS = [
     prompt: "Which jobs should I prioritise this week?",
     icon: (
       <svg width="15" height="15" viewBox="0 0 24 24" fill="#0066FF">
-        <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" fill="none" stroke="#0066FF" strokeWidth="2"/>
+        <rect x="2" y="7" width="20" height="14" rx="2" /><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" fill="none" stroke="#0066FF" strokeWidth="2" />
       </svg>
     )
   },
@@ -569,7 +560,7 @@ const QUICK_ACTIONS = [
     prompt: "Show my progress",
     icon: (
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0066FF" strokeWidth="2.2" strokeLinecap="round">
-        <circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>
+        <circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15 14" />
       </svg>
     )
   },
@@ -577,11 +568,17 @@ const QUICK_ACTIONS = [
 
 function sanitizeDisplayText(value) {
   if (value == null) return "";
-  let text = String(value)
+  const source = String(value);
+  const withBreaks = source.replace(
+    /<\s*\/?(?:br|p|div|li|h[1-6]|tr|section|article|ul|ol)[^>]*>/gi,
+    (tag) => /^<\s*\/|<\s*br/i.test(tag) ? "\n" : ""
+  );
+  const decoded = typeof DOMParser !== "undefined"
+    ? new DOMParser().parseFromString(withBreaks, "text/html").body.textContent || ""
+    : withBreaks;
+  let text = decoded
     .replace(/\u00a0/g, " ")
     .replace(/\u200b/g, "")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]+>/g, " ")
     .replace(/\|{2,}/g, " ")
     .replace(/\r/g, "")
     .replace(/(^|\n)\s*#{1,6}\s*/g, "$1")
@@ -747,7 +744,7 @@ function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipe
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-  
+
   const createInitialMessages = () => [
     {
       role: "assistant",
@@ -825,7 +822,7 @@ function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipe
       if (typeof data.answer !== "string" || !data.answer.trim()) {
         throw new Error("Career Analyst returned an empty response. Please try again.");
       }
-      
+
       const cards = data.job_cards || [];
       setMessages((prev) => [
         ...prev,
@@ -921,7 +918,7 @@ function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipe
                     <BirdLogo size={24} />
                   </div>
                 )}
-                
+
                 <div className="career-chat-bubble-container">
                   <div className={`career-chat-bubble ${message.role}`}>
                     {message.role === "assistant"
@@ -1033,7 +1030,7 @@ function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipe
             >
               <div className="career-chat-sparkle-icon" aria-hidden="true">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" strokeWidth="1.8">
-                  <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z"/>
+                  <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z" />
                 </svg>
               </div>
               <input
@@ -1059,7 +1056,7 @@ function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipe
                 title="Send"
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="#FFFFFF">
-                  <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                  <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
                 </svg>
               </button>
             </form>
@@ -1076,75 +1073,95 @@ function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipe
 
 function Sidebar({ activeTab, setActiveTab, totalJobsCount, hasResume, highMatchCount = 0, pipelineCount = 0, platformCount = 0 }) {
   const navItems = [
-    { id: "home", label: "Home", icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <rect x="3" y="3" width="7" height="7" rx="1.5"></rect>
-        <rect x="14" y="3" width="7" height="7" rx="1.5"></rect>
-        <rect x="14" y="14" width="7" height="7" rx="1.5"></rect>
-        <rect x="3" y="14" width="7" height="7" rx="1.5"></rect>
-      </svg>
-    )},
-    { id: "find-jobs", label: "Find jobs", badge: hasResume ? highMatchCount : totalJobsCount, icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <circle cx="11" cy="11" r="8"></circle>
-        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-      </svg>
-    )},
-    { id: "job-alerts", label: "Job alerts", icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
-        <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
-      </svg>
-    )},
-    { id: "my-applications", label: "My applications", badge: pipelineCount > 0 ? pipelineCount : undefined, icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M9 11l3 3L22 4"></path>
-        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
-      </svg>
-    )},
-    { id: "follow-ups", label: "Follow-ups", icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <line x1="22" y1="2" x2="11" y2="13"></line>
-        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-      </svg>
-    )},
-    { id: "companies", label: "Companies", tag: platformCount ? `${platformCount} ATS` : undefined, icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect>
-        <line x1="9" y1="22" x2="9" y2="22.01"></line>
-        <line x1="15" y1="22" x2="15" y2="22.01"></line>
-        <line x1="9" y1="18" x2="9" y2="18.01"></line>
-        <line x1="15" y1="18" x2="15" y2="18.01"></line>
-        <line x1="9" y1="14" x2="9" y2="14.01"></line>
-        <line x1="15" y1="14" x2="15" y2="14.01"></line>
-      </svg>
-    )},
-    { id: "insights", label: "Insights", icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <line x1="18" y1="20" x2="18" y2="10"></line>
-        <line x1="12" y1="20" x2="12" y2="4"></line>
-        <line x1="6" y1="20" x2="6" y2="14"></line>
-      </svg>
-    )},
-    { id: "resume", label: "Résumé", hasDot: hasResume, icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-        <polyline points="14 2 14 8 20 8"></polyline>
-        <line x1="16" y1="13" x2="8" y2="13"></line>
-        <line x1="16" y1="17" x2="8" y2="17"></line>
-      </svg>
-    )},
-    { id: "files", label: "Files", icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-      </svg>
-    )},
-    { id: "settings", label: "Settings", icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <circle cx="12" cy="12" r="3"></circle>
-        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-      </svg>
-    )}
+    {
+      section: "Overview", id: "home", label: "Home", icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <rect x="3" y="3" width="7" height="7" rx="1.5"></rect>
+          <rect x="14" y="3" width="7" height="7" rx="1.5"></rect>
+          <rect x="14" y="14" width="7" height="7" rx="1.5"></rect>
+          <rect x="3" y="14" width="7" height="7" rx="1.5"></rect>
+        </svg>
+      )
+    },
+    {
+      section: "1. Discover", id: "find-jobs", label: "Find Jobs", badge: hasResume ? highMatchCount : totalJobsCount, icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+      )
+    },
+    {
+      id: "companies", label: "Companies", icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect>
+          <line x1="9" y1="22" x2="9" y2="22.01"></line>
+          <line x1="15" y1="22" x2="15" y2="22.01"></line>
+          <line x1="9" y1="18" x2="9" y2="18.01"></line>
+          <line x1="15" y1="18" x2="15" y2="18.01"></line>
+          <line x1="9" y1="14" x2="9" y2="14.01"></line>
+          <line x1="15" y1="14" x2="15" y2="14.01"></line>
+        </svg>
+      )
+    },
+    {
+      id: "job-alerts", label: "Job Alerts", icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+          <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+        </svg>
+      )
+    },
+    {
+      section: "2. Apply", label: "Application", id: "my-applications", badge: pipelineCount > 0 ? pipelineCount : undefined, icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M9 11l3 3L22 4"></path>
+          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+        </svg>
+      )
+    },
+    {
+      id: "resume", label: "Resume", hasDot: hasResume, icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+          <line x1="16" y1="13" x2="8" y2="13"></line>
+          <line x1="16" y1="17" x2="8" y2="17"></line>
+        </svg>
+      )
+    },
+    {
+      id: "files", label: "Files", icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+        </svg>
+      )
+    },
+    {
+      section: "3 · Follow up", id: "follow-ups", label: "Email Agent", icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <line x1="22" y1="2" x2="11" y2="13"></line>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        </svg>
+      )
+    },
+    {
+      section: "Account", id: "insights", label: "Analytics", icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <line x1="18" y1="20" x2="18" y2="10"></line>
+          <line x1="12" y1="20" x2="12" y2="4"></line>
+          <line x1="6" y1="20" x2="6" y2="14"></line>
+        </svg>
+      )
+    },
+    {
+      id: "settings", label: "Settings", icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      )
+    }
   ];
 
   return (
@@ -1161,31 +1178,26 @@ function Sidebar({ activeTab, setActiveTab, totalJobsCount, hasResume, highMatch
 
       <nav className="sidebar-nav">
         {navItems.map((item) => (
-          <a
-            key={item.id}
-            href={`#${item.id}`}
-            className={`nav-item ${activeTab === item.id ? "active" : ""}`}
-            onClick={(e) => {
-              e.preventDefault();
-              setActiveTab(item.id);
-            }}
-          >
-            <span className="nav-icon">{item.icon}</span>
-            <span>{item.label}</span>
-            {item.badge !== undefined && <span className="badge-counter">{item.badge}</span>}
-            {item.tag && <span className="badge-pill">{item.tag}</span>}
-            {item.hasDot && <span className="status-dot active"></span>}
-          </a>
+          <React.Fragment key={item.id}>
+            {item.section && <div className="nav-section-label">{item.section}</div>}
+            <a
+              href={`#${item.id}`}
+              className={`nav-item ${activeTab === item.id ? "active" : ""}`}
+              onClick={(e) => {
+                e.preventDefault();
+                setActiveTab(item.id);
+              }}
+            >
+              <span className="nav-icon">{item.icon}</span>
+              <span>{item.label}</span>
+              {item.badge !== undefined && <span className="badge-counter">{item.badge}</span>}
+              {item.tag && <span className="badge-pill">{item.tag}</span>}
+              {item.hasDot && <span className="status-dot active"></span>}
+            </a>
+          </React.Fragment>
         ))}
       </nav>
 
-      {platformCount > 0 && (
-        <div className="sidebar-footer">
-          <div className="ats-indicator">
-            <span>{platformCount} ATS connectors configured</span>
-          </div>
-        </div>
-      )}
     </aside>
   );
 }
@@ -1497,19 +1509,15 @@ function NextStepsSection({ resume, matchedCount, onViewJobs, onChangeResume, on
 
 // Returns "" when the posting date is unknown so the UI can hide it.
 function formatJobAge(dateStr) {
-  if (!dateStr) return "";
-  try {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return "";
-    const diffDays = Math.floor((new Date() - d) / (1000 * 60 * 60 * 24));
-    if (diffDays <= 0) return "today";
-    if (diffDays === 1) return "1d ago";
-    if (diffDays < 7) return `${diffDays}d ago`;
-    if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
-    return `${diffDays}d ago`;
-  } catch {
-    return "";
-  }
+  const d = getPostedDate({ posted_at: dateStr });
+  if (!d) return "";
+  const diffDays = Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays <= 0) return "today";
+  if (diffDays === 1) return "1d ago";
+  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
+  if (diffDays < 365) return `${Math.floor(diffDays / 30)}mo ago`;
+  return `${Math.floor(diffDays / 365)}y ago`;
 }
 
 function getCompanySummary(job) {
@@ -1518,90 +1526,318 @@ function getCompanySummary(job) {
   return "No company description available.";
 }
 
-function JobCard({ job, inPipeline, onTogglePipeline, onViewDetails }) {
-  const plat = (job.platform || "ATS").toLowerCase();
+function getJobWorkMode(job) {
+  const text = `${job.location || ""} ${job.title || ""} ${(job.description || "").slice(0, 1500)}`;
+  if (/\bhybrid\b/i.test(text)) return "Hybrid";
+  if (job.is_remote || /\bremote\b/i.test(text)) return "Remote";
+  if (/\b(on[- ]?site|in[- ]office|office[- ]based|in[- ]person)\b/i.test(text)) return "On-site";
+  return "";
+}
 
-  // Only a skill the backend actually matched against the resume is labelled "matched".
-  const matchedKeyword = job.matched_skills && job.matched_skills.length > 0 ? job.matched_skills[0] : "";
+function formatSalaryRange(job) {
+  const amounts = getSalaryAmounts(job);
+  if (!amounts.length) return "";
+  const currency = amounts[0].currency;
+  const same = amounts.filter((a) => a.currency === currency).map((a) => a.amount).filter((n) => n >= 1000);
+  if (!same.length) return "";
+  const symbol = { GBP: "£", EUR: "€", USD: "$" }[currency] || `${currency} `;
+  const fmt = (n) => (n >= 1000 ? `${symbol}${Math.round(n / 1000)}K` : `${symbol}${n}`);
+  const lo = Math.min(...same);
+  const hi = Math.max(...same);
+  return lo === hi ? fmt(lo) : `${fmt(lo)} – ${fmt(hi)}`;
+}
+
+function getVisaState(job) {
+  const inIreland = Boolean(job.job_in_ireland);
+  if (job.visa_sponsored && job.visa_sponsor_country === "Ireland") {
+    const permits = job.ireland_permits_issued || {};
+    const total = Object.values(permits).reduce((sum, n) => sum + n, 0);
+    const years = Object.keys(permits).sort();
+    return {
+      tone: "ok",
+      title: "Verified sponsor · Ireland",
+      detail: total
+        ? `Issued ${total.toLocaleString()} Irish employment permit${total === 1 ? "" : "s"} in ${years.join("–")}`
+        : "Listed in the Irish employment permit data",
+      tip: job.visa_sponsor_disclaimer || "Ireland has no sponsor licence register. Verify directly with the employer.",
+    };
+  }
+  if (job.visa_sponsored) {
+    return {
+      tone: "ok",
+      title: "Verified sponsor · UK",
+      detail: "On the UK Home Office register · UK location confirmed",
+      tip: `Employer matches the official UK Sponsor Register as ${job.visa_sponsor_registered_names?.join(", ") || "a listed organisation"}. This does not guarantee sponsorship for this vacancy.`,
+    };
+  }
+  if (inIreland) {
+    return job.visa_sponsor_registered
+      ? {
+        tone: "warn",
+        title: "Not verified",
+        detail: "A UK sponsor, but not found in the Irish employment permit data for this Ireland role",
+        tip: "Verify directly with the employer.",
+      }
+      : {
+        tone: "none",
+        title: "No sponsorship evidence",
+        detail: "Employer not found in the Irish employment permit data or the UK sponsor register",
+        tip: "Verify directly with the employer.",
+      };
+  }
+  if (job.visa_sponsor_registered) {
+    return {
+      tone: "warn",
+      title: "Not verified",
+      detail: job.visa_sponsor_location_status === "NON_UK"
+        ? "Employer is a UK sponsor, but this role is outside the UK"
+        : "Employer is a UK sponsor; this role's UK location isn't confirmed",
+      tip: "Being on the sponsor register does not guarantee sponsorship for this vacancy.",
+    };
+  }
+  return {
+    tone: "none",
+    title: "No sponsorship evidence",
+    detail: "Employer was not found on the UK sponsor register",
+    tip: "Verify directly with the employer.",
+  };
+}
+
+function matchTone(score) {
+  return score >= 85 ? "high" : score >= 70 ? "mid" : "low";
+}
+
+// Turns a posting's HTML into plain blocks (heading / paragraph / bullet) so it can be shown without injecting HTML.
+function parseJobDescription(raw) {
+  if (!raw) return [];
+  const read = (html) => new DOMParser().parseFromString(html, "text/html");
+  let doc = read(raw);
+  // Some feeds send the HTML escaped (&lt;p&gt;…); decode once more when real tags only appear after decoding.
+  const decoded = doc.body.textContent || "";
+  if (!doc.body.querySelector("p, li, h1, h2, h3, h4, div, br, ul") && /<(p|li|h\d|div|ul|br)\b/i.test(decoded)) doc = read(decoded);
+  const blocks = [];
+  const push = (type, text) => {
+    const t = (text || "").replace(/\s+/g, " ").trim();
+    if (t) blocks.push({ type, text: t });
+  };
+  const walk = (node) => {
+    node.childNodes.forEach((child) => {
+      if (child.nodeType === 3) return;
+      const tag = child.tagName?.toLowerCase();
+      if (!tag || ["script", "style"].includes(tag)) return;
+      if (/^h[1-6]$/.test(tag)) push("h", child.textContent);
+      else if (tag === "li") push("li", child.textContent);
+      else if (tag === "p") {
+        const only = child.children.length === 1 && ["strong", "b"].includes(child.children[0].tagName.toLowerCase())
+          && child.children[0].textContent.trim() === child.textContent.trim();
+        push(only && child.textContent.trim().length < 90 ? "h" : "p", child.textContent);
+      } else if (["ul", "ol", "div", "section", "article", "span", "body"].includes(tag)) {
+        const hasBlocks = child.querySelector("p, li, h1, h2, h3, h4, h5, h6, ul, ol, div");
+        if (hasBlocks) walk(child);
+        else push("p", child.textContent);
+      } else push("p", child.textContent);
+    });
+  };
+  walk(doc.body);
+  if (!blocks.length) (doc.body.textContent || "").split(/\n+/).forEach((line) => push("p", line));
+  return blocks;
+}
+
+function JobListItem({ job, selected, inPipeline, onSelect, onTogglePipeline }) {
+  const postingAge = formatJobAge(job.posted_at || job.created_at);
+  const score = Number(job.match_score);
+  const level = EXPERIENCE_LEVELS.find(([value]) => value === getExperienceLevel(job));
+  return (
+    <li className={`jd-item ${selected ? "selected" : ""}`}>
+      <div
+        className="jd-item-main"
+        role="button"
+        tabIndex={0}
+        aria-pressed={selected}
+        onClick={onSelect}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(); } }}
+      >
+        <div className="jd-item-logo">
+          <div className="jd-logo"><CompanyBrandLogo company={job.company} /></div>
+          {postingAge && <span className="jd-item-age"><Clock size={11} aria-hidden="true" /> {postingAge}</span>}
+        </div>
+        <div className="jd-item-body">
+          <div className="jd-item-top">
+            <h3>{job.title}</h3>
+            {Number.isFinite(score) && score > 0 && <span className={`jd-match ${matchTone(score)}`}>{Math.round(score)}% Match</span>}
+          </div>
+          <div className="jd-sub">
+            <span>{job.company || "Company not listed"}</span>
+            <span className="jd-dot">•</span>
+            <span>{job.location || "Location not listed"}</span>
+          </div>
+          <div className="jd-item-tags">
+            {job.employment_type && <span>{job.employment_type}</span>}
+            {job.visa_sponsored && <span className="visa">Visa Sponsorship</span>}
+            {level && <span>{level[1]}</span>}
+          </div>
+        </div>
+        <ChevronRight size={18} className="jd-item-chevron" aria-hidden="true" />
+      </div>
+      <button
+        type="button"
+        className={`jd-bookmark jd-item-bookmark ${inPipeline ? "saved" : ""}`}
+        onClick={onTogglePipeline}
+        aria-label={inPipeline ? `Remove ${job.title} from pipeline` : `Save ${job.title} to pipeline`}
+        aria-pressed={inPipeline}
+      >
+        <Bookmark size={17} fill={inPipeline ? "currentColor" : "none"} aria-hidden="true" />
+      </button>
+    </li>
+  );
+}
+
+function JobDetailPane({ job, inPipeline, onTogglePipeline, onOpenWorkspace }) {
+  const [tab, setTab] = useState("details");
+  const [company, setCompany] = useState({ jobId: null, data: null, error: "" });
+  useEffect(() => { setTab("details"); }, [job?.id]);
+  // Company research is fetched the first time the Company Info tab is opened for a job.
+  useEffect(() => {
+    if (tab !== "company" || !job?.id || company.jobId === job.id) return undefined;
+    let cancelled = false;
+    setCompany({ jobId: job.id, data: null, error: "" });
+    fetch(`${API_BASE}/api/job-intelligence/${encodeURIComponent(job.id)}/company`)
+      .then(async (res) => {
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(typeof body.detail === "string" ? body.detail : "Company research is unavailable.");
+        if (!cancelled) setCompany({ jobId: job.id, data: body, error: "" });
+      })
+      .catch((err) => { if (!cancelled) setCompany({ jobId: job.id, data: null, error: err.message }); });
+    return () => { cancelled = true; };
+  }, [tab, job?.id]);
+  const blocks = useMemo(() => parseJobDescription(job?.description), [job?.id]);
+  if (!job) return null;
 
   const postingAge = formatJobAge(job.posted_at || job.created_at);
+  const score = Number(job.match_score);
+  const level = EXPERIENCE_LEVELS.find(([value]) => value === getExperienceLevel(job));
+  const salary = formatSalaryRange(job);
+  const mode = getJobWorkMode(job);
+  const visa = getVisaState(job);
+  const skills = (job.matched_skills || []).filter(Boolean);
+  const missing = (job.missing_skills || []).filter(Boolean);
+  const reasons = (job.match_reasons || []).filter(Boolean);
+  const co = company.jobId === job.id ? company.data : null;
+  const companyLoading = tab === "company" && company.jobId === job.id && !co && !company.error;
+  const companyRows = [
+    ["Industry", co?.industry || job.industry],
+    ["Headquarters", co?.headquarters || job.company_headquarters],
+    ["Company size", co?.company_size || job.company_size],
+    ["Website", co?.official_website || job.company_website],
+    ["Careers page", co?.career_page],
+    ["Hiring locations", co?.operating_locations?.length ? co.operating_locations.join("; ") : ""],
+  ].filter(([, value]) => value);
+  const companyOverview = co?.overview || (job.company_description ? sanitizeDisplayText(job.company_description) : "");
 
   return (
-    <div className="job-card-uploaded-style">
-      <div className="card-header-row">
-        <div className="company-avatar-circle" title={job.company || "Company not listed"}>
-          {(job.company || "?").charAt(0).toUpperCase()}
+    <section className="jd-detail" aria-label={`${job.title} at ${job.company}`}>
+      <header className="jd-detail-head">
+        <div className="jd-logo big"><CompanyBrandLogo company={job.company} /></div>
+        <div className="jd-detail-title">
+          <h2>{job.title}</h2>
+          <div className="jd-sub">
+            <Building2 size={14} aria-hidden="true" />
+            <span>{job.company || "Company not listed"}</span>
+            <span className="jd-dot">•</span>
+            <MapPin size={14} aria-hidden="true" />
+            <span>{job.location || "Location not listed"}</span>
+          </div>
         </div>
+        {Number.isFinite(score) && score > 0 && <span className={`jd-match big ${matchTone(score)}`}>{Math.round(score)}% Match</span>}
+      </header>
 
-        <div className="card-title-block">
-          <div className="title-and-link">
-            <h3 className="job-card-title" title={job.title}>{job.title}</h3>
-            <a
-              href={job.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="external-link-icon"
-              title="Open original job posting"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-                <polyline points="15 3 21 3 21 9"></polyline>
-                <line x1="10" y1="14" x2="21" y2="3"></line>
-              </svg>
-            </a>
-          </div>
-          <div className="job-card-subtitle">
-            {job.company || "Company not listed"} · {job.location || "Location not listed"}
-          </div>
-          {job.visa_sponsored && (
-            <span
-              className="visa-sponsored-badge"
-              title={`Employer matches the official UK Sponsor Register as ${job.visa_sponsor_registered_names?.join(", ") || "a listed organisation"}. This does not guarantee sponsorship for this vacancy.`}
-            >
-              Visa Sponsored
-            </span>
-          )}
-        </div>
+      <div className="jd-detail-chips">
+        {job.employment_type && <span>{job.employment_type}</span>}
+        {job.visa_sponsored && <span className="visa">Visa Sponsorship · {job.visa_sponsor_country}</span>}
+        {level && <span>{level[1]}</span>}
+        {mode && <span>{mode}</span>}
+        {salary && <span>{salary}</span>}
+        {postingAge && <span className="muted"><Clock size={13} aria-hidden="true" /> Posted {postingAge}</span>}
       </div>
 
-      <div className="card-meta-row">
-        <span className="platform-tag-pill">{plat}</span>
-        {postingAge && <span className="meta-age-text">{postingAge}</span>}
-        {matchedKeyword && (
-          <span className="matched-skill-text">
-            · matched <span className="matched-skill-highlight">{matchedKeyword}</span>
-          </span>
+      <div className="jd-detail-actions">
+        <button type="button" className={`jd-save-btn ${inPipeline ? "saved" : ""}`} onClick={onTogglePipeline} aria-pressed={inPipeline}
+          aria-label={inPipeline ? "Remove from pipeline" : "Save to pipeline"} title={inPipeline ? "In pipeline" : "Save to pipeline"}>
+          <Bookmark size={18} fill={inPipeline ? "currentColor" : "none"} aria-hidden="true" />
+        </button>
+        <button type="button" className="jd-tailor-btn" onClick={onOpenWorkspace}>
+          <Sparkles size={15} aria-hidden="true" /> Tailor with Cafy
+        </button>
+        {job.url ? (
+          <a className="jd-apply-btn" href={job.url} target="_blank" rel="noopener noreferrer">
+            Apply Now <ExternalLink size={15} aria-hidden="true" />
+          </a>
+        ) : (
+          <button type="button" className="jd-apply-btn" onClick={onOpenWorkspace}>View details</button>
         )}
       </div>
 
-      <div className="card-action-row">
-        <button
-          type="button"
-          className={`btn-pipeline ${inPipeline ? "in-pipeline" : ""}`}
-          onClick={onTogglePipeline}
-        >
-          {inPipeline ? (
-            <>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12"></polyline>
-              </svg>
-              <span>In pipeline</span>
-            </>
-          ) : (
-            <><span>+ Add to pipeline</span></>
-          )}
-        </button>
-
-        <button
-          type="button"
-          className="btn-apply-job"
-          onClick={onViewDetails}
-        >
-          Apply
-        </button>
+      <div className="jd-tabs" role="tablist">
+        {[["details", "Job Details"], ["company", "Company Info"], ["intelligence", "Job Intelligence"], ["why", "Why This Job?"]].map(([id, label]) => (
+          <button key={id} type="button" role="tab" aria-selected={tab === id} className={tab === id ? "on" : ""} onClick={() => setTab(id)}>{label}</button>
+        ))}
       </div>
-    </div>
+
+      <div className="jd-tab-body">
+        {tab === "details" && (
+          <>
+            {blocks.length === 0 && <p className="jd-muted">No full description is available for this job. Use Apply Now to read it on the employer's site.</p>}
+            {blocks.map((b, i) => (
+              b.type === "h" ? <h4 key={i}>{b.text}</h4>
+                : b.type === "li" ? <p key={i} className="jd-li"><CheckCircle2 size={15} aria-hidden="true" /><span>{b.text}</span></p>
+                  : <p key={i}>{b.text}</p>
+            ))}
+          </>
+        )}
+
+        {tab === "company" && (
+          <>
+            {companyLoading && <p className="jd-muted"><Loader2 size={14} className="doc-spin" aria-hidden="true" /> Researching {job.company}…</p>}
+            {company.error && <p className="jd-muted">{company.error}</p>}
+            {companyOverview && (
+              <p>{companyOverview}{co?.overview_source && <span className="jd-muted"> (source: {co.overview_source})</span>}</p>
+            )}
+            {companyRows.length > 0 ? (
+              <dl className="jd-facts">
+                {companyRows.map(([label, value]) => (
+                  <React.Fragment key={label}>
+                    <dt>{label}</dt>
+                    <dd>{/^https?:\/\//.test(value) ? <a href={value} target="_blank" rel="noopener noreferrer">{value.replace(/^https?:\/\//, "")}</a> : value}</dd>
+                  </React.Fragment>
+                ))}
+              </dl>
+            ) : !companyLoading && !companyOverview && <p className="jd-muted">No public company details were found for {job.company || "this company"}.</p>}
+            {(co?.notes || []).map((n, i) => <p key={i} className="jd-muted jd-note">{n}</p>)}
+          </>
+        )}
+
+        {tab === "intelligence" && <JobIntelligence key={job.id} job={job} />}
+
+        {tab === "why" && (
+          <>
+            {reasons.length > 0 ? reasons.map((r, i) => <p key={i} className="jd-li"><CheckCircle2 size={15} aria-hidden="true" /><span>{r}</span></p>)
+              : <p className="jd-muted">No match explanation is available for this job.</p>}
+            {skills.length > 0 && (<><h4>Your matching skills</h4><div className="jd-skills">{skills.map((sk) => <span key={sk} className="jd-skill">{sk}</span>)}</div></>)}
+            {missing.length > 0 && (<><h4>Skills the posting asks for that your résumé doesn't show</h4><div className="jd-skills">{missing.map((sk) => <span key={sk} className="jd-skill more">{sk}</span>)}</div></>)}
+          </>
+        )}
+      </div>
+
+      <div className={`jd-visa ${visa.tone}`} title={visa.tip}>
+        <span className="jd-visa-icon" aria-hidden="true">
+          {visa.tone === "ok" ? <Check size={14} /> : visa.tone === "warn" ? <AlertTriangle size={13} /> : <X size={13} />}
+        </span>
+        <div>
+          <strong>Visa sponsorship · {visa.title}</strong>
+          <span>{visa.detail}</span>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -1724,11 +1960,11 @@ function normalizeClientResume(raw, masterResume, job) {
   }));
 
   let totalBullets = exps.reduce((acc, e) => acc + (e.bullets?.length || 0), 0) +
-                     projs.reduce((acc, p) => acc + (p.bullets?.length || 0), 0);
+    projs.reduce((acc, p) => acc + (p.bullets?.length || 0), 0);
   if (totalBullets > 12) {
     projs = projs.map((p) => ({ ...p, bullets: (p.bullets || []).slice(0, 2) }));
     totalBullets = exps.reduce((acc, e) => acc + (e.bullets?.length || 0), 0) +
-                   projs.reduce((acc, p) => acc + (p.bullets?.length || 0), 0);
+      projs.reduce((acc, p) => acc + (p.bullets?.length || 0), 0);
     if (totalBullets > 12) {
       exps = exps.map((e) => ({ ...e, bullets: (e.bullets || []).slice(0, 2) }));
     }
@@ -1851,165 +2087,165 @@ function ResumeDocumentPreview({ resume, job, resumeReady, isGeneratingResume })
     <div className="resume-preview-sheet-wrapper">
       <div className="resume-paper-doc" id="resume-printable-doc">
         <div className="resume-paper-content">
-        {/* 1. Header: Sebastian Bennett ATS Style */}
-      {pInfo.name && <h1 style={{ letterSpacing: "0.04em" }}>{pInfo.name.toUpperCase()}</h1>}
-      {targetRole && <div className="paper-role">{targetRole}</div>}
+          {/* 1. Header: Sebastian Bennett ATS Style */}
+          {pInfo.name && <h1 style={{ letterSpacing: "0.04em" }}>{pInfo.name.toUpperCase()}</h1>}
+          {targetRole && <div className="paper-role">{targetRole}</div>}
 
-      <div className="paper-contact-bar">
-        {pInfo.phone && (
-          <span>
-            <Phone size={12} aria-hidden="true" /> <a href={`tel:${pInfo.phone.replace(/[^\d+]/g, "")}`}>{pInfo.phone}</a>
-          </span>
-        )}
-        {pInfo.email && (
-          <span>
-            <Mail size={12} aria-hidden="true" /> <a href={`mailto:${pInfo.email}`}>{pInfo.email}</a>
-          </span>
-        )}
-        {pInfo.location && <span><MapPin size={12} aria-hidden="true" /> {pInfo.location}</span>}
-        {linkedInHandle && (
-          <span>
-            <Linkedin size={12} aria-hidden="true" /> <a href={`https://linkedin.com/in/${linkedInHandle}`} target="_blank" rel="noopener noreferrer">linkedin.com/in/{linkedInHandle}</a>
-          </span>
-        )}
-        {gitHubHandle && (
-          <span>
-            <Github size={12} aria-hidden="true" /> <a href={`https://github.com/${gitHubHandle}`} target="_blank" rel="noopener noreferrer">github.com/{gitHubHandle}</a>
-          </span>
-        )}
-        {portfolioClean && (
-          <span>
-            <Globe size={12} aria-hidden="true" /> <a href={`https://${portfolioClean}`} target="_blank" rel="noopener noreferrer">{portfolioClean}</a>
-          </span>
-        )}
-      </div>
-      <hr className="paper-header-hr" />
-
-      {/* 2. Professional Summary / About Me */}
-      {resume.professional_summary && (
-        <div className="paper-section">
-          <div className="paper-section-title">Professional Summary</div>
-          <p className="paper-summary" style={{ textAlign: "justify" }}>{resume.professional_summary}</p>
-          <hr className="paper-section-hr" />
-        </div>
-      )}
-
-      {/* 3. Work Experience */}
-      {resume.experience && resume.experience.length > 0 && (
-        <div className="paper-section">
-          <div className="paper-section-title">Work Experience</div>
-          {resume.experience.map((exp, idx) => (
-            <div className="paper-entry" key={`exp-${idx}`} style={{ marginBottom: 10 }}>
-              <div className="paper-entry-meta">
-                <span className="paper-entry-company">
-                  {exp.organization || exp.company || ""}
-                  {exp.location ? ` | ${exp.location}` : ""}
-                </span>
-                {exp.dates && <span className="paper-entry-dates">{exp.dates}</span>}
-              </div>
-              {exp.title && <div className="paper-entry-title">{exp.title}</div>}
-              {exp.description && <p className="paper-summary">{exp.description}</p>}
-              {exp.bullets && exp.bullets.length > 0 && (
-                <ul className="paper-bullets">
-                  {exp.bullets.map((b, bIdx) => (
-                    <li key={`exp-${idx}-b-${bIdx}`}><LinkifiedText text={b} /></li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ))}
-          <hr className="paper-section-hr" />
-        </div>
-      )}
-
-      {/* 4. Projects */}
-      {resume.projects && resume.projects.length > 0 && (
-        <div className="paper-section">
-          <div className="paper-section-title">Projects</div>
-          {resume.projects.map((proj, idx) => (
-            <div className="paper-entry" key={`proj-${idx}`} style={{ marginBottom: 10 }}>
-              <div className="paper-entry-meta">
-                <span className="paper-entry-company">
-                  {proj.title || ""}
-                  {proj.organization ? ` | ${proj.organization}` : ""}
-                </span>
-                {proj.dates && <span className="paper-entry-dates">{proj.dates}</span>}
-              </div>
-              {proj.description && <p className="paper-summary"><LinkifiedText text={proj.description} /></p>}
-              {proj.bullets && proj.bullets.length > 0 && (
-                <ul className="paper-bullets">
-                  {proj.bullets.map((b, bIdx) => (
-                    <li key={`proj-${idx}-b-${bIdx}`}><LinkifiedText text={b} /></li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ))}
-          <hr className="paper-section-hr" />
-        </div>
-      )}
-
-      {/* 5. Education */}
-      {resume.education && resume.education.length > 0 && (
-        <div className="paper-section">
-          <div className="paper-section-title">Education</div>
-          {resume.education.map((edu, idx) => (
-            <div className="paper-entry" key={`edu-${idx}`} style={{ marginBottom: 8 }}>
-              <div className="paper-entry-meta">
-                <span className="paper-entry-company">
-                  {edu.institution || edu.organization || edu.school || ""}
-                  {edu.location ? ` | ${edu.location}` : ""}
-                </span>
-                {edu.dates && <span className="paper-entry-dates">{edu.dates}</span>}
-              </div>
-              {(edu.degree || edu.title) && <div className="paper-entry-title">{edu.degree || edu.title}</div>}
-              {edu.description && <p className="paper-summary"><LinkifiedText text={edu.description} /></p>}
-              {edu.bullets && edu.bullets.length > 0 && (
-                <ul className="paper-bullets">
-                  {edu.bullets.map((b, bIdx) => (
-                    <li key={`edu-${idx}-b-${bIdx}`}><LinkifiedText text={b} /></li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ))}
-          <hr className="paper-section-hr" />
-        </div>
-      )}
-
-      {/* 6. Skills in 3-column bulleted grid matching Sebastian Bennett image */}
-      {resume.skills && resume.skills.length > 0 && (
-        <div className="paper-section">
-          <div className="paper-section-title">Core Skills</div>
-          <div className="paper-skills-grid">
-            {resume.skills.map((skill, sIdx) => (
-              <div className="paper-skill-item" key={`sk-${sIdx}`}>
-                <span className="paper-bullet-dot">•</span> {skill}
-              </div>
-            ))}
+          <div className="paper-contact-bar">
+            {pInfo.phone && (
+              <span>
+                <Phone size={12} aria-hidden="true" /> <a href={`tel:${pInfo.phone.replace(/[^\d+]/g, "")}`}>{pInfo.phone}</a>
+              </span>
+            )}
+            {pInfo.email && (
+              <span>
+                <Mail size={12} aria-hidden="true" /> <a href={`mailto:${pInfo.email}`}>{pInfo.email}</a>
+              </span>
+            )}
+            {pInfo.location && <span><MapPin size={12} aria-hidden="true" /> {pInfo.location}</span>}
+            {linkedInHandle && (
+              <span>
+                <Linkedin size={12} aria-hidden="true" /> <a href={`https://linkedin.com/in/${linkedInHandle}`} target="_blank" rel="noopener noreferrer">linkedin.com/in/{linkedInHandle}</a>
+              </span>
+            )}
+            {gitHubHandle && (
+              <span>
+                <Github size={12} aria-hidden="true" /> <a href={`https://github.com/${gitHubHandle}`} target="_blank" rel="noopener noreferrer">github.com/{gitHubHandle}</a>
+              </span>
+            )}
+            {portfolioClean && (
+              <span>
+                <Globe size={12} aria-hidden="true" /> <a href={`https://${portfolioClean}`} target="_blank" rel="noopener noreferrer">{portfolioClean}</a>
+              </span>
+            )}
           </div>
-        </div>
-      )}
+          <hr className="paper-header-hr" />
 
-      {/* 7. Certifications if any */}
-      {resume.certifications && resume.certifications.length > 0 && (
-        <div className="paper-section" style={{ marginTop: 8 }}>
-          <hr className="paper-section-hr" />
-          <div className="paper-section-title">Certifications</div>
-          {resume.certifications.map((cert, idx) => (
-            <div className="paper-entry" key={`cert-${idx}`} style={{ marginBottom: 4 }}>
-              <div className="paper-entry-meta">
-                <span className="paper-entry-title">{cert.name || cert.title || ""}</span>
-                {cert.dates && <span className="paper-entry-dates">{cert.dates}</span>}
-              </div>
-              {cert.issuer && <div className="paper-entry-loc">{cert.issuer}</div>}
+          {/* 2. Professional Summary / About Me */}
+          {resume.professional_summary && (
+            <div className="paper-section">
+              <div className="paper-section-title">Professional Summary</div>
+              <p className="paper-summary" style={{ textAlign: "justify" }}>{resume.professional_summary}</p>
+              <hr className="paper-section-hr" />
             </div>
-          ))}
+          )}
+
+          {/* 3. Work Experience */}
+          {resume.experience && resume.experience.length > 0 && (
+            <div className="paper-section">
+              <div className="paper-section-title">Work Experience</div>
+              {resume.experience.map((exp, idx) => (
+                <div className="paper-entry" key={`exp-${idx}`} style={{ marginBottom: 10 }}>
+                  <div className="paper-entry-meta">
+                    <span className="paper-entry-company">
+                      {exp.organization || exp.company || ""}
+                      {exp.location ? ` | ${exp.location}` : ""}
+                    </span>
+                    {exp.dates && <span className="paper-entry-dates">{exp.dates}</span>}
+                  </div>
+                  {exp.title && <div className="paper-entry-title">{exp.title}</div>}
+                  {exp.description && <p className="paper-summary">{exp.description}</p>}
+                  {exp.bullets && exp.bullets.length > 0 && (
+                    <ul className="paper-bullets">
+                      {exp.bullets.map((b, bIdx) => (
+                        <li key={`exp-${idx}-b-${bIdx}`}><LinkifiedText text={b} /></li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+              <hr className="paper-section-hr" />
+            </div>
+          )}
+
+          {/* 4. Projects */}
+          {resume.projects && resume.projects.length > 0 && (
+            <div className="paper-section">
+              <div className="paper-section-title">Projects</div>
+              {resume.projects.map((proj, idx) => (
+                <div className="paper-entry" key={`proj-${idx}`} style={{ marginBottom: 10 }}>
+                  <div className="paper-entry-meta">
+                    <span className="paper-entry-company">
+                      {proj.title || ""}
+                      {proj.organization ? ` | ${proj.organization}` : ""}
+                    </span>
+                    {proj.dates && <span className="paper-entry-dates">{proj.dates}</span>}
+                  </div>
+                  {proj.description && <p className="paper-summary"><LinkifiedText text={proj.description} /></p>}
+                  {proj.bullets && proj.bullets.length > 0 && (
+                    <ul className="paper-bullets">
+                      {proj.bullets.map((b, bIdx) => (
+                        <li key={`proj-${idx}-b-${bIdx}`}><LinkifiedText text={b} /></li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+              <hr className="paper-section-hr" />
+            </div>
+          )}
+
+          {/* 5. Education */}
+          {resume.education && resume.education.length > 0 && (
+            <div className="paper-section">
+              <div className="paper-section-title">Education</div>
+              {resume.education.map((edu, idx) => (
+                <div className="paper-entry" key={`edu-${idx}`} style={{ marginBottom: 8 }}>
+                  <div className="paper-entry-meta">
+                    <span className="paper-entry-company">
+                      {edu.institution || edu.organization || edu.school || ""}
+                      {edu.location ? ` | ${edu.location}` : ""}
+                    </span>
+                    {edu.dates && <span className="paper-entry-dates">{edu.dates}</span>}
+                  </div>
+                  {(edu.degree || edu.title) && <div className="paper-entry-title">{edu.degree || edu.title}</div>}
+                  {edu.description && <p className="paper-summary"><LinkifiedText text={edu.description} /></p>}
+                  {edu.bullets && edu.bullets.length > 0 && (
+                    <ul className="paper-bullets">
+                      {edu.bullets.map((b, bIdx) => (
+                        <li key={`edu-${idx}-b-${bIdx}`}><LinkifiedText text={b} /></li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+              <hr className="paper-section-hr" />
+            </div>
+          )}
+
+          {/* 6. Skills in 3-column bulleted grid matching Sebastian Bennett image */}
+          {resume.skills && resume.skills.length > 0 && (
+            <div className="paper-section">
+              <div className="paper-section-title">Core Skills</div>
+              <div className="paper-skills-grid">
+                {resume.skills.map((skill, sIdx) => (
+                  <div className="paper-skill-item" key={`sk-${sIdx}`}>
+                    <span className="paper-bullet-dot">•</span> {skill}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 7. Certifications if any */}
+          {resume.certifications && resume.certifications.length > 0 && (
+            <div className="paper-section" style={{ marginTop: 8 }}>
+              <hr className="paper-section-hr" />
+              <div className="paper-section-title">Certifications</div>
+              {resume.certifications.map((cert, idx) => (
+                <div className="paper-entry" key={`cert-${idx}`} style={{ marginBottom: 4 }}>
+                  <div className="paper-entry-meta">
+                    <span className="paper-entry-title">{cert.name || cert.title || ""}</span>
+                    {cert.dates && <span className="paper-entry-dates">{cert.dates}</span>}
+                  </div>
+                  {cert.issuer && <div className="paper-entry-loc">{cert.issuer}</div>}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      )}
       </div>
     </div>
-  </div>
   );
 }
 
@@ -2085,7 +2321,7 @@ function SuggestionsPanel({ job, resume, tailoredResume, onRewriteSummary, isRew
   );
 }
 
-function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline, inPipeline, fullPage = false }) {
+function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline, inPipeline, fullPage = false, resumeOnly = false }) {
   const [activeTab, setActiveTab] = useState("application");
   const [workspaceTab, setWorkspaceTab] = useState("editor");
   const [isGeneratingResume, setIsGeneratingResume] = useState(false);
@@ -2097,14 +2333,21 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
   const [applicationStatus, setApplicationStatus] = useState("Not started");
   const [draftSaved, setDraftSaved] = useState(false);
   const [generatedOutput, setGeneratedOutput] = useState(null);
+  // The editor's in-browser PDF of the current edits, reused by Download Resume.
+  const pdfFileRef = useRef(null);
+  const handlePdfReady = useCallback((file) => { pdfFileRef.current = file; }, []);
   const [tailoredResume, setTailoredResume] = useState(() => normalizeClientResume({}, resume, job));
-  // The editor shows one section at a time, picked from the Structured Editor list.
-  const [openSections, setOpenSections] = useState(new Set(["summary"]));
   // Last generated/saved version, used by the editor's Reset button.
   const [savedSnapshot, setSavedSnapshot] = useState(null);
   // Outcome of the last full "Rewrite with AI": lines kept unchanged + skills to consider adding.
   const [rewriteResult, setRewriteResult] = useState(null);
-  const [newSkillInput, setNewSkillInput] = useState("");
+  // Tailor flow inputs (Screen 2): the job description is pre-filled from the job and can be edited.
+  const [tailorJobDescription, setTailorJobDescription] = useState(() => sanitizeDisplayText(job?.description || ""));
+  const [additionalInstructions, setAdditionalInstructions] = useState("");
+
+  useEffect(() => {
+    setTailorJobDescription(sanitizeDisplayText(job?.description || ""));
+  }, [job?.id, job?.description]);
 
   // Live job-match scoring of the tailored resume while it is open in the editor. Re-runs
   // (debounced) on every change, including AI rewrites, so section scores stay current.
@@ -2114,7 +2357,6 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
     editorProfile,
     600
   );
-  const editorSections = editorScoring.analysis?.sections || {};
 
   const existingSkillsLower = new Set((tailoredResume?.skills || []).map((s) => String(s).trim().toLowerCase()));
   const candidateJobSkills = [
@@ -2158,9 +2400,6 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
     };
   }, [job?.id]);
 
-  // Section headers no longer collapse: the editor always shows exactly one section.
-  const toggleSection = (key) => setOpenSections(new Set([key]));
-
   const handleGenerateResume = async () => {
     if (!resume) {
       setResumeError("Upload a résumé before generating a tailored version.");
@@ -2175,7 +2414,12 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
       const response = await fetch(`${API_BASE}/api/resumes/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ job_id: job.id, resume_data: resume }),
+        body: JSON.stringify({
+          job_id: job.id,
+          resume_data: resume,
+          job_description: tailorJobDescription.trim() !== String(job?.description || "").trim() ? tailorJobDescription : undefined,
+          additional_instructions: additionalInstructions.trim() || undefined,
+        }),
       });
       const data = await response.json();
       if (!response.ok) {
@@ -2563,8 +2807,12 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
 
   const handleDownloadResume = (format = "pdf") => {
     if (format === "pdf") {
+      if (pdfFileRef.current) {
+        saveBlob(pdfFileRef.current.blob, pdfFileRef.current.name);
+        return;
+      }
       if (generatedOutput?.pdf_url) {
-        window.open(`${API_BASE}${generatedOutput.pdf_url}`, "_blank", "noopener,noreferrer");
+        window.open(withToken(`${API_BASE}${generatedOutput.pdf_url}`), "_blank", "noopener,noreferrer");
         return;
       }
       const printableHtml = generatePrintableResumeHtml(tailoredResume, job);
@@ -2613,7 +2861,7 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
             window.print();
           } finally {
             setTimeout(() => {
-              try { document.body.removeChild(printFrame); } catch (_) {}
+              try { document.body.removeChild(printFrame); } catch (_) { }
             }, 2500);
           }
         }, 350);
@@ -2624,7 +2872,7 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
     }
     if (format === "docx") {
       if (generatedOutput?.docx_url) {
-        window.open(`${API_BASE}${generatedOutput.docx_url}`, "_blank", "noopener,noreferrer");
+        window.open(withToken(`${API_BASE}${generatedOutput.docx_url}`), "_blank", "noopener,noreferrer");
       } else {
         setResumeError("DOCX file is not ready yet. Please save draft or re-generate.");
       }
@@ -2632,7 +2880,7 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
     }
     if (format === "latex") {
       if (generatedOutput?.tex_url) {
-        window.open(`${API_BASE}${generatedOutput.tex_url}`, "_blank", "noopener,noreferrer");
+        window.open(withToken(`${API_BASE}${generatedOutput.tex_url}`), "_blank", "noopener,noreferrer");
       } else {
         setResumeError("LaTeX source is not ready yet.");
       }
@@ -2651,21 +2899,23 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
         if (bulletIndex !== null) {
           content = tailoredResume.experience[itemIndex]?.bullets?.[bulletIndex] || "";
         } else {
-          content = (tailoredResume.experience[itemIndex]?.bullets || []).join("\n");
+          content = (tailoredResume.experience[itemIndex]?.bullets || []).join("\n") || tailoredResume.experience[itemIndex]?.description || "";
         }
       } else if (sectionKey === "projects" && itemIndex !== null) {
         if (bulletIndex !== null) {
           content = tailoredResume.projects[itemIndex]?.bullets?.[bulletIndex] || "";
         } else {
-          content = (tailoredResume.projects[itemIndex]?.bullets || []).join("\n");
+          content = (tailoredResume.projects[itemIndex]?.bullets || []).join("\n") || tailoredResume.projects[itemIndex]?.description || "";
         }
       } else if (sectionKey === "all") {
         content = tailoredResume.professional_summary;
       }
 
-      // Never let the AI invent content from nothing.
-      if (!String(content || "").trim()) {
-        setResumeError("Add some content first, then use AI to improve it.");
+      // An empty summary is drafted by the server from the rest of the resume. Anything else needs
+      // something to work from, since the AI must not invent experience.
+      const isSummary = sectionKey === "professional_summary" || sectionKey === "all";
+      if (!String(content || "").trim() && !isSummary) {
+        setResumeError("Write a rough first draft (even one line) and AI will polish it. AI will not make up experience you have not entered.");
         return;
       }
 
@@ -2676,7 +2926,7 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
           job_id: job.id,
           section: bulletIndex !== null ? "bullet" : sectionKey,
           content,
-          resume_data: resume,
+          resume_data: tailoredResume,
         }),
       });
       const data = await resp.json();
@@ -2727,122 +2977,29 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
     }
   };
 
-  const handleOpenCareerPortal = () => {
+  const handleOpenCareerPortal = async () => {
     const targetUrl = job.url || job.apply_url || job.application_url;
-    if (targetUrl) {
-      window.open(targetUrl, "_blank", "noopener,noreferrer");
-      setApplicationStatus("Application page opened");
-    } else {
+    if (!targetUrl) {
       setApplicationStatus("No external application URL available");
+      return;
     }
-  };
-
-  // Helper updates for Resume Editor
-  const updatePersonalInfo = (field, val) => {
-    setTailoredResume((prev) => ({
-      ...prev,
-      personal_info: { ...prev.personal_info, [field]: val },
-    }));
-    setDraftSaved(false);
-  };
-
-  const EDITOR_SECTION_FIELDS = {
-    personal: "personal_info",
-    summary: "professional_summary",
-    skills: "skills",
-    experience: "experience",
-    projects: "projects",
-    education: "education",
-    certifications: "certifications",
-  };
-
-  const activeEditorSection = [...openSections][0] || "summary";
-
-  const resetEditorSection = () => {
-    const field = EDITOR_SECTION_FIELDS[activeEditorSection];
-    if (!savedSnapshot || !field) return;
-    setTailoredResume((prev) => ({ ...prev, [field]: savedSnapshot[field] }));
-  };
-
-  const updateSummary = (val) => {
-    setTailoredResume((prev) => ({ ...prev, professional_summary: val }));
-    setDraftSaved(false);
-  };
-
-  const updateEntryField = (section, index, field, val) => {
-    setTailoredResume((prev) => {
-      const list = [...(prev[section] || [])];
-      list[index] = { ...list[index], [field]: val };
-      return { ...prev, [section]: list };
-    });
-    setDraftSaved(false);
-  };
-
-  const updateBullet = (section, entryIndex, bulletIndex, val) => {
-    setTailoredResume((prev) => {
-      const list = [...(prev[section] || [])];
-      const bullets = [...(list[entryIndex].bullets || [])];
-      bullets[bulletIndex] = val;
-      list[entryIndex] = { ...list[entryIndex], bullets };
-      return { ...prev, [section]: list };
-    });
-    setDraftSaved(false);
-  };
-
-  const addBullet = (section, entryIndex) => {
-    setTailoredResume((prev) => {
-      const list = [...(prev[section] || [])];
-      const bullets = [...(list[entryIndex].bullets || []), ""];
-      list[entryIndex] = { ...list[entryIndex], bullets };
-      return { ...prev, [section]: list };
-    });
-    setDraftSaved(false);
-  };
-
-  const removeBullet = (section, entryIndex, bulletIndex) => {
-    setTailoredResume((prev) => {
-      const list = [...(prev[section] || [])];
-      const bullets = list[entryIndex].bullets.filter((_, idx) => idx !== bulletIndex);
-      list[entryIndex] = { ...list[entryIndex], bullets };
-      return { ...prev, [section]: list };
-    });
-    setDraftSaved(false);
-  };
-
-  const moveBullet = (section, entryIndex, bulletIndex, direction) => {
-    setTailoredResume((prev) => {
-      const list = [...(prev[section] || [])];
-      const bullets = [...(list[entryIndex].bullets || [])];
-      const targetIndex = bulletIndex + direction;
-      if (targetIndex < 0 || targetIndex >= bullets.length) return prev;
-      const temp = bullets[bulletIndex];
-      bullets[bulletIndex] = bullets[targetIndex];
-      bullets[targetIndex] = temp;
-      list[entryIndex] = { ...list[entryIndex], bullets };
-      return { ...prev, [section]: list };
-    });
-    setDraftSaved(false);
-  };
-
-  const addEntry = (section) => {
-    setTailoredResume((prev) => {
-      const newItem =
-        section === "education"
-          ? { degree: "", institution: "", dates: "", location: "", bullets: [] }
-          : section === "certifications"
-          ? { name: "", issuer: "", dates: "" }
-          : { title: "", organization: "", dates: "", location: "", bullets: [] };
-      return { ...prev, [section]: [...(prev[section] || []), newItem] };
-    });
-    setDraftSaved(false);
-  };
-
-  const removeEntry = (section, index) => {
-    setTailoredResume((prev) => ({
-      ...prev,
-      [section]: (prev[section] || []).filter((_, i) => i !== index),
-    }));
-    setDraftSaved(false);
+    // Register the application first (also checks for an earlier application to the same job).
+    let result = await startApplication(job);
+    if (result.status === 409 && result.data?.duplicate) {
+      const when = result.data.existing?.applied_at ? new Date(result.data.existing.applied_at).toLocaleDateString() : "earlier";
+      if (!window.confirm(`You already applied to this job through Cafy (${when}). Apply again anyway?`)) {
+        setApplicationStatus("Already applied – duplicate prevented");
+        return;
+      }
+      result = await startApplication(job, true);
+    }
+    if (!result.ok) {
+      setApplicationStatus(result.data?.message || "Could not start the application");
+      if (result.status === 422) return; // no résumé stored: autofill is not possible yet
+    } else {
+      setApplicationStatus(result.data.resumed ? "Resumed existing application" : "Application started – use the Cafy extension on the company page");
+    }
+    window.open(targetUrl, "_blank", "noopener,noreferrer");
   };
 
   const addSkill = (skill) => {
@@ -2852,15 +3009,6 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
       if (prev.skills.includes(s)) return prev;
       return { ...prev, skills: [...prev.skills, s] };
     });
-    setNewSkillInput("");
-    setDraftSaved(false);
-  };
-
-  const removeSkill = (skill) => {
-    setTailoredResume((prev) => ({
-      ...prev,
-      skills: prev.skills.filter((x) => x !== skill),
-    }));
     setDraftSaved(false);
   };
 
@@ -2868,6 +3016,7 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
     { key: "overview", label: "Overview" },
     { key: "requirements", label: "Requirements" },
     { key: "company", label: "Company" },
+    { key: "intelligence", label: "Job Intelligence" },
     { key: "application", label: "Application" },
   ];
 
@@ -2911,13 +3060,15 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
               </div>
             </div>
             <div className="workspace-header-actions" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <button
-                type="button"
-                className="btn-job-details-toggle"
-                onClick={() => setActiveTab(activeTab === "application" ? "overview" : "application")}
-              >
-                <Eye size={15} aria-hidden="true" /> {activeTab === "application" ? "Job Details" : "Resume Workspace"}
-              </button>
+              {!resumeOnly && (
+                <button
+                  type="button"
+                  className="btn-job-details-toggle"
+                  onClick={() => setActiveTab(activeTab === "application" ? "overview" : "application")}
+                >
+                  <Eye size={15} aria-hidden="true" /> {activeTab === "application" ? "Job Details" : "Resume Workspace"}
+                </button>
+              )}
               <button type="button" className="drawer-close-btn" onClick={onClose} aria-label="Close job drawer">
                 ×
               </button>
@@ -2926,20 +3077,22 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
         </div>
 
         {/* Drawer Tabs */}
-        <div className="job-modal-tabs drawer-tabs" role="tablist" aria-label="Job details tabs">
-          {tabs.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              className={`job-modal-tab ${activeTab === tab.key ? "active" : ""}`}
-              onClick={() => setActiveTab(tab.key)}
-              role="tab"
-              aria-selected={activeTab === tab.key}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        {!resumeOnly && (
+          <div className="job-modal-tabs drawer-tabs" role="tablist" aria-label="Job details tabs">
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                className={`job-modal-tab ${activeTab === tab.key ? "active" : ""}`}
+                onClick={() => setActiveTab(tab.key)}
+                role="tab"
+                aria-selected={activeTab === tab.key}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="modal-body modal-body-tabs drawer-body">
           {/* TAB 1: OVERVIEW */}
@@ -3033,6 +3186,9 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
             </div>
           )}
 
+          {/* TAB: JOB INTELLIGENCE (Pipeline 4) */}
+          {activeTab === "intelligence" && <JobIntelligence key={job.id} job={job} />}
+
           {/* TAB 3: COMPANY */}
           {activeTab === "company" && (
             <div className="job-detail-panel">
@@ -3093,7 +3249,45 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
               {/* If not yet ready and not generating */}
               {!resumeReady && !isGeneratingResume && (
                 <div>
-                  {resume ? (
+                  {resume && resumeOnly ? (
+                    <>
+                      <div className="pipeline-card tailor-setup">
+                        <h3 className="tailor-setup-title">Tailor your resume</h3>
+                        <label className="tailor-field">
+                          <span>Base resume</span>
+                          <input type="text" readOnly value={resume.filename || resume.candidate_name || "Uploaded resume"} />
+                        </label>
+                        <label className="tailor-field">
+                          <span>Target job</span>
+                          <input type="text" readOnly value={[job.title, job.company].filter(Boolean).join(" - ")} />
+                        </label>
+                        <label className="tailor-field">
+                          <span>Job description {job.description ? "(retrieved from the job; edit if needed)" : "(paste it here)"}</span>
+                          <textarea
+                            rows={5}
+                            value={tailorJobDescription}
+                            onChange={(e) => setTailorJobDescription(e.target.value)}
+                          />
+                        </label>
+                        <label className="tailor-field">
+                          <span>Additional instructions (optional)</span>
+                          <textarea
+                            rows={2}
+                            maxLength={500}
+                            placeholder="e.g. Emphasise my Python and RAG experience"
+                            value={additionalInstructions}
+                            onChange={(e) => setAdditionalInstructions(e.target.value)}
+                          />
+                        </label>
+                      </div>
+                      <ApplicationAnalysis
+                        job={job}
+                        resume={resume}
+                        onResumeUpdated={onUpdateResume}
+                        onViewDetails={() => setActiveTab("requirements")}
+                      />
+                    </>
+                  ) : resume ? (
                     <ApplicationAnalysis
                       job={job}
                       resume={resume}
@@ -3102,7 +3296,7 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
                     />
                   ) : (
                     <div className="pipeline-card">
-                      <p className="pipeline-desc">Upload a résumé to see your profile analysis for this job.</p>
+                      <p className="pipeline-desc">{resumeOnly ? "Upload a résumé to tailor it for this job." : "Upload a résumé to see your profile analysis for this job."}</p>
                     </div>
                   )}
                   {resumeError && <div className="pipeline-error" style={{ marginTop: 16 }}>{resumeError}</div>}
@@ -3116,7 +3310,7 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
                       onClick={handleGenerateResume}
                       disabled={isGeneratingResume}
                     >
-                      Generate Tailored Resume
+                      {resumeOnly && resumeError ? "Try again" : "Generate Tailored Resume"}
                     </button>
                   </div>
                 </div>
@@ -3162,706 +3356,29 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
 
                   {/* SUBTAB: RESUME EDITOR (Desktop Split: Editor on Left, Live Preview on Right) */}
                   {workspaceTab === "editor" && (
-                    <div className="workflow-editor-grid editor-master-detail">
-                      <nav className="editor-section-nav" aria-label="Structured editor sections">
-                        <span className="editor-section-nav-title">Structured Editor</span>
-                        {[
-                          ["personal", "Personal Information"],
-                          ["summary", "Professional Summary"],
-                          ["skills", "Skills"],
-                          ["experience", "Work Experience"],
-                          ["projects", "Projects"],
-                          ["education", "Education"],
-                          ["certifications", "Certifications"],
-                        ].map(([key, label]) => (
-                          <button
-                            key={key}
-                            type="button"
-                            className={activeEditorSection === key ? "active" : ""}
-                            aria-current={activeEditorSection === key ? "true" : undefined}
-                            onClick={() => toggleSection(key)}
-                          >
-                            <ChevronRight size={15} aria-hidden="true" />
-                            <span>{label}</span>
-                            {key !== "personal" && <SectionScoreBadge section={editorSections[key]} />}
-                          </button>
-                        ))}
-                      </nav>
-                      <div className="workflow-editor-panel">
-                        <div className="workflow-panel-heading" style={{ marginBottom: 14 }}>
-                          <div>
-                            <span className="workflow-eyebrow">Structured Editor</span>
-                            <h4>Tailored Resume Content</h4>
-                          </div>
-                        </div>
-
-                        <EditorMatchScore {...editorScoring} />
-
-                        {/* ACCORDION */}
-                        <div className="editor-accordion">
-                          {/* 1. Personal Information */}
-                          <div className={`editor-accordion-item ${openSections.has("personal") ? "open" : ""}`}>
-                            <button
-                              type="button"
-                              className="editor-accordion-trigger"
-                              onClick={() => toggleSection("personal")}
-                              aria-expanded={openSections.has("personal")}
-                            >
-                              <span className="editor-section-icon"><User size={16} aria-hidden="true" /></span>
-                              <span>
-                                <strong>Personal Information</strong>
-                                <small>
-                                  {tailoredResume.personal_info.name} · {tailoredResume.personal_info.email || "Email"}
-                                </small>
-                              </span>
-                              <span className="editor-chevron">{openSections.has("personal") ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}</span>
-                            </button>
-                            {openSections.has("personal") && (
-                              <div className="editor-accordion-content">
-                                <div className="personal-fields">
-                                  <input
-                                    type="text"
-                                    className="editor-input-full"
-                                    placeholder="Full Name"
-                                    value={tailoredResume.personal_info.name}
-                                    onChange={(e) => updatePersonalInfo("name", e.target.value)}
-                                    aria-label="Full name"
-                                  />
-                                  <input
-                                    type="email"
-                                    className="editor-input"
-                                    placeholder="Email Address"
-                                    value={tailoredResume.personal_info.email}
-                                    onChange={(e) => updatePersonalInfo("email", e.target.value)}
-                                    aria-label="Candidate email"
-                                  />
-                                  <input
-                                    type="tel"
-                                    className="editor-input"
-                                    placeholder="Phone"
-                                    value={tailoredResume.personal_info.phone}
-                                    onChange={(e) => updatePersonalInfo("phone", e.target.value)}
-                                    aria-label="Candidate phone"
-                                  />
-                                  <input
-                                    type="text"
-                                    className="editor-input"
-                                    placeholder="Location"
-                                    value={tailoredResume.personal_info.location}
-                                    onChange={(e) => updatePersonalInfo("location", e.target.value)}
-                                    aria-label="Location"
-                                  />
-                                  <input
-                                    type="text"
-                                    className="editor-input"
-                                    placeholder="LinkedIn"
-                                    value={tailoredResume.personal_info.linkedin}
-                                    onChange={(e) => updatePersonalInfo("linkedin", e.target.value)}
-                                    aria-label="LinkedIn profile"
-                                  />
-                                  <input
-                                    type="text"
-                                    className="editor-input"
-                                    placeholder="GitHub / Portfolio"
-                                    value={tailoredResume.personal_info.github}
-                                    onChange={(e) => updatePersonalInfo("github", e.target.value)}
-                                    aria-label="GitHub profile"
-                                  />
-                                </div>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* 2. Professional Summary */}
-                          <div className={`editor-accordion-item ${openSections.has("summary") ? "open" : ""}`}>
-                            <button
-                              type="button"
-                              className="editor-accordion-trigger"
-                              onClick={() => toggleSection("summary")}
-                              aria-expanded={openSections.has("summary")}
-                            >
-                              <span className="editor-section-icon"><AlignLeft size={16} aria-hidden="true" /></span>
-                              <span>
-                                <strong>Professional Summary</strong>
-                                <small>Role-focused career overview</small>
-                              </span>
-                              <SectionScoreBadge section={editorSections.summary} />
-                              <span className="editor-chevron">{openSections.has("summary") ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}</span>
-                            </button>
-                            {openSections.has("summary") && (
-                              <div className="editor-accordion-content">
-                                <textarea
-                                  className="bullet-textarea"
-                                  style={{ minHeight: 140, width: "100%", fontSize: "0.92rem", lineHeight: 1.55, padding: "12px 14px", boxSizing: "border-box" }}
-                                  value={tailoredResume.professional_summary}
-                                  onChange={(e) => updateSummary(e.target.value)}
-                                  rows={6}
-                                  aria-label="Professional summary"
-                                />
-                                <div className="editor-char-count">{(tailoredResume.professional_summary || "").length}/500</div>
-                                <div style={{ display: "flex", justifyContent: "flex-start", marginTop: 10 }}>
-                                  <button
-                                    type="button"
-                                    className="btn-improve-ai"
-                                    onClick={() => handleRewriteSection("professional_summary")}
-                                    disabled={isRewriting}
-                                  >
-                                    <Sparkles size={14} aria-hidden="true" /> {isRewriting ? "Improving with AI…" : "Improve with AI"}
-                                  </button>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* 3. Work Experience */}
-                          <div className={`editor-accordion-item ${openSections.has("experience") ? "open" : ""}`}>
-                            <button
-                              type="button"
-                              className="editor-accordion-trigger"
-                              onClick={() => toggleSection("experience")}
-                              aria-expanded={openSections.has("experience")}
-                            >
-                              <span className="editor-section-icon"><Briefcase size={16} aria-hidden="true" /></span>
-                              <span>
-                                <strong>Work Experience</strong>
-                                <small>{tailoredResume.experience.length} positions</small>
-                              </span>
-                              <SectionScoreBadge section={editorSections.experience} />
-                              <span className="editor-chevron">{openSections.has("experience") ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}</span>
-                            </button>
-                            {openSections.has("experience") && (
-                              <div className="editor-accordion-content">
-                                {tailoredResume.experience.map((exp, idx) => (
-                                  <div className="editor-entry-card" key={`exp-edit-${idx}`}>
-                                    <div className="editor-entry-header">
-                                      <strong>
-                                        {[exp.title, exp.organization].filter(Boolean).join(" — ") || "Untitled role"}
-                                      </strong>
-                                      <div className="editor-entry-actions" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                        <button
-                                          type="button"
-                                          className="btn-improve-ai-sm"
-                                          onClick={() => handleRewriteSection("experience", idx)}
-                                          disabled={isRewriting}
-                                          title="Improve this position with AI"
-                                        >
-                                          <Sparkles size={13} aria-hidden="true" /> Improve with AI
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="btn-icon-action danger"
-                                          title="Remove position"
-                                          onClick={() => removeEntry("experience", idx)}
-                                        >
-                                          <X size={14} aria-hidden="true" />
-                                        </button>
-                                      </div>
-                                    </div>
-                                    <div className="editor-field-row">
-                                      <input
-                                        type="text"
-                                        className="editor-input"
-                                        placeholder="Job Title"
-                                        value={exp.title}
-                                        onChange={(e) => updateEntryField("experience", idx, "title", e.target.value)}
-                                        aria-label="Experience job title"
-                                      />
-                                      <input
-                                        type="text"
-                                        className="editor-input"
-                                        placeholder="Company / Organization"
-                                        value={exp.organization}
-                                        onChange={(e) => updateEntryField("experience", idx, "organization", e.target.value)}
-                                        aria-label="Experience company"
-                                      />
-                                    </div>
-                                    <div className="editor-field-row">
-                                      <input
-                                        type="text"
-                                        className="editor-input"
-                                        placeholder="Dates (e.g. Aug 2024 - Present)"
-                                        value={exp.dates}
-                                        onChange={(e) => updateEntryField("experience", idx, "dates", e.target.value)}
-                                        aria-label="Experience dates"
-                                      />
-                                      <input
-                                        type="text"
-                                        className="editor-input"
-                                        placeholder="Location"
-                                        value={exp.location}
-                                        onChange={(e) => updateEntryField("experience", idx, "location", e.target.value)}
-                                        aria-label="Experience location"
-                                      />
-                                    </div>
-
-                                    {/* Bullet items */}
-                                    <div className="bullet-list-container">
-                                      <div className="bullet-list-label">Outcome-Focused Bullets</div>
-                                      {(exp.bullets || []).map((bullet, bIdx) => (
-                                        <div className="bullet-item-row" key={`exp-b-${idx}-${bIdx}`}>
-                                          <span className="bullet-drag-prefix">•</span>
-                                          <textarea
-                                            className="bullet-textarea"
-                                            value={bullet}
-                                            onChange={(e) => updateBullet("experience", idx, bIdx, e.target.value)}
-                                            rows={3}
-                                            aria-label={`Experience bullet ${bIdx + 1}`}
-                                          />
-                                          <button
-                                            type="button"
-                                            className="btn-icon-action ai-sparkle"
-                                            title="Improve this bullet with AI"
-                                            onClick={() => handleRewriteSection("experience", idx, bIdx)}
-                                            disabled={isRewriting}
-                                          >
-                                            <Sparkles size={14} aria-hidden="true" />
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="btn-icon-action"
-                                            title="Move up"
-                                            onClick={() => moveBullet("experience", idx, bIdx, -1)}
-                                          >
-                                            <ArrowUp size={14} aria-hidden="true" />
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="btn-icon-action"
-                                            title="Move down"
-                                            onClick={() => moveBullet("experience", idx, bIdx, 1)}
-                                          >
-                                            <ArrowDown size={14} aria-hidden="true" />
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="btn-icon-action danger"
-                                            title="Delete bullet"
-                                            onClick={() => removeBullet("experience", idx, bIdx)}
-                                          >
-                                            <X size={14} aria-hidden="true" />
-                                          </button>
-                                        </div>
-                                      ))}
-                                      <button
-                                        type="button"
-                                        className="btn-add-bullet"
-                                        onClick={() => addBullet("experience", idx)}
-                                      >
-                                        + Add Bullet Point
-                                      </button>
-                                    </div>
-                                  </div>
-                                ))}
-                                <button
-                                  type="button"
-                                  className="btn-add-entry"
-                                  onClick={() => addEntry("experience")}
-                                >
-                                  + Add Work Experience Entry
-                                </button>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* 4. Projects */}
-                          <div className={`editor-accordion-item ${openSections.has("projects") ? "open" : ""}`}>
-                            <button
-                              type="button"
-                              className="editor-accordion-trigger"
-                              onClick={() => toggleSection("projects")}
-                              aria-expanded={openSections.has("projects")}
-                            >
-                              <span className="editor-section-icon"><Rocket size={16} aria-hidden="true" /></span>
-                              <span>
-                                <strong>Projects</strong>
-                                <small>{tailoredResume.projects.length} projects</small>
-                              </span>
-                              <SectionScoreBadge section={editorSections.projects} />
-                              <span className="editor-chevron">{openSections.has("projects") ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}</span>
-                            </button>
-                            {openSections.has("projects") && (
-                              <div className="editor-accordion-content">
-                                {tailoredResume.projects.map((proj, idx) => (
-                                  <div className="editor-entry-card" key={`proj-edit-${idx}`}>
-                                    <div className="editor-entry-header">
-                                      <strong>{proj.title || "Untitled project"}</strong>
-                                      <div className="editor-entry-actions" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                        <button
-                                          type="button"
-                                          className="btn-improve-ai-sm"
-                                          onClick={() => handleRewriteSection("projects", idx)}
-                                          disabled={isRewriting}
-                                          title="Improve this project with AI"
-                                        >
-                                          <Sparkles size={13} aria-hidden="true" /> Improve with AI
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="btn-icon-action danger"
-                                          onClick={() => removeEntry("projects", idx)}
-                                        >
-                                          <X size={14} aria-hidden="true" />
-                                        </button>
-                                      </div>
-                                    </div>
-                                    <div className="editor-field-row">
-                                      <input
-                                        type="text"
-                                        className="editor-input"
-                                        placeholder="Project Name / Title"
-                                        value={proj.title}
-                                        onChange={(e) => updateEntryField("projects", idx, "title", e.target.value)}
-                                        aria-label="Project title"
-                                      />
-                                      <input
-                                        type="text"
-                                        className="editor-input"
-                                        placeholder="Organization / Tech Stack"
-                                        value={proj.organization}
-                                        onChange={(e) => updateEntryField("projects", idx, "organization", e.target.value)}
-                                        aria-label="Project organization"
-                                      />
-                                    </div>
-                                    <div className="bullet-list-container">
-                                      <div className="bullet-list-label">Project Accomplishments</div>
-                                      {(proj.bullets || []).map((b, bIdx) => (
-                                        <div className="bullet-item-row" key={`proj-b-${idx}-${bIdx}`}>
-                                          <span className="bullet-drag-prefix">•</span>
-                                          <textarea
-                                            className="bullet-textarea"
-                                            value={b}
-                                            onChange={(e) => updateBullet("projects", idx, bIdx, e.target.value)}
-                                            rows={3}
-                                            aria-label={`Project bullet ${bIdx + 1}`}
-                                          />
-                                          <button
-                                            type="button"
-                                            className="btn-icon-action ai-sparkle"
-                                            title="Improve this bullet with AI"
-                                            onClick={() => handleRewriteSection("projects", idx, bIdx)}
-                                            disabled={isRewriting}
-                                          >
-                                            <Sparkles size={14} aria-hidden="true" />
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="btn-icon-action"
-                                            title="Move up"
-                                            onClick={() => moveBullet("projects", idx, bIdx, -1)}
-                                          >
-                                            <ArrowUp size={14} aria-hidden="true" />
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="btn-icon-action"
-                                            title="Move down"
-                                            onClick={() => moveBullet("projects", idx, bIdx, 1)}
-                                          >
-                                            <ArrowDown size={14} aria-hidden="true" />
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="btn-icon-action danger"
-                                            title="Delete bullet"
-                                            onClick={() => removeBullet("projects", idx, bIdx)}
-                                          >
-                                            <X size={14} aria-hidden="true" />
-                                          </button>
-                                        </div>
-                                      ))}
-                                      <button
-                                        type="button"
-                                        className="btn-add-bullet"
-                                        onClick={() => addBullet("projects", idx)}
-                                      >
-                                        + Add Project Bullet
-                                      </button>
-                                    </div>
-                                  </div>
-                                ))}
-                                <button type="button" className="btn-add-entry" onClick={() => addEntry("projects")}>
-                                  + Add Project Entry
-                                </button>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* 5. Skills */}
-                          <div className={`editor-accordion-item ${openSections.has("skills") ? "open" : ""}`}>
-                            <button
-                              type="button"
-                              className="editor-accordion-trigger"
-                              onClick={() => toggleSection("skills")}
-                              aria-expanded={openSections.has("skills")}
-                            >
-                              <span className="editor-section-icon"><Wrench size={16} aria-hidden="true" /></span>
-                              <span>
-                                <strong>Skills</strong>
-                                <small>{tailoredResume.skills.length} skills listed</small>
-                              </span>
-                              <SectionScoreBadge section={editorSections.skills} />
-                              <span className="editor-chevron">{openSections.has("skills") ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}</span>
-                            </button>
-                            {openSections.has("skills") && (
-                              <div className="editor-accordion-content">
-                                <div className="editor-skills-wrap">
-                                  {tailoredResume.skills.map((skill) => (
-                                    <span className="editor-skill-chip" key={skill}>
-                                      {skill}
-                                      <button
-                                        type="button"
-                                        className="editor-skill-remove"
-                                        onClick={() => removeSkill(skill)}
-                                        aria-label={`Remove skill ${skill}`}
-                                      >
-                                        ×
-                                      </button>
-                                    </span>
-                                  ))}
-                                </div>
-                                <div className="editor-skill-add-bar">
-                                  <input
-                                    type="text"
-                                    className="editor-input"
-                                    placeholder="Add skill (e.g. Docker, TypeScript)"
-                                    value={newSkillInput}
-                                    onChange={(e) => setNewSkillInput(e.target.value)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter") {
-                                        e.preventDefault();
-                                        addSkill(newSkillInput);
-                                      }
-                                    }}
-                                    aria-label="Add new skill"
-                                  />
-                                  <button
-                                    type="button"
-                                    className="pipeline-btn-secondary"
-                                    onClick={() => addSkill(newSkillInput)}
-                                  >
-                                    Add
-                                  </button>
-                                </div>
-
-                                {recommendedSkills.length > 0 && (
-                                  <div className="editor-recommended-skills-box" style={{ marginTop: 14, padding: "12px 14px", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8 }}>
-                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                                      <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#166534", display: "flex", alignItems: "center", gap: 5 }}>
-                                        <Lightbulb size={14} aria-hidden="true" /> Recommended Skills from Job Description
-                                      </span>
-                                      <button
-                                        type="button"
-                                        style={{ background: "none", border: "none", color: "#15803D", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}
-                                        onClick={() => {
-                                          recommendedSkills.forEach((s) => addSkill(s));
-                                        }}
-                                      >
-                                        + Add All ({recommendedSkills.length})
-                                      </button>
-                                    </div>
-                                    <p style={{ margin: "0 0 8px", fontSize: "0.72rem", color: "#15803D" }}>
-                                      Click any skill to add it directly to your tailored resume:
-                                    </p>
-                                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                                      {recommendedSkills.map((recSkill) => (
-                                        <button
-                                          key={recSkill}
-                                          type="button"
-                                          onClick={() => addSkill(recSkill)}
-                                          style={{
-                                            background: "#FFFFFF",
-                                            border: "1px solid #86EFAC",
-                                            color: "#166534",
-                                            borderRadius: 16,
-                                            padding: "4px 10px",
-                                            fontSize: "0.74rem",
-                                            fontWeight: 600,
-                                            cursor: "pointer",
-                                            display: "inline-flex",
-                                            alignItems: "center",
-                                            gap: 4,
-                                            transition: "all 0.15s ease",
-                                          }}
-                                          title={`Add ${recSkill} to resume`}
-                                        >
-                                          <span>+</span> {recSkill}
-                                        </button>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-
-                          {/* 6. Education */}
-                          <div className={`editor-accordion-item ${openSections.has("education") ? "open" : ""}`}>
-                            <button
-                              type="button"
-                              className="editor-accordion-trigger"
-                              onClick={() => toggleSection("education")}
-                              aria-expanded={openSections.has("education")}
-                            >
-                              <span className="editor-section-icon"><GraduationCap size={16} aria-hidden="true" /></span>
-                              <span>
-                                <strong>Education</strong>
-                                <small>{tailoredResume.education.length} degrees</small>
-                              </span>
-                              <SectionScoreBadge section={editorSections.education} />
-                              <span className="editor-chevron">{openSections.has("education") ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}</span>
-                            </button>
-                            {openSections.has("education") && (
-                              <div className="editor-accordion-content">
-                                {tailoredResume.education.map((edu, idx) => (
-                                  <div className="editor-entry-card" key={`edu-edit-${idx}`}>
-                                    <div className="editor-entry-header">
-                                      <strong>{edu.degree || "Untitled education entry"}</strong>
-                                      <button
-                                        type="button"
-                                        className="btn-icon-action danger"
-                                        onClick={() => removeEntry("education", idx)}
-                                      >
-                                        <X size={14} aria-hidden="true" />
-                                      </button>
-                                    </div>
-                                    <div className="editor-field-row">
-                                      <input
-                                        type="text"
-                                        className="editor-input"
-                                        placeholder="Degree"
-                                        value={edu.degree}
-                                        onChange={(e) => updateEntryField("education", idx, "degree", e.target.value)}
-                                        aria-label="Education degree"
-                                      />
-                                      <input
-                                        type="text"
-                                        className="editor-input"
-                                        placeholder="Institution / School"
-                                        value={edu.institution}
-                                        onChange={(e) => updateEntryField("education", idx, "institution", e.target.value)}
-                                        aria-label="Education institution"
-                                      />
-                                    </div>
-                                    <div className="editor-field-row">
-                                      <input
-                                        type="text"
-                                        className="editor-input"
-                                        placeholder="Dates"
-                                        value={edu.dates}
-                                        onChange={(e) => updateEntryField("education", idx, "dates", e.target.value)}
-                                        aria-label="Education dates"
-                                      />
-                                      <input
-                                        type="text"
-                                        className="editor-input"
-                                        placeholder="Location"
-                                        value={edu.location}
-                                        onChange={(e) => updateEntryField("education", idx, "location", e.target.value)}
-                                        aria-label="Education location"
-                                      />
-                                    </div>
-                                  </div>
-                                ))}
-                                <button type="button" className="btn-add-entry" onClick={() => addEntry("education")}>
-                                  + Add Education Entry
-                                </button>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* 7. Certifications */}
-                          <div className={`editor-accordion-item ${openSections.has("certifications") ? "open" : ""}`}>
-                            <button
-                              type="button"
-                              className="editor-accordion-trigger"
-                              onClick={() => toggleSection("certifications")}
-                              aria-expanded={openSections.has("certifications")}
-                            >
-                              <span className="editor-section-icon"><Award size={16} aria-hidden="true" /></span>
-                              <span>
-                                <strong>Certifications</strong>
-                                <small>{(tailoredResume.certifications || []).length} certifications</small>
-                              </span>
-                              <SectionScoreBadge section={editorSections.certifications} />
-                            </button>
-                            {openSections.has("certifications") && (
-                              <div className="editor-accordion-content">
-                                {(tailoredResume.certifications || []).map((cert, idx) => (
-                                  <div className="editor-entry-card" key={`cert-edit-${idx}`}>
-                                    <div className="editor-entry-header">
-                                      <strong>{cert.name || "Untitled certification"}</strong>
-                                      <button
-                                        type="button"
-                                        className="btn-icon-action danger"
-                                        onClick={() => removeEntry("certifications", idx)}
-                                        aria-label="Remove certification"
-                                      >
-                                        <X size={14} aria-hidden="true" />
-                                      </button>
-                                    </div>
-                                    <div className="editor-field-row">
-                                      <input
-                                        type="text"
-                                        className="editor-input"
-                                        placeholder="Certification name"
-                                        value={cert.name || ""}
-                                        onChange={(e) => updateEntryField("certifications", idx, "name", e.target.value)}
-                                        aria-label="Certification name"
-                                      />
-                                      <input
-                                        type="text"
-                                        className="editor-input"
-                                        placeholder="Issuer"
-                                        value={cert.issuer || ""}
-                                        onChange={(e) => updateEntryField("certifications", idx, "issuer", e.target.value)}
-                                        aria-label="Certification issuer"
-                                      />
-                                    </div>
-                                    <div className="editor-field-row">
-                                      <input
-                                        type="text"
-                                        className="editor-input"
-                                        placeholder="Date"
-                                        value={cert.dates || ""}
-                                        onChange={(e) => updateEntryField("certifications", idx, "dates", e.target.value)}
-                                        aria-label="Certification date"
-                                      />
-                                    </div>
-                                  </div>
-                                ))}
-                                <button type="button" className="btn-add-entry" onClick={() => addEntry("certifications")}>
-                                  + Add Certification
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="editor-panel-footer">
-                          <button type="button" className="btn-editor-reset" onClick={resetEditorSection} disabled={!savedSnapshot}>
-                            Reset
-                          </button>
-                          <button type="button" className="pipeline-btn-primary" onClick={handleSaveDraft} disabled={isSavingDraft}>
-                            {isSavingDraft ? "Saving…" : draftSaved ? "Saved" : "Save Changes"}
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Right Panel: Live Preview */}
-                      <div className="workflow-preview-panel">
-                        <div className="workflow-panel-heading" style={{ marginBottom: 14 }}>
-                          <div>
-                            <h4>Live Preview</h4>
-                          </div>
-                        </div>
+                    <ResumeEditor
+                      resume={tailoredResume}
+                      setResume={setTailoredResume}
+                      job={job}
+                      apiBase={API_BASE}
+                      generatedOutput={generatedOutput}
+                      savedSnapshot={savedSnapshot}
+                      isSaving={isSavingDraft}
+                      onSave={handleSaveDraft}
+                      isRewriting={isRewriting}
+                      onImprove={handleRewriteSection}
+                      onPdfReady={handlePdfReady}
+                      scoring={editorScoring}
+                      recommendedSkills={recommendedSkills}
+                      fallbackPreview={
                         <ResumeDocumentPreview
                           resume={tailoredResume}
                           job={job}
                           resumeReady={resumeReady}
                           isGeneratingResume={isGeneratingResume}
                         />
-                      </div>
-                    </div>
+                      }
+                    />
                   )}
 
                   {/* SUBTAB: LIVE PREVIEW (Full width standalone) */}
@@ -4003,53 +3520,81 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
                     </div>
                   )}
 
+                  {rewriteResult && (
+                    <div className="pipeline-card" data-testid="rewrite-result" style={{ marginTop: 16 }}>
+                      <strong>Rewritten with AI and saved as a new version.</strong>
+                      <p className="pipeline-desc" style={{ margin: "6px 0 0" }}>
+                        {rewriteResult.rejectedLines === 0
+                          ? "Every line was rewritten using only facts already in your resume."
+                          : `${rewriteResult.rejectedLines} ${rewriteResult.rejectedLines === 1 ? "line was" : "lines were"} kept as written because the rewrite would have added new facts.`}
+                      </p>
+                      {rewriteResult.recommendedSkills.length > 0 && (
+                        <div style={{ marginTop: 10 }}>
+                          <span className="pipeline-desc">
+                            This job also asks for these skills. They are not in your resume, so add one only if it is true for you:
+                          </span>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 6 }}>
+                            {rewriteResult.recommendedSkills.map((skill) => (
+                              <button
+                                key={skill}
+                                type="button"
+                                className="btn-tool-draft"
+                                disabled={existingSkillsLower.has(String(skill).toLowerCase())}
+                                onClick={() => addSkill(skill)}
+                              >
+                                + {skill}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {/* Bottom actions keep the official application link next to the resume download. */}
                   <div className="workflow-output-row" style={{ marginTop: 24 }}>
-                      <div className="editor-toolbar-actions" style={{ width: "100%" }}>
-                        <button
-                          type="button"
-                          className="btn-tool-draft"
-                          onClick={handleSaveDraft}
-                          disabled={isSavingDraft}
-                        >
-                          <Save size={14} aria-hidden="true" /> {isSavingDraft ? "Saving…" : draftSaved ? "Draft Saved" : "Save Draft"}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-tool-ai"
-                          onClick={handleRewriteFull}
-                          disabled={isRewriting}
-                          title="Rewrite the whole resume for this job and save it as a new version"
-                        >
-                          <Sparkles size={14} aria-hidden="true" /> {isRewriting ? "Rewriting…" : "Rewrite with AI"}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-tool-overleaf"
-                          onClick={() => {
-                            window.open("https://www.overleaf.com/docs", "_blank", "noopener,noreferrer");
-                            handleDownloadResume("latex");
-                          }}
-                        >
-                          <PenLine size={14} aria-hidden="true" /> Edit in Overleaf
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-tool-draft"
-                          onClick={() => handleDownloadResume("pdf")}
-                        >
-                          <Download size={14} aria-hidden="true" /> Download Resume
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-continue-app"
-                          onClick={handleOpenCareerPortal}
-                          disabled={!(job.url || job.apply_url || job.application_url)}
-                          title="Open the official job application page"
-                        >
-                          Continue to Application <ArrowRight size={14} aria-hidden="true" />
-                        </button>
-                      </div>
+                    <div className="editor-toolbar-actions" style={{ width: "100%" }}>
+                      <button
+                        type="button"
+                        className="btn-tool-draft"
+                        onClick={handleSaveDraft}
+                        disabled={isSavingDraft}
+                      >
+                        <Save size={14} aria-hidden="true" /> {isSavingDraft ? "Saving…" : draftSaved ? "Draft Saved" : "Save Draft"}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-tool-ai"
+                        onClick={handleRewriteFull}
+                        disabled={isRewriting}
+                        title="Rewrite the whole resume for this job and save it as a new version"
+                      >
+                        <Sparkles size={14} aria-hidden="true" /> {isRewriting ? "Rewriting…" : "Rewrite with AI"}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-tool-draft"
+                        onClick={() => setWorkspaceTab("editor")}
+                        title="Edit this resume in the built-in editor"
+                      >
+                        <PenLine size={14} aria-hidden="true" /> Edit Resume
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-tool-draft"
+                        onClick={() => handleDownloadResume("pdf")}
+                      >
+                        <Download size={14} aria-hidden="true" /> Download Resume
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-continue-app"
+                        onClick={handleOpenCareerPortal}
+                        disabled={!(job.url || job.apply_url || job.application_url)}
+                        title="Open the official job application page"
+                      >
+                        Continue to Application <ArrowRight size={14} aria-hidden="true" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -4096,18 +3641,29 @@ function getJobSearchText(job) {
 }
 
 function getPostedDate(job) {
-  if (!job.posted_at) return null;
+  const raw = job && job.posted_at;
+  if (raw === null || raw === undefined || raw === "") return null;
+  const text = String(raw).trim();
 
-  const relativeDate = job.posted_at.match(/posted\s+(\d+)\s+(day|days|hour|hours|week|weeks)\s+ago/i);
-  if (relativeDate) {
-    const [, countText, unit] = relativeDate;
-    const count = Number(countText);
-    const multiplier = unit.toLowerCase().startsWith("hour") ? 1 / 24
-      : unit.toLowerCase().startsWith("week") ? 7 : 1;
-    return new Date(Date.now() - count * multiplier * 24 * 60 * 60 * 1000);
+  // Epoch timestamps (Lever sends milliseconds)
+  if (/^\d{10,13}$/.test(text)) {
+    const n = Number(text);
+    const d = new Date(text.length === 13 ? n : n * 1000);
+    return Number.isNaN(d.getTime()) ? null : d;
   }
 
-  const parsed = new Date(job.posted_at);
+  // Relative text such as Workday's "Posted Today", "Posted Yesterday", "Posted 3 Days Ago"
+  if (/^posted\s+today/i.test(text)) return new Date();
+  if (/^posted\s+yesterday/i.test(text)) return new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const relativeDate = text.match(/posted\s+(\d+)\+?\s+(hour|day|week|month)s?\s+ago/i);
+  if (relativeDate) {
+    const count = Number(relativeDate[1]);
+    const unit = relativeDate[2].toLowerCase();
+    const days = unit === "hour" ? 1 / 24 : unit === "week" ? 7 : unit === "month" ? 30 : 1;
+    return new Date(Date.now() - count * days * 24 * 60 * 60 * 1000);
+  }
+
+  const parsed = new Date(text);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
@@ -4132,6 +3688,34 @@ function getSalaryAmounts(job) {
   return amounts;
 }
 
+const EXPERIENCE_LEVELS = [
+  ["entry", "Entry level"],
+  ["graduate", "Graduate scheme"],
+  ["junior", "Junior"],
+  ["mid", "Mid-level"],
+  ["senior", "Senior"],
+];
+
+// Level comes from the job title first (the strongest signal), then from the years of experience asked for.
+function getExperienceLevel(job) {
+  const title = job.title || "";
+  if (/\b(graduate|grad scheme|new grad|early careers?|campus|trainee|school leaver|placement year)\b/i.test(title)) return "graduate";
+  if (/\b(entry[- ]level|apprentice(ship)?|intern(ship)?|sales development|business development rep\w*|sdr|bdr|assistant|coordinator)\b/i.test(title)) return "entry";
+  if (/\b(junior|jr\.?)(?!\w)/i.test(title)) return "junior";
+  if (/\b(senior|sr\.?|lead|principal|staff|head of|director|vp|vice president|chief|architect|president)(?!\w)/i.test(title)) return "senior";
+  if (/\b(mid[- ]?level|intermediate)\b/i.test(title)) return "mid";
+  // The highest "N years of experience" in the posting is the real bar (a lone "2 years of X" is just one skill).
+  const asks = [...(job.description || "").slice(0, 6000).matchAll(/(\d{1,2})\s*\+?\s*(?:-\s*\d{1,2}\s*)?(?:years?|yrs)(?:['’]s?)?\s*(?:of\s*)?(?:relevant\s*|professional\s*|commercial\s*|hands[- ]on\s*)*(?:experience|exp)/gi)]
+    .map((m) => Number(m[1]))
+    .filter((n) => n <= 15);
+  if (asks.length) {
+    const n = Math.max(...asks);
+    return n <= 1 ? "entry" : n <= 2 ? "junior" : n <= 4 ? "mid" : "senior";
+  }
+  if (/\bmanager\b/i.test(title)) return "mid";
+  return null;
+}
+
 function DirectoryView({
   jobs = [],
   matchedJobs = [],
@@ -4145,11 +3729,12 @@ function DirectoryView({
 }) {
   const [filterQuery, setFilterQuery] = useState("");
   const [selectedCompany, setSelectedCompany] = useState("all");
-  const [selectedPlatform, setSelectedPlatform] = useState("all");
   const [selectedLocation, setSelectedLocation] = useState("");
-  const [selectedEmploymentType, setSelectedEmploymentType] = useState("all");
+  const [selectedLevel, setSelectedLevel] = useState("all");
   const [selectedWorkMode, setSelectedWorkMode] = useState("all");
   const [selectedPostedWithin, setSelectedPostedWithin] = useState("any");
+  const [sortBy, setSortBy] = useState("newest");
+  const [activeJobId, setActiveJobId] = useState(null);
   const [discoverySubmitted, setDiscoverySubmitted] = useState(false);
   const [salaryError, setSalaryError] = useState("");
   const [discoveryFilters, setDiscoveryFilters] = useState({
@@ -4158,13 +3743,12 @@ function DirectoryView({
     postedWithin: "7",
     sources: ["greenhouse", "lever", "ashby", "workday", "workable", "oracle_cloud", "breezyhr", "pinpoint"],
     workModes: [],
-    employmentType: "all",
+    experienceLevel: "all",
     relocationAssistance: false,
     salaryMin: "",
     salaryMax: "",
     salaryCurrency: "USD",
     techStack: "",
-    seniority: "",
     keywords: ""
   });
   const resultsRef = useRef(null);
@@ -4212,14 +3796,6 @@ function DirectoryView({
     return Array.from(set).sort();
   }, [sourcePool]);
 
-  const employmentTypesList = useMemo(() => {
-    const types = new Set();
-    sourcePool.forEach((job) => {
-      if (job.employment_type) types.add(job.employment_type.trim());
-    });
-    return Array.from(types).filter(Boolean).sort((a, b) => a.localeCompare(b));
-  }, [sourcePool]);
-
   // Filtered jobs
   const filtered = useMemo(() => {
     return sourcePool.filter((j) => {
@@ -4255,10 +3831,7 @@ function DirectoryView({
           return false;
         }
 
-        if (
-          discoveryFilters.employmentType !== "all"
-          && (j.employment_type || "").toLowerCase() !== discoveryFilters.employmentType.toLowerCase()
-        ) {
+        if (discoveryFilters.experienceLevel !== "all" && getExperienceLevel(j) !== discoveryFilters.experienceLevel) {
           return false;
         }
 
@@ -4305,13 +3878,6 @@ function DirectoryView({
           return false;
         }
 
-        if (
-          discoveryFilters.seniority
-          && !new RegExp(`\\b${discoveryFilters.seniority}\\b`, "i").test(jobText)
-        ) {
-          return false;
-        }
-
         const keywords = splitFilterTerms(discoveryFilters.keywords);
         if (keywords.length && !keywords.every((term) => jobText.includes(term))) {
           return false;
@@ -4329,10 +3895,7 @@ function DirectoryView({
           return false;
         }
 
-        if (
-          selectedEmploymentType !== "all"
-          && (j.employment_type || "").toLowerCase() !== selectedEmploymentType.toLowerCase()
-        ) {
+        if (selectedLevel !== "all" && getExperienceLevel(j) !== selectedLevel) {
           return false;
         }
 
@@ -4359,10 +3922,6 @@ function DirectoryView({
 
       }
 
-      // Platform filter
-      if (selectedPlatform !== "all" && (j.platform || "").toLowerCase() !== selectedPlatform.toLowerCase()) {
-        return false;
-      }
       // Company filter
       if (selectedCompany !== "all" && (j.company || "").toLowerCase() !== selectedCompany.toLowerCase()) {
         return false;
@@ -4380,16 +3939,64 @@ function DirectoryView({
     });
   }, [
     sourcePool,
-    selectedPlatform,
     selectedCompany,
     selectedLocation,
-    selectedEmploymentType,
+    selectedLevel,
     selectedWorkMode,
     selectedPostedWithin,
     filterQuery,
     resume,
     discoveryFilters
   ]);
+
+  const visibleJobs = useMemo(() => {
+    const list = [...filtered];
+    if (sortBy === "newest") {
+      // Newest first; jobs with no posting date go last, equal dates fall back to the better match.
+      list.sort((a, b) => (getPostedDate(b)?.getTime() || 0) - (getPostedDate(a)?.getTime() || 0)
+        || (Number(b.match_score) || 0) - (Number(a.match_score) || 0));
+    } else if (sortBy === "company") {
+      list.sort((a, b) => (a.company || "").localeCompare(b.company || ""));
+    } else if (sortBy === "best") {
+      list.sort((a, b) => (Number(b.match_score) || 0) - (Number(a.match_score) || 0));
+    }
+    return list;
+  }, [filtered, sortBy]);
+
+  const lastUpdated = useMemo(() => {
+    const stamps = sourcePool.map((j) => Date.parse(j.last_checked || "")).filter(Number.isFinite);
+    return stamps.length ? new Date(Math.max(...stamps)) : null;
+  }, [sourcePool]);
+
+  const stats = useMemo(() => {
+    const scores = sourcePool.map((j) => Number(j.match_score)).filter((n) => Number.isFinite(n) && n > 0);
+    const dayMs = 24 * 60 * 60 * 1000;
+    return {
+      total: sourcePool.length,
+      today: sourcePool.filter((j) => { const d = getPostedDate(j); return d && Date.now() - d.getTime() <= dayMs; }).length,
+      average: scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null,
+      sponsors: sourcePool.filter((j) => j.visa_sponsored).length,
+      top: scores.filter((n) => n >= 90).length,
+    };
+  }, [sourcePool]);
+
+  const activeJob = useMemo(
+    () => visibleJobs.find((j) => j.id === activeJobId) || visibleJobs[0] || null,
+    [visibleJobs, activeJobId]
+  );
+
+  const filtersActive = Boolean(
+    filterQuery || selectedLocation || selectedPostedWithin !== "any" || selectedCompany !== "all"
+    || selectedLevel !== "all" || selectedWorkMode !== "all"
+  );
+  const clearFilters = () => {
+    setFilterQuery("");
+    setSelectedLocation("");
+    setSelectedPostedWithin("any");
+    setSelectedCompany("all");
+    setSelectedLevel("all");
+    setSelectedWorkMode("all");
+  };
 
   const allVisibleInPipeline = useMemo(() => {
     if (filtered.length === 0) return false;
@@ -4398,24 +4005,42 @@ function DirectoryView({
 
   return (
     <div className="content-container">
-      {/* High Match Banner if resume uploaded */}
       {resume && (
-        <div className="high-match-banner">
-          <div className="high-match-banner-content">
-            <div className="high-match-text">
-              Showing <strong>{filtered.length}</strong> stored job postings ranked by skill match with{" "}
-              <strong>{resume.candidate_name || resume.filename || "your resume"}</strong>.
+        <>
+          <header className="jd-page-header jd-page-header-row">
+            <div>
+              <h1>Job Discovery</h1>
+              <p>Discover the best UK and Ireland opportunities tailored to your profile.</p>
             </div>
-          </div>
-          <button
-            type="button"
-            className="pill-filter-btn"
-            style={{ background: "#FFFFFF", color: "var(--slate-700)" }}
-            onClick={onRefresh}
-          >
-            <RefreshCw size={14} aria-hidden="true" /> Refresh ATS Feed
-          </button>
-        </div>
+            <div className="jd-header-actions">
+              {lastUpdated && (
+                <span className="jd-updated">
+                  Updated {lastUpdated.toLocaleString("en-GB", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                </span>
+              )}
+              <button type="button" className="jd-refresh" onClick={onRefresh}>
+                <RefreshCw size={16} aria-hidden="true" /> Refresh jobs
+              </button>
+            </div>
+          </header>
+          <section className="jd-stats" aria-label="Job summary">
+            {[
+              [Briefcase, "blue", stats.total, "Matched opportunities", `${stats.today} posted in the last 24 hours`],
+              [Target, "green", stats.average === null ? "–" : `${stats.average}%`, "Average match with your profile", "Across all matched jobs"],
+              [Building2, "indigo", stats.sponsors, "Verified visa sponsors", "UK or Ireland, location confirmed"],
+              [Star, "amber", stats.top, "Top matches", "90% match or higher"],
+            ].map(([Icon, tone, value, label, note]) => (
+              <div key={label} className="jd-stat">
+                <span className={`jd-stat-icon ${tone}`} aria-hidden="true"><Icon size={24} /></span>
+                <div>
+                  <strong>{value}</strong>
+                  <span>{label}</span>
+                  <small>{note}</small>
+                </div>
+              </div>
+            ))}
+          </section>
+        </>
       )}
 
       {!resume && (
@@ -4438,7 +4063,7 @@ function DirectoryView({
                 type="text"
                 value={discoveryFilters.roles}
                 onChange={(event) => updateDiscoveryFilter("roles", event.target.value)}
-                placeholder="Software Engineer, Data Analyst..."
+                placeholder="Teacher, Accountant, Sales Executive, Hardware Engineer..."
               />
             </div>
 
@@ -4584,15 +4209,15 @@ function DirectoryView({
 
             <div className="discovery-row">
               <div className="discovery-field">
-                <label htmlFor="discovery-seniority">Level / Seniority</label>
+                <label htmlFor="discovery-level">Experience level</label>
                 <select
-                  id="discovery-seniority"
-                  value={discoveryFilters.seniority}
-                  onChange={(event) => updateDiscoveryFilter("seniority", event.target.value)}
+                  id="discovery-level"
+                  value={discoveryFilters.experienceLevel}
+                  onChange={(event) => updateDiscoveryFilter("experienceLevel", event.target.value)}
                 >
-                  <option value="">Any level</option>
-                  {["Intern", "Junior", "Entry", "Mid", "Senior", "Lead", "Principal", "Director"].map((level) => (
-                    <option key={level} value={level.toLowerCase()}>{level}</option>
+                  <option value="all">All levels</option>
+                  {EXPERIENCE_LEVELS.map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
                   ))}
                 </select>
               </div>
@@ -4609,23 +4234,6 @@ function DirectoryView({
               </div>
             </div>
 
-            <div className="discovery-row">
-              <div className="discovery-field">
-                <label htmlFor="discovery-employment-type">Employment type</label>
-                <select
-                  id="discovery-employment-type"
-                  value={discoveryFilters.employmentType}
-                  onChange={(event) => updateDiscoveryFilter("employmentType", event.target.value)}
-                >
-                  <option value="all">Any employment type</option>
-                  {employmentTypesList.map((type) => (
-                    <option key={type} value={type}>{type}</option>
-                  ))}
-                </select>
-              </div>
-
-            </div>
-
             <div className="discovery-form-footer">
               <button type="submit" className="btn-discover-jobs">
                 Show {filtered.length.toLocaleString()} matching jobs
@@ -4637,155 +4245,147 @@ function DirectoryView({
       )}
 
       {resume && (
-      <>
-      {/* Top Filter Bar for résumé-matched listings */}
-      <div className="find-jobs-topbar">
-        {/* Search input with search icon: Filter results... */}
-        <div className="filter-input-wrapper">
-          <span className="filter-search-icon">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8"></circle>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-            </svg>
-          </span>
-          <input
-            type="text"
-            className="filter-results-input"
-            placeholder="Filter results..."
-            value={filterQuery}
-            onChange={(e) => setFilterQuery(e.target.value)}
-          />
-        </div>
+        <>
+          <div className="jd-filters">
+            <label className="jd-field jd-search">
+              <Search size={17} aria-hidden="true" />
+              <input
+                type="text"
+                placeholder="Search roles, skills or company..."
+                aria-label="Search roles, skills or company"
+                value={filterQuery}
+                onChange={(e) => setFilterQuery(e.target.value)}
+              />
+            </label>
 
-        <div className="filter-input-wrapper">
-          <input
-            type="text"
-            className="filter-results-input"
-            placeholder="Location..."
-            aria-label="Filter by location"
-            value={selectedLocation}
-            onChange={(event) => setSelectedLocation(event.target.value)}
-          />
-        </div>
+            <label className="jd-field">
+              <MapPin size={16} aria-hidden="true" />
+              <span className="jd-field-body">
+                <small>Location</small>
+                <input
+                  type="text"
+                  placeholder="UK, Ireland"
+                  aria-label="Filter by location"
+                  value={selectedLocation}
+                  onChange={(event) => setSelectedLocation(event.target.value)}
+                />
+              </span>
+            </label>
 
-        <div className="pill-select-wrapper">
-          <select
-            className="pill-select"
-            aria-label="Posted Within"
-            value={selectedPostedWithin}
-            onChange={(event) => setSelectedPostedWithin(event.target.value)}
-          >
-            <option value="any">Posted Within</option>
-            <option value="1">24 hours</option>
-            <option value="7">7 days</option>
-            <option value="14">14 days</option>
-            <option value="30">30 days</option>
-          </select>
-        </div>
+            <label className="jd-field">
+              <CalendarDays size={16} aria-hidden="true" />
+              <span className="jd-field-body">
+                <small>Posted within</small>
+                <select aria-label="Posted Within" value={selectedPostedWithin} onChange={(event) => setSelectedPostedWithin(event.target.value)}>
+                  <option value="any">Any time</option>
+                  <option value="1">24 hours</option>
+                  <option value="7">7 days</option>
+                  <option value="14">14 days</option>
+                  <option value="30">30 days</option>
+                </select>
+              </span>
+              <ChevronDown size={15} className="jd-caret" aria-hidden="true" />
+            </label>
 
-        {/* Company filter dropdown */}
-        <div className="pill-select-wrapper">
-          <select
-            className="pill-select"
-            value={selectedCompany}
-            onChange={(e) => setSelectedCompany(e.target.value)}
-          >
-            <option value="all">Company</option>
-            {companiesList.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-        </div>
+            <label className="jd-field">
+              <Building2 size={16} aria-hidden="true" />
+              <span className="jd-field-body">
+                <small>Company</small>
+                <select aria-label="Filter by company" value={selectedCompany} onChange={(e) => setSelectedCompany(e.target.value)}>
+                  <option value="all">All companies</option>
+                  {companiesList.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </span>
+              <ChevronDown size={15} className="jd-caret" aria-hidden="true" />
+            </label>
 
-        <div className="pill-select-wrapper">
-          <select
-            className="pill-select"
-            aria-label="Filter by employment type"
-            value={selectedEmploymentType}
-            onChange={(event) => setSelectedEmploymentType(event.target.value)}
-          >
-            <option value="all">Employment type</option>
-            {employmentTypesList.map((type) => (
-              <option key={type} value={type}>{type}</option>
-            ))}
-          </select>
-        </div>
+            <label className="jd-field">
+              <Briefcase size={16} aria-hidden="true" />
+              <span className="jd-field-body">
+                <small>Experience level</small>
+                <select aria-label="Filter by experience level" value={selectedLevel} onChange={(event) => setSelectedLevel(event.target.value)}>
+                  <option value="all">All levels</option>
+                  {EXPERIENCE_LEVELS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </span>
+              <ChevronDown size={15} className="jd-caret" aria-hidden="true" />
+            </label>
 
-        <div className="pill-select-wrapper">
-          <select
-            className="pill-select"
-            aria-label="Filter by work mode"
-            value={selectedWorkMode}
-            onChange={(event) => setSelectedWorkMode(event.target.value)}
-          >
-            <option value="all">Work mode</option>
-            <option value="remote">Remote</option>
-            <option value="hybrid">Hybrid</option>
-            <option value="on-site">On-site</option>
-          </select>
-        </div>
+            <label className="jd-field">
+              <User size={16} aria-hidden="true" />
+              <span className="jd-field-body">
+                <small>Work mode</small>
+                <select aria-label="Filter by work mode" value={selectedWorkMode} onChange={(event) => setSelectedWorkMode(event.target.value)}>
+                  <option value="all">All modes</option>
+                  <option value="remote">Remote</option>
+                  <option value="hybrid">Hybrid</option>
+                  <option value="on-site">On-site</option>
+                </select>
+              </span>
+              <ChevronDown size={15} className="jd-caret" aria-hidden="true" />
+            </label>
 
-        {/* Platform filter dropdown */}
-        <div className="pill-select-wrapper">
-          <select
-            className="pill-select"
-            value={selectedPlatform}
-            onChange={(e) => setSelectedPlatform(e.target.value)}
-          >
-            <option value="all">All ATS</option>
-            {platforms.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-        </div>
+            {filtersActive && (
+              <button type="button" className="jd-clear" onClick={clearFilters}>Clear all filters</button>
+            )}
 
-        {/* + Add all {count} pill button */}
-        <button
-          type="button"
-          className={`btn-add-all ${allVisibleInPipeline ? "all-added" : ""}`}
-          onClick={() => onAddAllToPipeline(filtered)}
-        >
-          {allVisibleInPipeline ? (
-            <>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12"></polyline>
-              </svg>
-              <span>In pipeline</span>
-            </>
-          ) : (
-            <>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-              </svg>
-              <span>+ Add all {filtered.length}</span>
-            </>
-          )}
-        </button>
-      </div>
-      </>
+            <label className="jd-sort">
+              <span>Sort by</span>
+              <select aria-label="Sort by" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                <option value="newest">Newest first</option>
+                <option value="best">Best match</option>
+                <option value="company">Company A–Z</option>
+              </select>
+            </label>
+          </div>
+
+        </>
       )}
 
-      {/* 3-Column Jobs Grid */}
+      {/* Job list + selected job */}
       {(resume || discoverySubmitted) && (
-      <div className="jobs-grid-3col" ref={resultsRef}>
-        {filtered.length === 0 ? (
-          <div className="empty-results-box" style={{ gridColumn: "1 / -1" }}>
-            <h4>No roles match your filter criteria</h4>
-            <p>Try clearing search keywords or selecting "All ATS".</p>
+        <div className="jd-split" ref={resultsRef}>
+          <div className="jd-list-pane">
+            <div className="jd-list-head">
+              <h2>{visibleJobs.length} Job{visibleJobs.length === 1 ? "" : "s"} Found</h2>
+              <button
+                type="button"
+                className="jd-addall"
+                onClick={() => onAddAllToPipeline(visibleJobs)}
+                disabled={visibleJobs.length === 0 || allVisibleInPipeline}
+              >
+                {allVisibleInPipeline ? "All saved" : "Save all"}
+              </button>
+            </div>
+            {visibleJobs.length === 0 ? (
+              <div className="empty-results-box">
+                <h4>No roles match your filter criteria</h4>
+                <p>Try clearing search keywords or filters.</p>
+              </div>
+            ) : (
+              <ul className="jd-list">
+                {visibleJobs.map((job) => (
+                  <JobListItem
+                    key={job.id}
+                    job={job}
+                    selected={activeJob?.id === job.id}
+                    inPipeline={pipelineJobIds.has(job.id)}
+                    onSelect={() => setActiveJobId(job.id)}
+                    onTogglePipeline={() => onTogglePipeline(job.id)}
+                  />
+                ))}
+              </ul>
+            )}
           </div>
-        ) : (
-          filtered.map((job) => (
-            <JobCard
-              key={job.id}
-              job={job}
-              inPipeline={pipelineJobIds.has(job.id)}
-              onTogglePipeline={() => onTogglePipeline(job.id)}
-              onViewDetails={() => onSelectJob(job)}
+          {activeJob && (
+            <JobDetailPane
+              job={activeJob}
+              inPipeline={pipelineJobIds.has(activeJob.id)}
+              onTogglePipeline={() => onTogglePipeline(activeJob.id)}
+              onOpenWorkspace={() => onSelectJob(activeJob)}
             />
-          ))
-        )}
-      </div>
+          )}
+        </div>
       )}
     </div>
   );
@@ -4906,8 +4506,8 @@ function ProfileStrengthMeter({ resume, onUpdateResume, onUploadNew }) {
                 {strength.overall_score >= 88
                   ? "Your profile covers every section well."
                   : strength.overall_score >= 70
-                  ? "Strong profile. A few sections could be filled in further."
-                  : "Profile in progress. Complete the highlighted sections below."}
+                    ? "Strong profile. A few sections could be filled in further."
+                    : "Profile in progress. Complete the highlighted sections below."}
               </h2>
               <p className="profile-strength-desc">
                 Evaluates Skills (25%), Work Experience (25%), Education (15%), Contact & Summary (15%), Projects (10%), and Certifications (10%).
@@ -5383,7 +4983,7 @@ function ProfileEditorModal({ resume, initialTab = "skills", onClose, onSaved })
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "8px" }}>
                     <input
                       type="text"
-                      placeholder="Job Title (e.g. Senior Backend Engineer)"
+                      placeholder="Job Title (e.g. Accountant, Teacher, Sales Executive)"
                       value={exp.title || ""}
                       onChange={(e) => {
                         const val = e.target.value;

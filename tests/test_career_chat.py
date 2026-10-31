@@ -157,10 +157,11 @@ class TestCareerChatService(unittest.TestCase):
 
     def test_groq_http_error_does_not_return_a_fallback(self):
         response = MagicMock(status_code=401)
+        response.json.return_value = {"error": {"message": "Invalid API Key"}}
         with patch.dict(os.environ, {"GROQ_API_KEY": "test-server-key"}), patch(
             "backend.career_chat_service.requests.post", return_value=response
         ):
-            with self.assertRaisesRegex(CareerChatError, "could not complete"):
+            with self.assertRaisesRegex(CareerChatError, r"Groq API error \(401\): Invalid API Key"):
                 CareerChatService().answer("Which job fits?", "opportunities", {}, [], "strategy")
 
     def test_invalid_groq_response_does_not_return_a_fallback(self):

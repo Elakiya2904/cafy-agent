@@ -78,8 +78,34 @@ SKILL_ALIASES = {
     "llm": "LLMs",
     "llms": "LLMs",
     "genai": "Generative AI",
-    "rag": "RAG"
+    "rag": "RAG",
+    "crm": "CRM",
+    "b2b sales": "B2B Sales",
+    "biz dev": "Business Development",
+    "bd": "Business Development",
+    "cold-calling": "Cold Calling",
+    "pre sales": "Pre-Sales",
+    "microsoft excel": "Excel",
+    "microsoft powerpoint": "PowerPoint",
+    "sales navigator": "LinkedIn Sales Navigator",
+    "cross selling": "Cross-selling",
+    "up-selling": "Upselling",
+    "upselling": "Upselling"
 }
+
+# Non-engineering professions (teaching, accounting, finance, hardware, healthcare, ...)
+from .skill_matching import text_has_skill
+from .skill_catalog import (
+    ALIASES as CATALOG_ALIASES,
+    GENERAL_SKILLS,
+    all_roles as catalog_roles,
+    domain_skill_taxonomy,
+)
+for _cat, _skills in domain_skill_taxonomy().items():
+    SKILL_TAXONOMY.setdefault(_cat, [])
+    SKILL_TAXONOMY[_cat] = list(dict.fromkeys(SKILL_TAXONOMY[_cat] + _skills))
+SKILL_TAXONOMY["General & Soft Skills"] = list(GENERAL_SKILLS)
+SKILL_ALIASES.update({k: v for k, v in CATALOG_ALIASES.items() if k not in SKILL_ALIASES})
 
 ALL_CANONICAL_SKILLS = []
 for cat_skills in SKILL_TAXONOMY.values():
@@ -134,8 +160,16 @@ class ResumeService:
         # Name heuristic
         candidate_name = self._detect_name(text, filename)
 
-        # Skill Extraction
+        # Skill Extraction: catalog skills found anywhere + skills the résumé lists itself
         skills = self.extract_skills(text)
+        sections = self._extract_sections(text)
+        known = {k.lower() for k in skills}
+        for listed in self._extract_listed_skills(sections.get("skills", "")):
+            normalized = self._normalize(listed)
+            if normalized.lower() not in known:
+                known.add(normalized.lower())
+                skills.append(normalized)
+        skills = sorted(skills)
 
         # Group by category
         categorized: Dict[str, List[str]] = {}
@@ -144,14 +178,16 @@ class ResumeService:
             matches = [s for s in skills if s.lower() in cat_lower]
             if matches:
                 categorized[cat] = matches
+        uncategorized = [s for s in skills if not any(s in m for m in categorized.values())]
+        if uncategorized:
+            categorized["Other Skills"] = uncategorized
 
         # Experience & Seniority
         years, seniority = self._detect_experience(text)
-        target_roles = self._detect_roles(text)
 
         # Extract structured sections
-        sections = self._extract_sections(text)
         experience = self._parse_experience(sections.get("experience", ""))
+        target_roles = self._detect_roles(text, experience)
         education = self._parse_education(sections.get("education", ""))
         projects = self._parse_projects(sections.get("projects", ""))
         certifications = self._parse_certifications(sections.get("certifications", ""))
@@ -209,8 +245,7 @@ class ResumeService:
         for canonical in ALL_CANONICAL_SKILLS:
             if len(canonical) <= 2 and canonical not in ["Go", "R", "C"]:
                 continue
-            pat = rf"\b{re.escape(canonical.lower())}\b"
-            if re.search(pat, lower_text):
+            if text_has_skill(canonical, lower_text, loose=False):
                 found.add(self._normalize(canonical))
 
         return sorted(list(found))
@@ -244,15 +279,17 @@ class ResumeService:
                 years = max(nums)
 
         lower = text.lower()
+        # Word boundaries so "Lead Generation" / "middle" don't read as seniority.
+        is_lead = re.search(r"\blead\b(?!\s+(?:generation|gen|qualification|scoring|management|nurturing))", lower)
         if "principal" in lower or "director" in lower:
             seniority = "Principal / Lead"
-        elif "senior" in lower or years >= 5:
+        elif re.search(r"\bsenior\b", lower) or years >= 5:
             seniority = "Senior"
-        elif "lead" in lower:
+        elif is_lead:
             seniority = "Lead"
-        elif "mid" in lower or (2 <= years < 5):
+        elif re.search(r"\bmid(?:-level)?\b", lower) or (2 <= years < 5):
             seniority = "Mid-Level"
-        elif "junior" in lower or "intern" in lower or (matches and years < 2):
+        elif "junior" in lower or re.search(r"\bintern(?:ship)?\b", lower) or (matches and years < 2):
             seniority = "Junior / Entry"
         else:
             # No stated years and no seniority keyword: don't assume a level.
@@ -260,15 +297,59 @@ class ResumeService:
 
         return years, seniority
 
-    def _detect_roles(self, text: str) -> List[str]:
-        roles = [
-            "Full Stack Engineer", "Software Engineer", "Frontend Engineer", "Backend Engineer",
-            "DevOps Engineer", "Cloud Engineer", "Data Scientist", "Machine Learning Engineer",
-            "AI Engineer", "Data Engineer", "Site Reliability Engineer"
-        ]
+    _SOFTWARE_ROLES = [
+        "Full Stack Engineer", "Software Engineer", "Frontend Engineer", "Backend Engineer",
+        "DevOps Engineer", "Cloud Engineer", "Data Scientist", "Machine Learning Engineer",
+        "AI Engineer", "Data Engineer", "Site Reliability Engineer",
+    ]
+    # Single-word phrases only count as a role when they name a person (teacher, nurse, ...).
+    _AGENT_NOUN = re.compile(r"(?:er|or|ist|ant|ian)$")
+
+    def _detect_roles(self, text: str, experience: Optional[List[Dict[str, Any]]] = None) -> List[str]:
         lower = text.lower()
-        detected = [r for r in roles if r.lower() in lower]
+
+        def present(phrase: str) -> bool:
+            return re.search(r"(?<![a-z0-9])" + re.escape(phrase.lower()) + r"(?![a-z0-9])", lower) is not None
+
+        detected = [r for r in self._SOFTWARE_ROLES if r.lower() in lower]
+        for role, phrases in catalog_roles().items():
+            if role in detected:
+                continue
+            if present(role) or any(
+                present(p) for p in phrases
+                if " " in p or (len(p) >= 6 and self._AGENT_NOUN.search(p))
+            ):
+                detected.append(role)
+
+        # "Sales Executive" etc. imply the broader sales roles employers also post.
+        if "Sales Executive" in detected:
+            for extra in ("Account Executive", "Business Development Representative"):
+                if extra not in detected:
+                    detected.append(extra)
+
+        # Nothing recognised: fall back to the job titles the résumé itself lists.
+        if not detected and experience:
+            for entry in experience:
+                title = (entry.get("title") or "").strip()
+                if 2 < len(title) <= 60 and title not in detected:
+                    detected.append(title)
+                if len(detected) >= 3:
+                    break
         return detected
+
+    def _extract_listed_skills(self, skills_section: str) -> List[str]:
+        """Skills the résumé lists itself, so professions outside the catalog still count."""
+        found: List[str] = []
+        for line in (skills_section or "").split("\n"):
+            line = re.sub(r"^[\s\-\*•·▪●\d\.\)]+", "", line).strip()
+            if ":" in line:
+                line = line.split(":", 1)[1]
+            for item in re.split(r"[,;|•·/]|\s{2,}|\s+&\s+(?=[A-Z])", line):
+                item = item.strip(" .-–")
+                words = item.split()
+                if 2 <= len(item) <= 40 and 1 <= len(words) <= 4 and not re.search(r"\d{4}|@|http", item):
+                    found.append(item)
+        return found
 
     # ---------------- Section Parsers ----------------
 
@@ -276,7 +357,7 @@ class ResumeService:
         """Segments resume text into named sections based on header patterns."""
         headers = {
             "summary": re.compile(r"^(?:professional\s+summary|executive\s+summary|summary|profile|about\s+me)\b", re.I),
-            "skills": re.compile(r"^(?:technical\s+skills|skills\s*(?:&|and)\s*technologies|core\s+competencies|skills)\b", re.I),
+            "skills": re.compile(r"^(?:key\s+skills|technical\s+skills|top\s+skills|areas\s+of\s+expertise|skills\s*(?:&|and)\s*technologies|core\s+competencies|skills)\b", re.I),
             "experience": re.compile(r"^(?:work\s+experience|professional\s+experience|employment\s+history|experience)\b", re.I),
             "education": re.compile(r"^(?:education|academic\s+background|qualifications)\b", re.I),
             "projects": re.compile(r"^(?:technical\s+projects|key\s+projects|portfolio\s+projects|personal\s+projects|projects)\b", re.I),

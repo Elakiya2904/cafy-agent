@@ -19,6 +19,11 @@ import requests
 logger = logging.getLogger("cafy.resume_generation")
 
 
+# Active model; override with GROQ_MODEL.
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
+FALLBACK_GROQ_MODELS = ["openai/gpt-oss-20b", "llama-3.3-70b-versatile", "llama-3.1-8b-instant", "qwen/qwen3.8-27b"]
+
+
 class ResumeGenerationError(RuntimeError):
     pass
 
@@ -46,15 +51,24 @@ class ResumeGenerationService:
         )
         self.environment.filters["texescape"] = self._texescape
 
-    def generate(self, resume: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, Any]:
+    def generate(
+        self, resume: Dict[str, Any], job: Dict[str, Any], skill_extractor=None, instructions: Optional[str] = None
+    ) -> Dict[str, Any]:
         if not resume:
             raise ResumeGenerationError("Upload a résumé before generating a tailored version.")
         if not job:
             raise ResumeGenerationError("The selected job could not be found.")
 
-        source_text = str(resume.get("raw_text") or resume.get("summary") or "")
-        structured = self._tailor_with_groq(resume, job, source_text)
-        structured = self._validate_and_normalize(structured, resume, job)
+        # Build the résumé from the stored structured data (no LLM call), then let the model
+        # rewrite only the summary and bullets for this job. Contact details, employers, dates,
+        # education and skills come straight from the profile.
+        structured = self._validate_and_normalize({}, resume, job)
+        structured["skills"] = self._rank_skills(structured["skills"], job)
+        if skill_extractor is not None:
+            try:
+                structured = self.rewrite_full(structured, job, skill_extractor, instructions)["resume"]
+            except ResumeGenerationError as error:
+                logger.warning("Tailoring rewrite skipped, using profile text as-is: %s", error)
         resume_id = uuid.uuid4().hex
 
         # Render LaTeX
@@ -86,6 +100,12 @@ class ResumeGenerationService:
                 "unsupported_claims": [],
             },
         }
+
+    @staticmethod
+    def _rank_skills(skills: List[str], job: Dict[str, Any]) -> List[str]:
+        """Put skills the job asks for first; keep the rest in original order."""
+        wanted = {str(s).casefold() for s in (job.get("matched_skills") or [])}
+        return sorted(skills, key=lambda s: s.casefold() not in wanted)
 
     def update_artifacts(self, resume_id: str, structured: Dict[str, Any]) -> Dict[str, Any]:
         """Re-render LaTeX, DOCX, and PDF for an updated/saved draft."""
@@ -119,11 +139,22 @@ class ResumeGenerationService:
         company = job.get("company") or "the company"
 
         is_bullet = "bullet" in section.lower()
+        drafting = not (content or "").strip()
+        if drafting:
+            # Nothing to polish. Only a summary can be drafted, and only from facts already on the resume.
+            facts = self._summary_facts(resume_data)
+            if "summary" not in section.lower() or not facts:
+                raise ResumeGenerationError(
+                    "Write a rough first draft (even one line) and AI will polish it. "
+                    "AI will not make up experience you have not entered."
+                )
+            content = facts
         system = (
             f"You are an expert UK/IE executive resume writer. Rewrite the following resume {section} "
             f"for the role of {target_role} at {company}. "
             "Keep it concise, high-impact, professional, and ATS-friendly. "
             + ("Return a single outcome-oriented bullet starting with a strong action verb, without leading bullet characters or quotes. " if is_bullet else "")
+            + ("There is no existing text: write a 2-3 sentence professional summary using ONLY the facts provided. " if drafting else "")
             + "CRITICAL: Do NOT invent employers, dates, achievements, credentials, or technologies not present in the original text. "
             "Preserve factual truth while enhancing active phrasing and clarity. Return plain text only."
         )
@@ -132,7 +163,7 @@ class ResumeGenerationService:
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                 json={
-                    "model": os.getenv("GROQ_MODEL") or "openai/gpt-oss-20b",
+                    "model": os.getenv("GROQ_MODEL") or DEFAULT_GROQ_MODEL,
                     "messages": [
                         {"role": "system", "content": system},
                         {"role": "user", "content": f"Original text to improve:\n{content}"},
@@ -157,10 +188,33 @@ class ResumeGenerationService:
             raise ResumeGenerationError("AI rewriting returned empty response.")
         return self._clean_text(rewritten)
 
+    @staticmethod
+    def _summary_facts(resume_data: Dict[str, Any]) -> str:
+        """Plain-text digest of what the resume already says, used to draft a missing summary."""
+        r = resume_data or {}
+        lines: List[str] = []
+        for e in (r.get("experience") or [])[:4]:
+            role = ", ".join(x for x in (e.get("title"), e.get("organization") or e.get("company")) if x)
+            if role:
+                lines.append(f"Role: {role} ({e.get('dates') or 'dates not given'})")
+            lines.extend(f"- {b}" for b in (e.get("bullets") or [])[:3])
+        for e in (r.get("projects") or [])[:2]:
+            if e.get("title"):
+                lines.append(f"Project: {e['title']}")
+        for e in (r.get("education") or [])[:2]:
+            degree = ", ".join(x for x in (e.get("degree") or e.get("title"), e.get("institution") or e.get("organization")) if x)
+            if degree:
+                lines.append(f"Education: {degree}")
+        if r.get("skills"):
+            lines.append("Skills: " + ", ".join(str(x) for x in r["skills"][:15]))
+        return "\n".join(lines)
+
     # Tokens that would indicate a new factual claim: numbers (metrics, years, counts).
     _NUMBER_PATTERN = re.compile(r"\d+(?:[.,]\d+)?")
 
-    def rewrite_full(self, tailored: Dict[str, Any], job: Dict[str, Any], skill_extractor) -> Dict[str, Any]:
+    def rewrite_full(
+        self, tailored: Dict[str, Any], job: Dict[str, Any], skill_extractor, instructions: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Rewrite every text part of a tailored resume for the job without adding facts.
 
         Only the summary, experience/project descriptions and bullets are rewritten. Titles,
@@ -184,11 +238,11 @@ class ResumeGenerationService:
             "job": {
                 "title": job.get("title"),
                 "company": job.get("company"),
-                "description": str(job.get("description") or "")[:3500],
+                "description": str(job.get("description") or "")[:1500],
+                "matched_skills": (job.get("matched_skills") or [])[:12],
             },
             "resume": {
                 "professional_summary": tailored.get("professional_summary") or "",
-                "skills": tailored.get("skills") or [],
                 "experience": entry_payload(tailored.get("experience")),
                 "projects": entry_payload(tailored.get("projects")),
             },
@@ -202,18 +256,24 @@ class ResumeGenerationService:
             "Return JSON only: {\"professional_summary\": str, \"experience\": [{\"index\": int, \"description\": str, "
             "\"bullets\": [str]}], \"projects\": [same shape]}."
         )
+        steer = re.sub(r"\s+", " ", str(instructions or "")).strip()[:500]
+        if steer:
+            system += (
+                " The candidate also asked: \"" + steer + "\". Use this only to choose which existing facts to "
+                "emphasise and how to phrase them; it never permits adding facts that are not in the resume."
+            )
         try:
             response = requests.post(
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                 json={
-                    "model": os.getenv("GROQ_MODEL") or "openai/gpt-oss-20b",
+                    "model": os.getenv("GROQ_MODEL") or DEFAULT_GROQ_MODEL,
                     "messages": [
                         {"role": "system", "content": system},
                         {"role": "user", "content": json.dumps(payload, ensure_ascii=True)},
                     ],
                     "temperature": 0.2,
-                    "max_tokens": 4096,
+                    "max_tokens": 1500,
                     "response_format": {"type": "json_object"},
                 },
                 timeout=(5, 45),
@@ -332,7 +392,7 @@ class ResumeGenerationService:
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                 json={
-                    "model": os.getenv("GROQ_MODEL") or "openai/gpt-oss-20b",
+                    "model": os.getenv("GROQ_MODEL") or DEFAULT_GROQ_MODEL,
                     "messages": [
                         {"role": "system", "content": system},
                         {"role": "user", "content": json.dumps(prompt, ensure_ascii=True)},

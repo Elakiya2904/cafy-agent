@@ -7,9 +7,28 @@ import logging
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timezone
 
+from . import dbcore
+from .context import current_candidate
 from .scrapers.job_normalizer import JobNormalizer
 
 logger = logging.getLogger("cafy.database")
+
+USER_SCHEMA = """
+CREATE TABLE IF NOT EXISTS user_profiles (
+    candidate_id TEXT PRIMARY KEY,
+    resume_json TEXT,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS user_resume_files (
+    candidate_id TEXT PRIMARY KEY,
+    filename TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    content BLOB NOT NULL,
+    parsed_resume TEXT,
+    uploaded_at TEXT NOT NULL
+)
+"""
 DB_PATH = os.path.join(os.path.dirname(__file__), "cafy_jobs.db")
 
 class JobDatabase:
@@ -18,36 +37,37 @@ class JobDatabase:
     deduplication, listing updates, and scraper execution history.
     """
 
-    def __init__(self, db_path: str = DB_PATH):
-        if os.environ.get("VERCEL"):
+    def __init__(self, db_path: Optional[str] = None):
+        db_path = db_path or os.getenv("CAFY_DB_PATH") or DB_PATH  # CAFY_DB_PATH: tests/dev override
+        self.db_path = db_path
+        if not dbcore.is_postgres() and os.environ.get("VERCEL"):
+            # Offline fallback only: serverless SQLite needs a writable copy. Production uses DATABASE_URL.
             tmp_db = Path("/tmp/cafy_jobs.db")
             orig_db = Path(db_path)
-            if not tmp_db.exists():
-                if orig_db.exists():
-                    try:
-                        shutil.copy2(orig_db, tmp_db)
-                        logger.info("Copied SQLite DB to %s for serverless write support", tmp_db)
-                    except Exception as err:
-                        logger.warning("Could not copy SQLite DB to /tmp: %s", err)
+            if not tmp_db.exists() and orig_db.exists():
+                try:
+                    shutil.copy2(orig_db, tmp_db)
+                    logger.info("Copied SQLite DB to %s for serverless write support", tmp_db)
+                except Exception as err:
+                    logger.warning("Could not copy SQLite DB to /tmp: %s", err)
             if tmp_db.exists():
                 self.db_path = str(tmp_db)
-            else:
-                self.db_path = db_path
-        else:
-            self.db_path = db_path
 
         self._init_db()
 
-    def _get_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path, timeout=15)
-        conn.row_factory = sqlite3.Row
-        return conn
+    @property
+    def backend(self) -> str:
+        return "postgres" if dbcore.is_postgres() else "sqlite"
+
+    def _get_connection(self):
+        return dbcore.connect(self.db_path, DB_PATH)
 
     def _init_db(self):
+        conn = self._get_connection()
         try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-            
+            dbcore.lock_schema(conn)
+            cursor = conn.cursor()
+
             # 1. Stored Job Listings
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS jobs (
@@ -121,20 +141,30 @@ class JobDatabase:
 
             # kind: "generated" (AI tailoring) or "edited" (user saved changes);
             # based_on: resume_id of the version an edit started from.
-            version_columns = {row[1] for row in cursor.execute("PRAGMA table_info(tailored_resume_versions)")}
-            if "kind" not in version_columns:
-                cursor.execute("ALTER TABLE tailored_resume_versions ADD COLUMN kind TEXT NOT NULL DEFAULT 'generated'")
-            if "based_on" not in version_columns:
-                cursor.execute("ALTER TABLE tailored_resume_versions ADD COLUMN based_on TEXT")
+            conn.add_column_if_missing("tailored_resume_versions", "kind", "TEXT NOT NULL DEFAULT 'generated'")
+            conn.add_column_if_missing("tailored_resume_versions", "based_on", "TEXT")
 
-            # Backfill versions for tailored resumes saved before version history existed.
-            cursor.execute("""
-            INSERT INTO tailored_resume_versions (id, resume_id, job_id, job_title, company, structured_data, created_at, updated_at)
-            SELECT lower(hex(randomblob(16))), t.resume_id, t.job_id, j.title, j.company, t.structured_data, t.created_at, t.updated_at
-            FROM tailored_resumes t
-            LEFT JOIN jobs j ON j.id = t.job_id
-            WHERE t.resume_id NOT IN (SELECT resume_id FROM tailored_resume_versions)
-            """)
+            # Per-user ownership of tailored resumes (rows predating accounts belong to 'local').
+            conn.add_column_if_missing("tailored_resumes", "candidate_id", "TEXT NOT NULL DEFAULT 'local'")
+            conn.add_column_if_missing("tailored_resume_versions", "candidate_id", "TEXT NOT NULL DEFAULT 'local'")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_tailored_resumes_candidate ON tailored_resumes(candidate_id, job_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_tailored_versions_candidate ON tailored_resume_versions(candidate_id, created_at)")
+
+            conn.executescript(USER_SCHEMA)
+
+            # 5. Pipeline 3 – Email Agent & Interview Management
+            from .email_agent.schema import EMAIL_AGENT_SCHEMA
+            conn.executescript(EMAIL_AGENT_SCHEMA)
+            for column in ("calendar_event_id", "calendar_error", "reminder_at"):
+                conn.add_column_if_missing("follow_up_records", column, "TEXT")
+
+            # 6. Pipeline 2 – AI Application Automation
+            from .job_applications.schema import JOB_APPLICATIONS_SCHEMA
+            conn.executescript(JOB_APPLICATIONS_SCHEMA)
+
+            # 7. Pipeline 4 – Job Intelligence
+            from .job_intelligence.schema import JOB_INTELLIGENCE_SCHEMA
+            conn.executescript(JOB_INTELLIGENCE_SCHEMA)
 
             # Keep legacy worldwide listings out of the active feed after the
             # scraper scope changed to UK and Ireland only.
@@ -157,9 +187,16 @@ class JobDatabase:
                 )
 
             conn.commit()
-            logger.info(f"[JobDatabase] Initialized SQLite schema at {self.db_path}")
+            if self.backend == "postgres":
+                for table in ("tailored_resume_versions", "application_form_data", "application_documents"):
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS seq BIGSERIAL")  # stands in for SQLite rowid
+            conn.commit()
+            logger.info("[JobDatabase] Initialized %s schema", self.backend)
         except sqlite3.OperationalError as err:
             logger.warning("[JobDatabase] Could not run _init_db (read-only SQLite): %s", err)
+        finally:
+            if self.backend == "postgres" or self.db_path != ":memory:":
+                conn.close()  # back to the pool (SQLite keeps its handle: shared in-memory DBs vanish on close)
 
     def save_or_update_jobs(self, jobs: List[Dict[str, Any]]) -> Dict[str, int]:
         """
@@ -353,7 +390,7 @@ class JobDatabase:
         serialized = json.dumps(structured_data, ensure_ascii=False)
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT id FROM tailored_resumes WHERE job_id = ?", (job_id,))
+            cursor.execute("SELECT id FROM tailored_resumes WHERE job_id = ? AND candidate_id = ?", (job_id, current_candidate()))
             row = cursor.fetchone()
             if row:
                 rec_id = row["id"]
@@ -366,16 +403,16 @@ class JobDatabase:
                 import uuid
                 rec_id = uuid.uuid4().hex
                 cursor.execute("""
-                    INSERT INTO tailored_resumes (id, job_id, resume_id, structured_data, updated_at, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (rec_id, job_id, resume_id, serialized, now_iso, now_iso))
+                    INSERT INTO tailored_resumes (id, job_id, resume_id, structured_data, updated_at, created_at, candidate_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (rec_id, job_id, resume_id, serialized, now_iso, now_iso, current_candidate()))
             conn.commit()
             return rec_id
 
     def get_tailored_resume(self, job_id: str) -> Optional[Dict[str, Any]]:
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM tailored_resumes WHERE job_id = ? ORDER BY updated_at DESC LIMIT 1", (job_id,))
+            cursor.execute("SELECT * FROM tailored_resumes WHERE job_id = ? AND candidate_id = ? ORDER BY updated_at DESC LIMIT 1", (job_id, current_candidate()))
             row = cursor.fetchone()
             if not row:
                 return None
@@ -407,32 +444,32 @@ class JobDatabase:
         serialized = json.dumps(structured_data, ensure_ascii=False)
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT id FROM tailored_resume_versions WHERE resume_id = ?", (resume_id,))
+            cursor.execute("SELECT id FROM tailored_resume_versions WHERE resume_id = ? AND candidate_id = ?", (resume_id, current_candidate()))
             if cursor.fetchone():
                 cursor.execute(
                     """
                     UPDATE tailored_resume_versions
                     SET structured_data = ?, updated_at = ?,
                         job_title = COALESCE(?, job_title), company = COALESCE(?, company)
-                    WHERE resume_id = ?
+                    WHERE resume_id = ? AND candidate_id = ?
                     """,
-                    (serialized, now_iso, job_title, company, resume_id),
+                    (serialized, now_iso, job_title, company, resume_id, current_candidate()),
                 )
             else:
                 import uuid
                 cursor.execute(
                     """
                     INSERT INTO tailored_resume_versions
-                        (id, resume_id, job_id, job_title, company, structured_data, created_at, updated_at, kind, based_on)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        (id, resume_id, job_id, job_title, company, structured_data, created_at, updated_at, kind, based_on, candidate_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (uuid.uuid4().hex, resume_id, job_id, job_title, company, serialized, now_iso, now_iso, kind, based_on),
+                    (uuid.uuid4().hex, resume_id, job_id, job_title, company, serialized, now_iso, now_iso, kind, based_on, current_candidate()),
                 )
             conn.commit()
 
     def get_resume_version(self, resume_id: str) -> Optional[Dict[str, Any]]:
         with self._get_connection() as conn:
-            row = conn.execute("SELECT * FROM tailored_resume_versions WHERE resume_id = ?", (resume_id,)).fetchone()
+            row = conn.execute("SELECT * FROM tailored_resume_versions WHERE resume_id = ? AND candidate_id = ?", (resume_id, current_candidate())).fetchone()
         if not row:
             return None
         try:
@@ -445,7 +482,8 @@ class JobDatabase:
         """All generated resume versions, newest first, numbered from 1 (oldest)."""
         with self._get_connection() as conn:
             rows = conn.execute(
-                "SELECT * FROM tailored_resume_versions ORDER BY created_at ASC, rowid ASC"
+                "SELECT * FROM tailored_resume_versions WHERE candidate_id = ? ORDER BY created_at ASC, rowid ASC",
+                (current_candidate(),),
             ).fetchall()
         versions = []
         for number, row in enumerate(rows, start=1):
@@ -473,6 +511,12 @@ class JobDatabase:
             version["is_current"] = idx == 0
         return versions
 
+    def clear_resume_versions(self) -> None:
+        with self._get_connection() as conn:
+            conn.execute("DELETE FROM tailored_resume_versions WHERE candidate_id = ?", (current_candidate(),))
+            conn.execute("DELETE FROM tailored_resumes WHERE candidate_id = ?", (current_candidate(),))
+            conn.commit()
+
     def record_scraper_run(
         self,
         platform: str,
@@ -492,9 +536,11 @@ class JobDatabase:
             INSERT INTO scraper_runs 
             (platform, started_at, finished_at, duration_seconds, jobs_found, new_jobs, updated_jobs, status, error_message)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING id
             """, (platform, started_at, finished_at, duration, jobs_found, new_jobs, updated_jobs, status, error_msg))
+            run_id = cursor.fetchone()[0]
             conn.commit()
-            return cursor.lastrowid
+            return run_id
 
     def get_stats(self) -> Dict[str, Any]:
         """Aggregate stats across all platforms and listings."""

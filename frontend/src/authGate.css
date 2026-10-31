@@ -1,0 +1,15 @@
+.ag-wrap { min-height: 100vh; display: grid; place-items: center; padding: 16px; background: #0f172a; font-family: system-ui, sans-serif; }
+.ag-card { width: 100%; max-width: 360px; background: #fff; border-radius: 12px; padding: 28px; display: grid; gap: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+.ag-card h1 { margin: 0; font-size: 1.6rem; }
+.ag-sub { margin: 0; color: #64748b; }
+.ag-card label { display: grid; gap: 4px; font-size: .85rem; color: #334155; }
+.ag-card input { padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 1rem; }
+.ag-btn { padding: 11px; border: 0; border-radius: 8px; background: #2563eb; color: #fff; font-weight: 600; cursor: pointer; }
+.ag-btn:disabled { opacity: .6; cursor: default; }
+.ag-links { display: flex; justify-content: space-between; }
+.ag-links button { background: none; border: 0; color: #2563eb; cursor: pointer; padding: 0; font-size: .85rem; }
+.ag-msg { padding: 8px 10px; border-radius: 8px; font-size: .85rem; }
+.ag-error { background: #fee2e2; color: #991b1b; }
+.ag-ok { background: #dcfce7; color: #166534; }
+.ag-bar { position: fixed; top: 6px; right: 12px; z-index: 1000; display: flex; gap: 8px; align-items: center; font-size: .75rem; color: #64748b; background: rgba(255,255,255,.9); padding: 4px 8px; border-radius: 8px; }
+.ag-bar button { border: 1px solid #cbd5e1; background: #fff; border-radius: 6px; cursor: pointer; font-size: .75rem; padding: 2px 8px; }

@@ -1,0 +1,46 @@
+/* Email Agent dashboard (EmailAgentDashboard.jsx) – builds on the .doc-card styles in documents.css */
+.ea-root .doc-card h2 { margin-top: 16px; }
+.ea-root .doc-card h2:first-child { margin-top: 0; }
+.ea-card { background: var(--bg-card); border: 1px solid var(--slate-200); border-radius: 16px; padding: 18px 20px; margin-top: 16px; box-shadow: var(--shadow-sm); }
+.ea-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.ea-muted { color: var(--slate-500); font-size: 0.8rem; margin: 6px 0; }
+.ea-empty { color: var(--slate-500); padding: 18px 0; display: flex; gap: 8px; align-items: center; }
+.ea-pill { font-size: 0.7rem; padding: 2px 8px; border-radius: 999px; background: var(--slate-100); color: var(--slate-700); }
+.ea-pill-ok { background: #dcfce7; color: #166534; }
+.ea-pill-bad { background: #fee2e2; color: #991b1b; }
+.ea-alert, .ea-alert-inline { background: #fef2f2; color: #991b1b; border-radius: 8px; padding: 8px 10px; font-size: 0.82rem; margin: 8px 0; }
+.ea-alert-inline { margin: 0; padding: 2px 8px; }
+.ea-btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 10px; border: 1px solid var(--slate-200); background: var(--bg-card); color: var(--slate-800); font-size: 0.82rem; cursor: pointer; }
+.ea-btn:hover:not(:disabled) { background: var(--slate-100); }
+.ea-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.ea-btn-primary { background: var(--slate-900); color: #fff; border-color: var(--slate-900); }
+.ea-btn-primary:hover:not(:disabled) { background: var(--slate-800); }
+.ea-btn-danger { color: #b91c1c; }
+.ea-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.ea-account { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px solid var(--slate-100); }
+.ea-spacer { flex: 1; }
+.ea-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 20px; border-bottom: 1px solid var(--slate-200); }
+.ea-tab { background: none; border: 0; padding: 10px 14px; cursor: pointer; color: var(--slate-500); font-size: 0.85rem; border-bottom: 2px solid transparent; }
+.ea-tab-active { color: var(--slate-900); border-bottom-color: var(--slate-900); font-weight: 600; }
+.ea-badge { margin-left: 6px; font-size: 0.7rem; background: var(--slate-200); border-radius: 999px; padding: 1px 7px; }
+.ea-field { display: flex; flex-direction: column; gap: 4px; font-size: 0.78rem; color: var(--slate-600); margin-top: 8px; }
+.ea-field input, .ea-field textarea, .ea-confirm-row select { border: 1px solid var(--slate-200); border-radius: 8px; padding: 7px 9px; font: inherit; color: var(--slate-900); background: var(--bg-card); }
+.ea-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
+.ea-dl { display: grid; grid-template-columns: 90px 1fr; gap: 4px 12px; margin: 0; font-size: 0.85rem; }
+.ea-dl dt { color: var(--slate-500); }
+.ea-dl dd { margin: 0; }
+.ea-check { display: flex; gap: 8px; align-items: center; font-size: 0.85rem; padding: 3px 0; }
+.ea-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.ea-table th, .ea-table td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--slate-100); }
+.ea-table th { color: var(--slate-500); font-weight: 500; }
+.ea-list { margin: 6px 0 12px; padding-left: 18px; font-size: 0.85rem; }
+.ea-group h3 { font-size: 0.95rem; margin: 14px 0 4px; }
+.ea-confirm { background: #fffbeb; border-radius: 12px; padding: 12px 14px; margin-bottom: 16px; }
+.ea-confirm-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: space-between; padding: 8px 0; }
+.ea-toast { display: flex; justify-content: space-between; align-items: center; border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; font-size: 0.85rem; }
+.ea-toast button { background: none; border: 0; cursor: pointer; color: inherit; }
+.ea-toast-ok { background: #dcfce7; color: #166534; }
+.ea-toast-error { background: #fee2e2; color: #991b1b; }
+.ea-field-row { border-top: 1px solid var(--slate-100); padding: 12px 0; }
+.ea-field-row input, .ea-field-row textarea, .ea-field-row select, .ea-input { width: 100%; box-sizing: border-box; border: 1px solid var(--slate-200); border-radius: 8px; padding: 7px 9px; font: inherit; background: var(--bg-card); color: var(--slate-900); }
+.ea-input { width: auto; min-width: 200px; }

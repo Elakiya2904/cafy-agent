@@ -46,6 +46,15 @@ class TestVisaSponsorRegistry(unittest.TestCase):
                     "Route": "Skilled Worker",
                 }
             )
+            for legal_name in ("Scale AI Limited", "Robinhood U.K Ltd.", "Snowflake Computing U.K. Limited", "Notion Capital Managers LLP"):
+                writer.writerow({"Organisation Name": legal_name, "Town/City": "London", "Route": "Skilled Worker"})
+            writer.writerow(
+                {
+                    "Organisation Name": "Stripe Payments UK Ltd",
+                    "Town/City": "London",
+                    "Route": "Skilled Worker",
+                }
+            )
         self.registry = VisaSponsorRegistry(self.csv_path)
 
     def tearDown(self):
@@ -70,8 +79,30 @@ class TestVisaSponsorRegistry(unittest.TestCase):
     def test_company_match_supports_known_employer_alias(self):
         self.assertTrue(self.registry.is_sponsored("CFC"))
 
+    def test_company_match_supports_stripe_legal_entity(self):
+        self.assertTrue(self.registry.is_sponsored("Stripe"))
+
+    def test_company_match_supports_brand_to_legal_entity_aliases(self):
+        for brand in ("Scaleai", "Robinhood", "Snowflake"):
+            self.assertTrue(self.registry.is_sponsored(brand), brand)
+
+    def test_alias_does_not_match_unrelated_company_with_similar_name(self):
+        self.assertFalse(self.registry.is_sponsored("Notion"))
+
     def test_company_match_does_not_match_unrelated_name_prefix(self):
         self.assertFalse(self.registry.is_sponsored("Figma Consulting"))
+
+    def test_ordinary_words_are_not_read_as_us_states(self):
+        for location in ("London or Dublin", "Remote in London", "Dublin or London", "Belfast and Leeds"):
+            self.assertNotEqual(self.registry.job_location_status(location), "NON_UK", location)
+
+    def test_either_or_locations_with_a_uk_city_are_uk_confirmed(self):
+        for location in ("London or Dublin", "Dublin, London OR Berlin"):
+            self.assertEqual(self.registry.job_location_status(location), "UK_CONFIRMED", location)
+
+    def test_us_state_codes_after_a_comma_are_still_non_uk(self):
+        for location in ("San Francisco, CA", "Seattle, WA OR New York, NY", "Toronto, ON"):
+            self.assertEqual(self.registry.job_location_status(location), "NON_UK", location)
 
     # ------------------------------------------------------------------
     # Location status
@@ -300,3 +331,56 @@ class TestVisaSponsorRegistry(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestIrelandPermitRegistry(unittest.TestCase):
+    def setUp(self):
+        import openpyxl
+        from backend.sponsor_service import VisaSponsorRegistry
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+        root = Path(self.temp_dir.name)
+        uk = root / "uk"
+        uk.mkdir()
+        (uk / "SP_-_Worker_and_Temporary_Worker_Web_Register_2026-01-01.csv").write_text(
+            "Organisation Name,Town/City,County,Route\nFigma UK Limited,London,,Skilled Worker\n", encoding="utf-8")
+        ie = root / "ie"
+        ie.mkdir()
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Employer Name", "Permits Issued Jan", "Permits Issued Feb"])
+        ws.append(["Anthropic Ireland Limited", 2, 4])
+        ws.append(["Stripe Payments Europe Limited", 1, None])
+        ws.append(["Asana foods limited", None, None])  # listed but no permits issued
+        ws.append(["Grand Total", 7, 4])
+        wb.save(ie / "employment-permits-issued-to-companies-2026.xlsx")
+        self.registry = VisaSponsorRegistry.from_directory(uk, ie)
+
+    def annotate(self, company, location):
+        return self.registry.annotate_jobs([{"company": company, "location": location}])[0]
+
+    def test_irish_job_at_permit_issuing_employer_is_badged_for_ireland(self):
+        job = self.annotate("Anthropic", "Dublin, Ireland")
+        self.assertTrue(job["visa_sponsored"])
+        self.assertEqual(job["visa_sponsor_country"], "Ireland")
+        self.assertEqual(job["ireland_permits_issued"], {"2026": 6})
+        self.assertIn("6 Irish employment permits", job["visa_sponsor_disclaimer"])
+
+    def test_brand_alias_matches_irish_legal_entity(self):
+        self.assertTrue(self.annotate("Stripe", "Dublin")["visa_sponsored"])
+
+    def test_employer_with_zero_permits_or_not_listed_is_not_badged(self):
+        self.assertFalse(self.annotate("Asana", "Dublin")["visa_sponsored"])
+        self.assertFalse(self.annotate("Unknown Co", "Dublin")["visa_sponsored"])
+
+    def test_irish_permits_do_not_badge_a_non_irish_job(self):
+        self.assertFalse(self.annotate("Anthropic", "San Francisco, CA")["visa_sponsored"])
+
+    def test_uk_sponsor_still_wins_for_uk_job_and_northern_ireland_is_uk(self):
+        job = self.annotate("Figma", "Belfast, Northern Ireland")
+        self.assertEqual(job["visa_sponsor_country"], "United Kingdom")
+        self.assertFalse(job["job_in_ireland"])
+
+    def test_either_or_uk_and_ireland_location_is_badged_by_whichever_list_applies(self):
+        self.assertEqual(self.annotate("Figma", "London or Dublin")["visa_sponsor_country"], "United Kingdom")
+        self.assertEqual(self.annotate("Anthropic", "London or Dublin")["visa_sponsor_country"], "Ireland")

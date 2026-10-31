@@ -8,6 +8,28 @@ logger = logging.getLogger("cafy.scrapers.workday")
 class WorkdayScraper(BaseScraper):
     platform_name = "workday"
 
+    def _uk_ireland_facets(self, url: str, headers: Dict[str, str]) -> Dict[str, List[str]]:
+        """Use the tenant's country facet (when it has one) to ask Workday for UK/Ireland jobs only."""
+        resp = self.post(url, json={"appliedFacets": {}, "limit": 1, "offset": 0, "searchText": ""}, headers=headers)
+        if not resp:
+            return {}
+        try:
+            facets = resp.json().get("facets", [])
+        except Exception:
+            return {}
+        for facet in facets:
+            param = facet.get("facetParameter", "")
+            if "country" not in (param + facet.get("descriptor", "")).lower():
+                continue
+            ids = [
+                v["id"] for v in facet.get("values", [])
+                if v.get("descriptor", "").strip().lower() in ("united kingdom", "ireland", "uk")
+                and v.get("id")
+            ]
+            if ids:
+                return {param: ids}
+        return {}
+
     def scrape_company(self, company_config: Dict[str, Any]) -> List[Dict[str, Any]]:
         tenant = company_config.get("tenant", "").strip()
         name = company_config.get("name", tenant.title()).strip()
@@ -26,14 +48,16 @@ class WorkdayScraper(BaseScraper):
         normalized_jobs = []
         limit = 20
         offset = 0
-        max_total = 60  # Paginate up to 60 jobs per company
+        max_total = 2000  # Workday does not serve results beyond ~2000 per query
+        applied_facets = self._uk_ireland_facets(url, headers)
+        total_available = None
 
         while offset < max_total:
             payload = {
-                "appliedFacets": {},
+                "appliedFacets": applied_facets,
                 "limit": limit,
                 "offset": offset,
-                "searchText": "engineer"
+                "searchText": ""
             }
 
             resp = self.post(url, json=payload, headers=headers)
@@ -75,9 +99,11 @@ class WorkdayScraper(BaseScraper):
                 if norm:
                     normalized_jobs.append(norm)
 
-            total_available = data.get("total", 0)
+            if total_available is None:
+                # Workday only reports "total" on the first page; later pages return 0
+                total_available = data.get("total", 0)
             offset += limit
-            if offset >= total_available:
+            if offset >= min(total_available, max_total):
                 break
 
         logger.info(f"[Workday] Fetched {len(normalized_jobs)} jobs for {name} ({tenant})")
