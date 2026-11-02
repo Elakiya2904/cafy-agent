@@ -7459,6 +7459,20 @@ a.jd-btn-primary { text-decoration: none; }
 .jd-page-header-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .jd-header-actions { display: flex; align-items: center; gap: 14px; }
 .jd-refresh { padding: 9px 16px; }
+.jd-remove-resume {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  background: #fff;
+  color: #b91c1c;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.jd-remove-resume:hover { background: #fef2f2; }
 
 .jd-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 18px 0 16px; }
 .jd-stat { display: flex; align-items: center; gap: 16px; padding: 18px 20px; background: #fff; border: 1px solid var(--slate-200); border-radius: 16px; box-shadow: 0 1px 3px rgba(15, 23, 42, .03); }

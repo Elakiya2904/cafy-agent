@@ -201,6 +201,16 @@ class ResumeGenerationService:
         for e in (r.get("projects") or [])[:2]:
             if e.get("title"):
                 lines.append(f"Project: {e['title']}")
+        for e in (r.get("internships") or [])[:2]:
+            role = ", ".join(x for x in (e.get("title"), e.get("organization") or e.get("company")) if x)
+            if role:
+                lines.append(f"Internship: {role}")
+        for e in (r.get("publications") or [])[:2]:
+            if e.get("title") or e.get("name"):
+                lines.append(f"Publication: {e.get('title') or e.get('name')}")
+        for e in (r.get("achievements") or [])[:2]:
+            if e.get("title") or e.get("name"):
+                lines.append(f"Achievement: {e.get('title') or e.get('name')}")
         for e in (r.get("education") or [])[:2]:
             degree = ", ".join(x for x in (e.get("degree") or e.get("title"), e.get("institution") or e.get("organization")) if x)
             if degree:
@@ -354,7 +364,10 @@ class ResumeGenerationService:
                 "experience": resume.get("experience") or [],
                 "education": resume.get("education") or [],
                 "projects": resume.get("projects") or [],
+                "internships": resume.get("internships") or [],
+                "publications": resume.get("publications") or [],
                 "certifications": resume.get("certifications") or [],
+                "achievements": resume.get("achievements") or [],
                 "full_resume_text": source_text[:12000],
             },
             "job": {
@@ -371,17 +384,19 @@ class ResumeGenerationService:
             "Use ONLY the genuine facts, real project names, real company names, real dates, real degrees, and verified skills from the candidate's resume. "
             "Never invent employers, dates, degrees, achievements, metrics, skills, links, or qualifications not present in the original resume. "
             "Preserve the candidate's real personal information, contact links (LinkedIn, GitHub, portfolio), education, and projects exactly as stated. "
-            "The structured fields (summary, skills, experience, education, projects, certifications) are the candidate's latest approved edits; "
+            "The structured fields (summary, skills, experience, internships, education, projects, publications, achievements, certifications) are the candidate's latest approved edits; "
             "where they differ from full_resume_text, the structured fields take precedence. "
             "STRICT 1-PAGE A4 REQUIREMENT: The tailored resume MUST fit on exactly one single A4 page with balanced vertical proportion. "
-            "Return JSON only with keys: personal_info, professional_summary, education, experience, projects, certifications, skills. "
+            "Return JSON only with keys: personal_info, professional_summary, education, experience, internships, projects, publications, achievements, certifications, skills. "
             "Limit professional_summary to 2-3 concise, high-impact sentences. "
             "Include only the top 2-3 most relevant work experiences with at most 2-3 bullet points each. "
-            "Include only the top 2-3 most relevant projects with at most 2-3 bullet points each. "
+            "Include only the top 2-3 most relevant projects with at most 2-3 bullet points each. Preserve publication and achievement entries as separate sections; never move them into projects. "
             "Include genuine degrees and top 12-16 relevant skills. "
             "education, experience, projects, and certifications must be arrays of objects. "
             "Each experience object must have: title, organization (or company), dates, location, description, and bullets (a JSON array of concise bullet strings). "
             "Each project object must have: title, organization, dates, description, and bullets (a JSON array of strings). "
+            "Each internship and publication object must have: title, organization, dates, description, and bullets (a JSON array of strings). "
+            "Each achievement object must have: title, dates, and description. "
             "Each education object must have: degree, institution, dates, location, description, bullets. "
             "Each certification object must have: name, issuer, dates. "
             "skills must be a JSON array of strings. "
@@ -479,16 +494,19 @@ class ResumeGenerationService:
             return []
 
         normalized = []
-        for entry in entries[:8]:
+        for entry in entries:
+            if isinstance(entry, str):
+                entry = {"title": entry}
             if not isinstance(entry, dict):
                 continue
             title = self._clean_text(
                 entry.get("title") or entry.get("role") or entry.get("name") or entry.get("degree") or ""
             )
             org = self._clean_text(
-                entry.get("organization") or entry.get("company") or entry.get("institution") or entry.get("school") or entry.get("issuer") or ""
+                entry.get("organization") or entry.get("company") or entry.get("institution") or entry.get("school")
+                or entry.get("venue") or entry.get("publisher") or entry.get("conference") or entry.get("issuer") or ""
             )
-            dates = self._clean_text(entry.get("dates") or entry.get("date") or entry.get("period") or "")
+            dates = self._clean_text(entry.get("dates") or entry.get("date") or entry.get("period") or entry.get("year") or "")
             location = self._clean_text(entry.get("location") or "")
             description = self._clean_text(entry.get("description") or entry.get("summary") or "")
             bullets = self._normalize_bullets(entry.get("bullets"))
@@ -573,13 +591,21 @@ class ResumeGenerationService:
             },
             "target_role": self._clean_text(job.get("title") or generated.get("target_role") or ""),
             "company": self._clean_text(job.get("company") or generated.get("company") or ""),
-            "professional_summary": self._clean_text(
-                generated.get("professional_summary") or resume.get("summary") or ""
+            "professional_summary": (
+                self._clean_text(generated.get("professional_summary"))
+                or self._clean_text(generated.get("summary"))
+                or self._clean_text(resume.get("summary"))
             ),
             "education": self._normalize_entries(generated.get("education") or resume.get("education"), section="education"),
-            "experience": self._normalize_entries(generated.get("experience") or resume.get("experience"), section="experience"),
+            "experience": self._normalize_entries(
+                generated.get("experience") or resume.get("experience") or generated.get("internships") or resume.get("internships"),
+                section="experience"
+            ),
             "projects": self._normalize_entries(generated.get("projects") or resume.get("projects"), section="projects"),
+            "internships": self._normalize_entries(generated.get("internships") or resume.get("internships"), section="internships"),
+            "publications": self._normalize_entries(generated.get("publications") or resume.get("publications"), section="publications"),
             "certifications": self._normalize_entries(generated.get("certifications") or resume.get("certifications"), section="certifications"),
+            "achievements": self._normalize_entries(generated.get("achievements") or resume.get("achievements"), section="achievements"),
             "skills": deduped_skills,
         }
         return self._enforce_single_page_limits(res)
@@ -602,13 +628,14 @@ class ResumeGenerationService:
         data["experience"] = exp
 
         proj = data.get("projects", [])
-        if len(proj) > 3:
-            proj = proj[:3]
         for item in proj:
             bullets = item.get("bullets") or []
             if len(bullets) > 3:
                 item["bullets"] = bullets[:3]
         data["projects"] = proj
+        data["internships"] = data.get("internships", [])
+        data["publications"] = data.get("publications", [])
+        data["achievements"] = data.get("achievements", [])
 
         # Balanced bullet budget across exp + proj to fill 1 A4 page without spill
         total_bullets = sum(len(e.get("bullets", [])) for e in exp) + sum(len(p.get("bullets", [])) for p in proj)
@@ -762,6 +789,27 @@ class ResumeGenerationService:
                         r.font.size = Pt(9.5)
                         r.font.name = "Calibri"
 
+        internships = structured.get("internships") or []
+        if internships:
+            add_section_heading("Internships")
+            for item in internships:
+                p_item = doc.add_paragraph()
+                p_item.paragraph_format.space_before = Pt(4)
+                p_item.paragraph_format.space_after = Pt(1)
+                r_title = p_item.add_run(item.get("title") or "")
+                r_title.bold = True
+                r_title.font.name = "Calibri"
+                r_title.font.size = Pt(10.5)
+                organization = item.get("organization") or item.get("company")
+                if organization:
+                    p_item.add_run(f" | {organization}" if item.get("title") else organization)
+                if item.get("dates"):
+                    p_item.add_run(f" ({item['dates']})").italic = True
+                if item.get("description"):
+                    doc.add_paragraph(item["description"])
+                for bullet in item.get("bullets") or []:
+                    doc.add_paragraph(bullet, style="List Bullet")
+
         # Projects
         projects = structured.get("projects") or []
         if projects:
@@ -795,6 +843,27 @@ class ResumeGenerationService:
                     for r in p_b.runs:
                         r.font.size = Pt(9.5)
                         r.font.name = "Calibri"
+
+        publications = structured.get("publications") or []
+        if publications:
+            add_section_heading("Publications")
+            for item in publications:
+                p_item = doc.add_paragraph()
+                p_item.paragraph_format.space_after = Pt(2)
+                title = item.get("title") or item.get("name") or ""
+                run = p_item.add_run(title)
+                run.bold = True
+                run.font.name = "Calibri"
+                run.font.size = Pt(10)
+                organization = item.get("organization") or item.get("venue") or ""
+                if organization:
+                    p_item.add_run(f" | {organization}" if title else organization)
+                if item.get("dates"):
+                    p_item.add_run(f" ({item['dates']})").italic = True
+                if item.get("description"):
+                    doc.add_paragraph(item["description"])
+                for bullet in item.get("bullets") or []:
+                    doc.add_paragraph(bullet, style="List Bullet")
 
         # Education
         education = structured.get("education") or []
@@ -858,6 +927,21 @@ class ResumeGenerationService:
                     r_d.font.name = "Calibri"
                     r_d.font.size = Pt(9.5)
                     r_d.font.italic = True
+
+        achievements = structured.get("achievements") or []
+        if achievements:
+            add_section_heading("Achievements")
+            for item in achievements:
+                p_item = doc.add_paragraph()
+                title = item.get("title") or item.get("name") or ""
+                run = p_item.add_run(title)
+                run.bold = True
+                run.font.name = "Calibri"
+                run.font.size = Pt(10)
+                if item.get("dates"):
+                    p_item.add_run(f" ({item['dates']})").italic = True
+                if item.get("description"):
+                    doc.add_paragraph(item["description"])
 
         doc.save(str(docx_path))
         return docx_path

@@ -58,6 +58,7 @@ import {
   Sparkles,
   Star,
   Target,
+  Trash2,
   User,
   Wrench,
   X,
@@ -71,9 +72,29 @@ const API_BASE =
     ? "http://127.0.0.1:8000"
     : "";
 
+const ACTIVE_TAB_STORAGE_KEY = "cafy-agent-active-tab";
+const APP_TABS = new Set([
+  "home",
+  "find-jobs",
+  "companies",
+  "job-alerts",
+  "my-applications",
+  "resume",
+  "files",
+  "follow-ups",
+  "insights",
+  "settings",
+]);
+
+function getInitialActiveTab() {
+  if (typeof window === "undefined") return "home";
+  const savedTab = window.sessionStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
+  return APP_TABS.has(savedTab) ? savedTab : "home";
+}
+
 function App() {
   // Navigation & View State
-  const [activeTab, setActiveTab] = useState("home");
+  const [activeTab, setActiveTab] = useState(getInitialActiveTab);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [platforms, setPlatforms] = useState([]);
   const [allJobs, setAllJobs] = useState([]);
@@ -93,6 +114,10 @@ function App() {
   const [toasts, setToasts] = useState([]);
   const [pipelineJobIds, setPipelineJobIds] = useState(new Set());
   const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    window.sessionStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTab);
+  }, [activeTab]);
 
   const showToast = useCallback((message, duration = 3500) => {
     const id = Date.now() + Math.random();
@@ -148,6 +173,27 @@ function App() {
     loadPlatformsAndJobs();
   }, [loadPlatformsAndJobs]);
 
+  useEffect(() => {
+    let active = true;
+    fetch(`${API_BASE}/api/resume/current`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Could not load saved résumé (${response.status}).`);
+        return response.json();
+      })
+      .then((data) => {
+        if (!active) return;
+        setCurrentResume(data.resume || null);
+        setMatchedJobs(data.matched_jobs || []);
+        setCurrentStep(data.resume ? 3 : 1);
+      })
+      .catch((error) => {
+        console.error("Failed to load saved résumé", error);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   // Handle File Upload
   const handleFileUpload = async (file) => {
     if (!file) return;
@@ -184,6 +230,25 @@ function App() {
       setCurrentStep(1);
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const handleRemoveResume = async () => {
+    if (!window.confirm("Remove your saved résumé and uploaded file?")) return;
+
+    try {
+      const response = await fetch(`${API_BASE}/api/resume`, { method: "DELETE" });
+      if (!response.ok) {
+        throw new Error(`Remove failed (${response.status})`);
+      }
+
+      setCurrentResume(null);
+      setMatchedJobs([]);
+      setCurrentStep(1);
+      showToast("Résumé removed.");
+    } catch (error) {
+      console.error("Failed to remove saved résumé", error);
+      showToast(`Could not remove résumé: ${error.message}`);
     }
   };
 
@@ -259,6 +324,7 @@ function App() {
             onAddAllToPipeline={handleAddAllToPipeline}
             onSelectJob={setSelectedJob}
             onRefresh={loadPlatformsAndJobs}
+            onRemoveResume={handleRemoveResume}
           />
         )}
 
@@ -1637,6 +1703,7 @@ function parseJobDescription(raw) {
 function JobListItem({ job, selected, inPipeline, onSelect, onTogglePipeline }) {
   const postingAge = formatJobAge(job.posted_at || job.created_at);
   const score = Number(job.match_score);
+  const hasMatchScore = job.match_score !== null && job.match_score !== undefined && Number.isFinite(score);
   const level = EXPERIENCE_LEVELS.find(([value]) => value === getExperienceLevel(job));
   return (
     <li className={`jd-item ${selected ? "selected" : ""}`}>
@@ -1655,7 +1722,7 @@ function JobListItem({ job, selected, inPipeline, onSelect, onTogglePipeline }) 
         <div className="jd-item-body">
           <div className="jd-item-top">
             <h3>{job.title}</h3>
-            {Number.isFinite(score) && score > 0 && <span className={`jd-match ${matchTone(score)}`}>{Math.round(score)}% Match</span>}
+            {hasMatchScore && <span className={`jd-match ${matchTone(score)}`} title="Job match based on your saved profile">{Math.round(score)}% Job Match</span>}
           </div>
           <div className="jd-sub">
             <span>{job.company || "Company not listed"}</span>
@@ -1706,6 +1773,7 @@ function JobDetailPane({ job, inPipeline, onTogglePipeline, onOpenWorkspace }) {
 
   const postingAge = formatJobAge(job.posted_at || job.created_at);
   const score = Number(job.match_score);
+  const hasMatchScore = job.match_score !== null && job.match_score !== undefined && Number.isFinite(score);
   const level = EXPERIENCE_LEVELS.find(([value]) => value === getExperienceLevel(job));
   const salary = formatSalaryRange(job);
   const mode = getJobWorkMode(job);
@@ -1739,7 +1807,7 @@ function JobDetailPane({ job, inPipeline, onTogglePipeline, onOpenWorkspace }) {
             <span>{job.location || "Location not listed"}</span>
           </div>
         </div>
-        {Number.isFinite(score) && score > 0 && <span className={`jd-match big ${matchTone(score)}`}>{Math.round(score)}% Match</span>}
+        {hasMatchScore && <span className={`jd-match big ${matchTone(score)}`} title="Job match based on your saved profile">{Math.round(score)}% Job Match</span>}
       </header>
 
       <div className="jd-detail-chips">
@@ -1832,7 +1900,7 @@ function JobDetailPane({ job, inPipeline, onTogglePipeline, onOpenWorkspace }) {
   );
 }
 
-function normalizeClientResume(raw, masterResume, job) {
+export function normalizeClientResume(raw, masterResume, job) {
   if (!raw || typeof raw !== "object") raw = {};
 
   const parseBullets = (bullets) => {
@@ -1894,16 +1962,21 @@ function normalizeClientResume(raw, masterResume, job) {
         const parsed = JSON.parse(entries.replace(/'/g, '"'));
         if (Array.isArray(parsed)) entries = parsed;
       } catch {
-        entries = [];
+        entries = entries.split(/\r?\n/).filter(Boolean);
       }
     }
     if (!Array.isArray(entries)) return [];
     return entries
       .map((entry) => {
+        if (typeof entry === "string") {
+          const text = entry.trim();
+          return text ? { title: text, name: text, description: "", bullets: [], organization: "", dates: "", location: "" } : null;
+        }
         if (!entry || typeof entry !== "object") return null;
         const title = String(entry.title || entry.role || entry.name || entry.degree || "").trim();
         const org = String(
-          entry.organization || entry.company || entry.institution || entry.school || entry.issuer || ""
+          entry.organization || entry.company || entry.institution || entry.school ||
+          entry.venue || entry.publisher || entry.conference || entry.issuer || ""
         ).trim();
         const dates = String(entry.dates || entry.date || entry.period || "").trim();
         const location = String(entry.location || "").trim();
@@ -1929,26 +2002,64 @@ function normalizeClientResume(raw, masterResume, job) {
   const masterSkills = Array.isArray(masterResume?.skills) ? masterResume.skills : [];
   const rawSkills = Array.isArray(raw.skills) ? raw.skills : parseBullets(raw.skills);
 
-  const trimmedSummary = String(raw.professional_summary || masterResume?.summary || "").trim();
+  const trimmedSummary = [
+    raw.professional_summary,
+    raw.summary,
+    masterResume?.professional_summary,
+    masterResume?.summary,
+  ]
+    .map((summary) => String(summary || "").trim())
+    .find(Boolean) || "";
   const summarySentences = trimmedSummary.split(/(?<=[.!?])\s+/);
   const finalSummary = trimmedSummary.length > 450 && summarySentences.length >= 3
     ? summarySentences.slice(0, 3).join(" ")
     : trimmedSummary;
 
-  const rawExp = (Array.isArray(raw.experience) && raw.experience.length) ? raw.experience : (masterResume?.experience || []);
-  const rawProj = (Array.isArray(raw.projects) && raw.projects.length) ? raw.projects : (masterResume?.projects || []);
-  const rawEdu = (Array.isArray(raw.education) && raw.education.length) ? raw.education : (masterResume?.education || []);
-  const rawCerts = (Array.isArray(raw.certifications) && raw.certifications.length) ? raw.certifications : (masterResume?.certifications || []);
+  const entriesFrom = (key) => {
+    const saved = raw[key];
+    if (Array.isArray(saved)) return saved;
+    if (saved) return saved;
+    return masterResume?.[key] || [];
+  };
+  const rawExp = entriesFrom("experience");
+  const rawInternships = entriesFrom("internships");
+  const rawProj = entriesFrom("projects");
+  const rawPublications = entriesFrom("publications");
+  const rawAchievements = entriesFrom("achievements");
+  const rawEdu = entriesFrom("education");
+  const rawCerts = entriesFrom("certifications");
 
   let exps = parseEntries(rawExp, "experience").slice(0, 3).map((e) => ({
     ...e,
     bullets: (e.bullets || []).slice(0, 3),
   }));
 
-  let projs = parseEntries(rawProj, "projects").slice(0, 3).map((p) => ({
+  const internships = parseEntries(rawInternships, "internships");
+  if (exps.length === 0 && internships.length > 0) {
+    exps = internships.slice(0, 3).map((e) => ({
+      ...e,
+      bullets: (e.bullets || []).slice(0, 3),
+    }));
+  } else if (internships.length > 0 && exps.length < 3) {
+    const existingKeys = new Set(exps.map((e) => `${(e.title || "").toLowerCase()}|${(e.company || "").toLowerCase()}`));
+    for (const intern of internships) {
+      if (exps.length >= 3) break;
+      const key = `${(intern.title || "").toLowerCase()}|${(intern.company || "").toLowerCase()}`;
+      if (!existingKeys.has(key)) {
+        exps.push({
+          ...intern,
+          bullets: (intern.bullets || []).slice(0, 3),
+        });
+        existingKeys.add(key);
+      }
+    }
+  }
+  let projs = parseEntries(rawProj, "projects").map((p) => ({
     ...p,
     bullets: (p.bullets || []).slice(0, 3),
   }));
+  const publications = parseEntries(rawPublications, "publications");
+  const achievements = parseEntries(rawAchievements, "achievements");
 
   let totalBullets = exps.reduce((acc, e) => acc + (e.bullets?.length || 0), 0) +
     projs.reduce((acc, p) => acc + (p.bullets?.length || 0), 0);
@@ -1982,7 +2093,10 @@ function normalizeClientResume(raw, masterResume, job) {
     company: String(job?.company || raw.company || "").trim(),
     professional_summary: finalSummary,
     experience: exps,
+    internships,
     projects: projs,
+    publications,
+    achievements,
     education: edus,
     certifications: certs,
     skills: skillsList,
@@ -2149,6 +2263,24 @@ function ResumeDocumentPreview({ resume, job, resumeReady, isGeneratingResume })
             </div>
           )}
 
+          {resume.internships && resume.internships.length > 0 && (
+            <div className="paper-section">
+              <div className="paper-section-title">Internships</div>
+              {resume.internships.map((item, idx) => (
+                <div className="paper-entry" key={`internship-${idx}`} style={{ marginBottom: 10 }}>
+                  <div className="paper-entry-meta">
+                    <span className="paper-entry-company">{item.organization || item.company || ""}{item.location ? ` | ${item.location}` : ""}</span>
+                    {item.dates && <span className="paper-entry-dates">{item.dates}</span>}
+                  </div>
+                  {item.title && <div className="paper-entry-title">{item.title}</div>}
+                  {item.description && <p className="paper-summary"><LinkifiedText text={item.description} /></p>}
+                  {item.bullets?.length > 0 && <ul className="paper-bullets">{item.bullets.map((bullet, bulletIdx) => <li key={`internship-${idx}-b-${bulletIdx}`}><LinkifiedText text={bullet} /></li>)}</ul>}
+                </div>
+              ))}
+              <hr className="paper-section-hr" />
+            </div>
+          )}
+
           {/* 4. Projects */}
           {resume.projects && resume.projects.length > 0 && (
             <div className="paper-section">
@@ -2170,6 +2302,23 @@ function ResumeDocumentPreview({ resume, job, resumeReady, isGeneratingResume })
                       ))}
                     </ul>
                   )}
+                </div>
+              ))}
+              <hr className="paper-section-hr" />
+            </div>
+          )}
+
+          {resume.publications && resume.publications.length > 0 && (
+            <div className="paper-section">
+              <div className="paper-section-title">Publications</div>
+              {resume.publications.map((item, idx) => (
+                <div className="paper-entry" key={`publication-${idx}`} style={{ marginBottom: 8 }}>
+                  <div className="paper-entry-meta">
+                    <span className="paper-entry-title">{item.title || item.name || ""}</span>
+                    {item.dates && <span className="paper-entry-dates">{item.dates}</span>}
+                  </div>
+                  {item.organization && <div className="paper-entry-loc">{item.organization}</div>}
+                  {item.description && <p className="paper-summary"><LinkifiedText text={item.description} /></p>}
                 </div>
               ))}
               <hr className="paper-section-hr" />
@@ -2230,6 +2379,21 @@ function ResumeDocumentPreview({ resume, job, resumeReady, isGeneratingResume })
                     {cert.dates && <span className="paper-entry-dates">{cert.dates}</span>}
                   </div>
                   {cert.issuer && <div className="paper-entry-loc">{cert.issuer}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {resume.achievements && resume.achievements.length > 0 && (
+            <div className="paper-section">
+              <div className="paper-section-title">Achievements</div>
+              {resume.achievements.map((item, idx) => (
+                <div className="paper-entry" key={`achievement-${idx}`} style={{ marginBottom: 6 }}>
+                  <div className="paper-entry-meta">
+                    <span className="paper-entry-title">{item.title || item.name || ""}</span>
+                    {item.dates && <span className="paper-entry-dates">{item.dates}</span>}
+                  </div>
+                  {item.description && <p className="paper-summary"><LinkifiedText text={item.description} /></p>}
                 </div>
               ))}
             </div>
@@ -2519,6 +2683,18 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
       </div>
     `).join("");
 
+    const internshipHtml = (res.internships || []).map((item) => `
+      <div class="paper-entry">
+        <div class="paper-entry-meta">
+          <span class="paper-entry-company">${item.organization || item.company || ""}${item.location ? ` | ${item.location}` : ""}</span>
+          ${item.dates ? `<span class="paper-entry-dates">${item.dates}</span>` : ""}
+        </div>
+        ${item.title ? `<div class="paper-entry-title">${item.title}</div>` : ""}
+        ${item.description ? `<p class="paper-summary">${renderClickableText(item.description)}</p>` : ""}
+        ${item.bullets?.length ? `<ul class="paper-bullets">${item.bullets.map((bullet) => `<li>${renderClickableText(bullet)}</li>`).join("")}</ul>` : ""}
+      </div>
+    `).join("");
+
     const projHtml = (res.projects || []).map((proj) => `
       <div class="paper-entry">
         <div class="paper-entry-meta">
@@ -2531,6 +2707,27 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
             ${proj.bullets.map(b => `<li>${renderClickableText(b)}</li>`).join("")}
           </ul>
         ` : ""}
+      </div>
+    `).join("");
+
+    const publicationsHtml = (res.publications || []).map((item) => `
+      <div class="paper-entry">
+        <div class="paper-entry-meta">
+          <span class="paper-entry-company">${item.title || item.name || ""}</span>
+          ${item.dates ? `<span class="paper-entry-dates">${item.dates}</span>` : ""}
+        </div>
+        ${item.organization ? `<div class="paper-entry-loc">${item.organization}</div>` : ""}
+        ${item.description ? `<p class="paper-summary">${renderClickableText(item.description)}</p>` : ""}
+      </div>
+    `).join("");
+
+    const achievementsHtml = (res.achievements || []).map((item) => `
+      <div class="paper-entry">
+        <div class="paper-entry-meta">
+          <span class="paper-entry-title">${item.title || item.name || ""}</span>
+          ${item.dates ? `<span class="paper-entry-dates">${item.dates}</span>` : ""}
+        </div>
+        ${item.description ? `<p class="paper-summary">${renderClickableText(item.description)}</p>` : ""}
       </div>
     `).join("");
 
@@ -2758,10 +2955,26 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
         </div>
       ` : ""}
 
+      ${internshipHtml ? `
+        <div class="paper-section">
+          <div class="paper-section-title">Internships</div>
+          ${internshipHtml}
+          <hr class="paper-section-hr" />
+        </div>
+      ` : ""}
+
       ${projHtml ? `
         <div class="paper-section">
           <div class="paper-section-title">Projects</div>
           ${projHtml}
+          <hr class="paper-section-hr" />
+        </div>
+      ` : ""}
+
+      ${publicationsHtml ? `
+        <div class="paper-section">
+          <div class="paper-section-title">Publications</div>
+          ${publicationsHtml}
           <hr class="paper-section-hr" />
         </div>
       ` : ""}
@@ -2788,6 +3001,13 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
           <hr class="paper-section-hr" />
           <div class="paper-section-title">Certifications</div>
           ${certsHtml}
+        </div>
+      ` : ""}
+
+      ${achievementsHtml ? `
+        <div class="paper-section">
+          <div class="paper-section-title">Achievements</div>
+          ${achievementsHtml}
         </div>
       ` : ""}
     </div>
@@ -3089,11 +3309,11 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
           {/* TAB 1: OVERVIEW */}
           {activeTab === "overview" && (
             <div className="job-detail-panel">
-              {job.match_score && (
+              {job.match_score !== null && job.match_score !== undefined && Number.isFinite(Number(job.match_score)) && (
                 <div className="job-match-banner">
                   <div className="job-match-banner-top">
-                    <strong>Match score: {job.match_score}%</strong>
-                    <span>Based on your résumé</span>
+                    <strong>Job Match: {Math.round(Number(job.match_score))}%</strong>
+                    <span>Based on your saved profile and this job description</span>
                   </div>
                   <p>
                     <strong>Matching skills:</strong> {(job.matched_skills || []).join(", ") || "No overlapping skills listed"}
@@ -3620,6 +3840,11 @@ function splitFilterTerms(value) {
     .filter(Boolean);
 }
 
+function isUkCountryTerm(value) {
+  return /^(?:u\.?k\.?|united kingdom|great britain|britain|england|scotland|wales|northern ireland)$/i
+    .test(value.trim());
+}
+
 function getJobSearchText(job) {
   return [
     job.title,
@@ -3716,7 +3941,8 @@ function DirectoryView({
   onTogglePipeline,
   onAddAllToPipeline,
   onSelectJob,
-  onRefresh
+  onRefresh,
+  onRemoveResume = () => {}
 }) {
   const [filterQuery, setFilterQuery] = useState("");
   const [selectedCompany, setSelectedCompany] = useState("all");
@@ -3800,6 +4026,7 @@ function DirectoryView({
         const locations = splitFilterTerms(discoveryFilters.location);
         if (locations.length && !locations.some((location) => (
           (j.location || "").toLowerCase().includes(location)
+          || (isUkCountryTerm(location) && j.is_uk_location === true)
           || (location === "remote" && j.is_remote)
         ))) {
           return false;
@@ -3881,6 +4108,7 @@ function DirectoryView({
         if (
           locationQuery
           && !(j.location || "").toLowerCase().includes(locationQuery)
+          && !(isUkCountryTerm(locationQuery) && j.is_uk_location === true)
           && !(locationQuery === "remote" && j.is_remote)
         ) {
           return false;
@@ -4001,7 +4229,7 @@ function DirectoryView({
           <header className="jd-page-header jd-page-header-row">
             <div>
               <h1>Job Discovery</h1>
-              <p>Discover the best UK and Ireland opportunities tailored to your profile.</p>
+              <p>Discover the best UK opportunities tailored to your profile.</p>
             </div>
             <div className="jd-header-actions">
               {lastUpdated && (
@@ -4012,13 +4240,16 @@ function DirectoryView({
               <button type="button" className="jd-refresh" onClick={onRefresh}>
                 <RefreshCw size={16} aria-hidden="true" /> Refresh jobs
               </button>
+              <button type="button" className="jd-remove-resume" onClick={onRemoveResume}>
+                <Trash2 size={16} aria-hidden="true" /> Remove résumé
+              </button>
             </div>
           </header>
           <section className="jd-stats" aria-label="Job summary">
             {[
               [Briefcase, "blue", stats.total, "Matched opportunities", `${stats.today} posted in the last 24 hours`],
               [Target, "green", stats.average === null ? "–" : `${stats.average}%`, "Average match with your profile", "Across all matched jobs"],
-              [Building2, "indigo", stats.sponsors, "Verified visa sponsors", "UK or Ireland, location confirmed"],
+              [Building2, "indigo", stats.sponsors, "Verified visa sponsors", "UK, location confirmed"],
               [Star, "amber", stats.top, "Top matches", "90% match or higher"],
             ].map(([Icon, tone, value, label, note]) => (
               <div key={label} className="jd-stat">
@@ -4065,7 +4296,7 @@ function DirectoryView({
                 type="text"
                 value={discoveryFilters.location}
                 onChange={(event) => updateDiscoveryFilter("location", event.target.value)}
-                placeholder="London, New York, Remote..."
+                placeholder="UK, London, Remote..."
               />
             </div>
 
@@ -4255,7 +4486,7 @@ function DirectoryView({
                 <small>Location</small>
                 <input
                   type="text"
-                  placeholder="UK, Ireland"
+                  placeholder="e.g. London, UK"
                   aria-label="Filter by location"
                   value={selectedLocation}
                   onChange={(event) => setSelectedLocation(event.target.value)}

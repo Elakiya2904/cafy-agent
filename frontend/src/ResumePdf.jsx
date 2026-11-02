@@ -111,11 +111,29 @@ export default function ResumePdf({ resume, settings = DEFAULT_PDF_SETTINGS }) {
           </View>
         )}
 
+        {(r.internships || []).length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Internships</Text>
+            {r.internships.map((e, i) => (
+              <Entry key={i} left={join(e.organization || e.company, e.location)} sub={e.title} dates={e.dates} bullets={e.bullets} description={e.description} />
+            ))}
+          </View>
+        )}
+
         {(r.projects || []).length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Projects</Text>
             {r.projects.map((p, i) => (
               <Entry key={i} left={join(p.title, p.organization)} dates={p.dates} bullets={p.bullets} description={p.description} />
+            ))}
+          </View>
+        )}
+
+        {(r.publications || []).length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Publications</Text>
+            {r.publications.map((p, i) => (
+              <Entry key={i} left={join(p.title || p.name, p.organization || p.venue)} dates={p.dates} description={p.description} bullets={p.bullets} />
             ))}
           </View>
         )}
@@ -147,6 +165,15 @@ export default function ResumePdf({ resume, settings = DEFAULT_PDF_SETTINGS }) {
                 </Text>
                 {c.dates ? <Text style={styles.dates}>{c.dates}</Text> : null}
               </View>
+            ))}
+          </View>
+        )}
+
+        {(r.achievements || []).length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Achievements</Text>
+            {r.achievements.map((item, i) => (
+              <Entry key={i} left={item.title || item.name} dates={item.dates} description={item.description} bullets={item.bullets} />
             ))}
           </View>
         )}

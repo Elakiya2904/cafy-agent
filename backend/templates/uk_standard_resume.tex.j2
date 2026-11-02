@@ -49,11 +49,35 @@
 ((*- endfor *))
 ((*- endif *))
 
+((*- if internships *))
+\section*{Internships}
+((*- for item in internships *))
+\entry{(( item.title | default("") | texescape ))}{(( item.dates | default("") | texescape ))}{(( item.company | default(item.organization | default("")) | texescape ))}{(( item.location | default("") | texescape ))}
+((*- if item.description *))(( item.description | texescape ))\\[2pt]((*- endif *))
+((*- if item.bullets *))
+\begin{itemize}
+((*- for bullet in item.bullets *))\item (( bullet | texescape ))
+((*- endfor *))
+\end{itemize}
+((*- endif *))
+((*- endfor *))
+((*- endif *))
+
 ((*- if projects *))
 \section*{Projects}
 ((*- for item in projects *))
 \textbf{(( item.title | default(item.name | default("")) | texescape ))}((*- if item.dates *)) \hfill \textit{(( item.dates | texescape ))}((*- endif *))\\
 ((*- if item.organization | default(item.company) *))\textit{(( item.organization | default(item.company) | texescape ))}\\[2pt]((*- endif *))
+((*- if item.description *))(( item.description | texescape ))\\[2pt]((*- endif *))
+((*- if item.bullets *))\begin{itemize}((*- for bullet in item.bullets *))\item (( bullet | texescape ))((*- endfor *))\end{itemize}((*- endif *))
+((*- endfor *))
+((*- endif *))
+
+((*- if publications *))
+\section*{Publications}
+((*- for item in publications *))
+\textbf{(( item.title | default(item.name | default("")) | texescape ))}((*- if item.dates *)) \hfill \textit{(( item.dates | texescape ))}((*- endif *))\\
+((*- if item.organization *))\textit{(( item.organization | texescape ))}\\[2pt]((*- endif *))
 ((*- if item.description *))(( item.description | texescape ))\\[2pt]((*- endif *))
 ((*- if item.bullets *))\begin{itemize}((*- for bullet in item.bullets *))\item (( bullet | texescape ))((*- endfor *))\end{itemize}((*- endif *))
 ((*- endfor *))
@@ -80,6 +104,14 @@
 ((*- for item in certifications *))
 \textbf{(( item.name | default(item.title | default("")) | texescape ))}((*- if item.dates *)) \hfill \textit{(( item.dates | texescape ))}((*- endif *))\\
 ((*- if item.issuer | default(item.organization) *))\textit{(( item.issuer | default(item.organization) | texescape ))}\\[2pt]((*- endif *))
+((*- endfor *))
+((*- endif *))
+
+((*- if achievements *))
+\section*{Achievements}
+((*- for item in achievements *))
+\textbf{(( item.title | default(item.name | default("")) | texescape ))}((*- if item.dates *)) \hfill \textit{(( item.dates | texescape ))}((*- endif *))\\
+((*- if item.description *))(( item.description | texescape ))\\[2pt]((*- endif *))
 ((*- endfor *))
 ((*- endif *))
 

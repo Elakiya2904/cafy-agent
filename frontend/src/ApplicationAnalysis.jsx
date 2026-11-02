@@ -149,7 +149,7 @@ export default function ApplicationAnalysis({ job, resume, onResumeUpdated, onIm
         </div>
 
         <div className="aa-card">
-          <h4>Profile Section Scores</h4>
+          <h4>Job Requirement Fit by Section</h4>
           <ul className="aa-section-scores">
             {SECTION_ROWS.map(({ key, label, icon: Icon }) => {
               // null = the job does not ask for this section, so it has no score.

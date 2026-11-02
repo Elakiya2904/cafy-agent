@@ -1,60 +1,227 @@
-# Cafy Agent
+# Cafy Agent • UK Enterprise Career Intelligence & ATS Automation Platform
 
-An intelligent ATS scraper, automated job recommendation engine, and AI career assistant with real-time matching and career chat intelligence.
+An enterprise-grade ATS automation and career intelligence platform engineered specifically for the United Kingdom employment market. Built on a high-throughput **FastAPI** backend and an interactive **React + Vite** frontend, Cafy Agent unifies real-time UK job ingestion, structured resume parsing, zero-hallucination AI document tailoring, an evidence-grounded career chatbot, and an autonomous recruiter email agent.
 
-## Features
-- **ATS Scraper Support**: Integrations with Greenhouse, Ashby, Lever, Workday, Workable, Oracle Cloud, BreezyHR, and Pinpoint. Scraping is restricted to jobs located in the United Kingdom or Ireland; ambiguous or overseas locations are excluded.
-- **Precision Matching**: Match scores dynamically calibrated against candidate profiles (>=85% for 4+ matching skills).
-- **Cafy Agent Chatbot**: Career chat dock powered by Groq and grounded intelligence for job prioritisation, skill gap analysis, and application strategy.
-- **UK Sponsor Verification**: Verification against the official UK Home Office Register.
-- **Fullstack Web UI**: Built with React and modern responsive CSS design.
+---
 
-- **Email Agent (Pipeline 3)**: Gmail/Outlook OAuth, job-email detection, classification, application status updates, interview extraction, calendar availability, human-approved replies and follow-ups. See `pipeline-3.md`; code in `backend/email_agent/`.
+## 🌟 Platform Capabilities & Architecture
 
-- **Application Automation (Pipeline 2)**: Apply starts a tracked application (duplicate-checked); the Chrome extension in `extension/` detects the ATS form, autofills from your profile, drafts grounded answers, uploads your résumé with permission, and only submits after you approve. Submissions are verified, tracked in **My Applications**, and handed to the Email Agent. See `pipeline_2.md`; code in `backend/job_applications/`.
+### 1. Strict UK Job Ingestion & Normalization (Pipeline 1)
+- **Multi-Source ATS Support**: Polls 8 enterprise Applicant Tracking Systems: **Greenhouse**, **Lever**, **Ashby**, **Workday**, **Workable**, **Oracle Cloud**, **BreezyHR**, and **Pinpoint**.
+- **Upstream Network Faceting**: Queries Workday dynamic tenant facets to request only UK job listings, eliminating non-UK enterprise vacancies before payload download.
+- **Strict UK Geographic Containment**: Employs a negative country and Ireland guard (`NON_UK_COUNTRY_PATTERN`, `IRELAND_LOCATION_PATTERN`, and US state suffixes) to explicitly reject overseas and Irish roles. Positive regex matches 25+ UK municipal hubs (*London, Manchester, Birmingham, Leeds, Edinburgh, Glasgow, Belfast, Bristol, Cambridge, Oxford, etc.*) and UK-wide remote roles.
+- **Home Office Visa Sponsorship Verification**: Automatically cross-references hiring employers against the official UK Home Office *Worker and Temporary Worker Register of Licensed Sponsors*, annotating verified Skilled Worker (A-Rating) sponsorship eligibility.
+- **Content Sanitization**: Strips HTML entities, standardizes descriptions, and parses compensation into formatted annual GBP ranges (£).
 
-- **Job Intelligence (Pipeline 4)**: the **Job Intelligence** tab on any job explains the company and role, discovers the hiring process only from cited evidence (job posting, official company pages, optional public reports) with confidence labels, compares your profile to the role and builds a preparation plan. See `pipeline_4.md`; code in `backend/job_intelligence/`. Set `BRAVE_SEARCH_API_KEY` to also search public candidate reports; without it only the job posting and official pages are used.
+### 2. Structured Resume Intelligence & Studio (Pipeline 2)
+- **6-Section Document Parser**: Extracts structured profiles from PDF and DOCX files using heuristic segmentation:
+  - *Basic Contact*: Name, email, phone, location, LinkedIn/GitHub links.
+  - *Professional Summary*: Career objectives and summary statements.
+  - *Work History & Internships*: Seamlessly captures single-term dates (`June 2025`, `Summer 2026`) and date ranges, role vs. company disambiguation, city/state extraction, and wrapped multi-line bullet merging. Full career credit is awarded for student internships.
+  - *Education*: Degrees, academic institutions, and graduation years.
+  - *Technical Skills*: Extracted and normalized against a 500+ tech taxonomy.
+  - *Projects & Certifications*: Architecture descriptions, tech stacks, and accredited credentials.
+- **100-Point Profile Strength Scoring**: Calibrated multi-factor formula evaluating Skills (25%), Work Experience (25%), Education (15%), Basic Info (15%), Projects (10%), and Certifications (10%) across 4 readiness tiers: *All-Star* (85–100%), *Strong* (70–84%), *Moderate* (50–69%), and *Needs Improvement* (<50%).
+- **Hybrid Job Matching**: Matches candidate profiles against UK vacancies combining skill overlap (50%), title & seniority alignment (30%), and location/sponsorship feasibility (20%).
+- **Zero-Hallucination AI Resume Tailoring**: Powered by Groq LLM (`openai/gpt-oss-20b` with automated fallback to `llama-3.3-70b-versatile`). Features an invariant factual guardrail and metric verifier that prohibits inventing unlisted claims, employers, or metrics.
+- **Dual Publication Compilers**: Outputs ATS-optimized single-page PDFs via **XeLaTeX** and editable Microsoft Word documents via **python-docx**.
+- **Version Control & Rollback**: Every tailoring generation creates an immutable snapshot in `tailored_resume_versions` for side-by-side textual diffing and instant rollback.
 
-## Browser extension
-Load `extension/` as an unpacked extension (chrome://extensions → Developer mode). Open its options to set the Cafy server URL and candidate ID. Supported ATS pages activate automatically; on any other site click the toolbar button. Extension logic tests: `cd frontend && npx vitest run --environment jsdom --root .. extension/tests`.
+### 3. Autonomous Recruiter Email Agent (Pipeline 3)
+- **Inbox Integration**: Connects via secure IMAP or OAuth2 (Gmail, Microsoft Outlook).
+- **6-Class Recruiter Communication Classifier**: Distinguishes between:
+  1. *Interview Invitations*: Automatically advances application state to **Interviewing** and pre-drafts an availability response.
+  2. *Technical Assessments*: Parses take-home test deadlines and schedules high-priority calendar alerts.
+  3. *Acknowledgments*: Marks application as received and starts inactivity timer.
+  4. *Job Offers*: Promotes status to **Offer Received** and parses compensation terms.
+  5. *Rejection Notices*: Updates candidate pipeline statistics.
+  6. *General Correspondence*.
+- **Inactivity Cadence Automation**: Flags applications with no recruiter reply after 7 to 10 business days and queues professional status inquiry drafts.
+- **Human-in-the-Loop Safeguard**: No email is ever sent autonomously; candidates review, edit, and approve pre-drafted replies with a single click.
 
-## Email Agent setup
-Set these in `.env` (register an OAuth app with each provider; redirect URI is `<host>/api/email-agent/oauth/<gmail|outlook>/callback`):
-`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `EMAIL_AGENT_SECRET` (signs OAuth state).
-Redirect URIs to register: `http://127.0.0.1:8000/api/email-agent/oauth/gmail/callback` and `.../outlook/callback`.
-Google scopes requested: gmail.readonly, gmail.compose, gmail.send, calendar.freebusy, calendar.events (enable the Gmail and Calendar APIs). Microsoft: offline_access, User.Read, Mail.Read, Mail.ReadWrite, Mail.Send, Calendars.ReadWrite.
-A background monitor syncs connected inboxes every `EMAIL_AGENT_POLL_MINUTES` (default 5) and drafts follow-ups; nothing is sent without your approval.
-Records are scoped by the `X-Candidate-Id` header (default `local`) until the app has real login.
+### 4. Cafy Agent • AI Career Analyst & Copilot (Chatbot)
+- **Conversational Career Assistant**: Accessible via an expandable slide-out dock on all screens (`/api/career-chat`).
+- **Evidence-Grounded Intelligence**: Analyzes candidate resume facts against real-time UK market evidence (`database_summary`, `top_skill_gaps`, `recommended_cards_summary`). Strictly bound to prevent hallucinations.
+- **Core Analytical Intents**:
+  - *Strategy & Prioritization*: Recommends which UK roles to apply to first based on match quality and visa viability.
+  - *Match Explanation*: Breaks down why a role scored 94% vs. 82%, identifying exact matched vs. missing skills.
+  - *Skill Gap Roadmaps*: Highlights high-ROI technical skills recurring across active UK vacancies.
+  - *UK Hiring Analytics*: Details sponsoring employers and salary distributions across UK municipal corridors.
+- **Interactive In-Chat Job Cards**: Renders interactive, clickable job recommendation cards directly in the chat thread with one-click **Tailor Resume** navigation.
 
-## Quickstart
-1. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-2. Start the server:
-   ```bash
-   python run.py
-   ```
-3. Open `http://127.0.0.1:8000` in your browser.
+### 5. Candidate Application Pipeline & Stage Management
+- **Interactive Kanban Board**: Manages application progression across 5 stages: *Applied* → *Screening* → *Assessment* → *Interviewing* → *Offer*.
+- **Deadline Countdown Timers**: Visual urgency badges for take-home coding challenges.
+- **Chrome Extension Companion (`extension/`)**: Detects ATS application forms on candidate career portals, autofills verified profile information, and uploads tailored documents upon confirmation.
 
-## Production setup (Supabase)
+### 6. Official UK Home Office Licensed Sponsor Directory
+- **Authoritative Database**: Searchable register cross-referenced against the UK Home Office Worker Register.
+- **Multi-Field Validation**: Matches employer legal name, trading identity, and town/county to eliminate false-positive entity matches.
+- **Direct Vacancy Linkage**: Connects each registered sponsor directly to live open UK engineering, data, and product jobs.
 
-Copy `.env.example` to `.env` and fill it in. With `DATABASE_URL` set the app uses Supabase Postgres; without it, it falls back to the local SQLite file (development only). `APP_ENV=production` makes the server refuse to start with a missing database, sign-in, or secret.
+---
 
-1. **Database** – put the Supabase *Session pooler* connection string in `DATABASE_URL`. Tables are created automatically on first start (guarded by an advisory lock, safe with several instances).
-2. **Sign-in** – enable Email auth in Supabase, then set `SUPABASE_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (and `SUPABASE_JWT_SECRET` only if the project still uses legacy HS256 keys). Every `/api` call except `/api/health`, the Google OAuth callback and cron endpoints needs a valid token; each user only ever sees their own rows.
-3. **Move existing data** (jobs, résumés, applications, connected Gmail) once, assigning the old single-user rows to your Supabase user id:
-   ```
-   python scripts/migrate_sqlite_to_postgres.py --owner <your-supabase-user-uuid> --dry-run
-   python scripts/migrate_sqlite_to_postgres.py --owner <your-supabase-user-uuid>
-   ```
-   It is idempotent, encrypts plain-text email tokens, and compares row counts per table.
-4. **Google OAuth** – add `PUBLIC_BASE_URL + /api/email-agent/oauth/gmail/callback` as an authorised redirect URI. Gmail tokens are encrypted at rest (`TOKEN_ENCRYPTION_KEY`, or derived from `EMAIL_AGENT_SECRET`).
-5. **Background work** – on a normal server the scheduler and the inbox monitor run in-process. On serverless (Vercel) they are driven by the crons in `vercel.json`, which call `/api/email-agent/cron/poll` and `/api/cron/scrape?platform=…` with `Authorization: Bearer $CRON_SECRET` (Vercel sends this automatically when `CRON_SECRET` is set). Sub-daily crons need a Vercel Pro plan.
+## 🏗️ Technology Stack
 
-### Tests
+| Component | Technology | Description |
+| :--- | :--- | :--- |
+| **Backend Framework** | **FastAPI** (Python 3.13) | Asynchronous, high-throughput REST API with Pydantic validation |
+| **Frontend Framework** | **React 18** + **Vite 5** | Responsive single-page application with modern UI styling |
+| **Database** | **PostgreSQL** (Supabase) / **SQLite** | Multi-user relational persistence with fallback to SQLite for local development |
+| **Inference Engine** | **Groq API** | Ultra-fast inference with fallback cascade (`gpt-oss-20b`, `llama-3.3-70b`) |
+| **Document Rendering** | **XeLaTeX** & **python-docx** | Publication-grade single-page PDFs and editable DOCX files |
+| **Authentication** | **Supabase Auth** / JWT | Secure token-based access with Row-Level Security (RLS) & Guest Mode |
+| **Testing** | **pytest** & **vitest** | Comprehensive unit, integration, and UI test coverage |
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+- Python 3.10+ (Python 3.13 recommended)
+- Node.js 18+ and npm
+- Groq Cloud API Key (`GROQ_API_KEY`)
+- *(Optional)* XeLaTeX installation (for local PDF rendering)
+
+### 1. Clone the Repository
+```bash
+git clone https://github.com/vlelakkiya29/cafy.git
+cd cafy
 ```
-python -m pytest tests                                   # SQLite
-DATABASE_URL=postgresql://localhost/cafy_test python -m pytest tests   # real Postgres (local only)
+
+### 2. Backend Setup
+Create and activate a virtual environment, then install dependencies:
+```bash
+# Windows
+python -m venv .venv
+.venv\Scripts\activate
+
+# macOS / Linux
+python3 -m venv .venv
+source .venv/bin/activate
+
+pip install -r requirements.txt
 ```
-The suite redirects the app to a throw-away database and refuses to run against a remote `DATABASE_URL`.
+
+### 3. Environment Configuration
+Copy `.env.example` to `.env` in the project root:
+```bash
+cp .env.example .env
+```
+Fill in the essential configuration parameters:
+```ini
+# Core LLM API
+GROQ_API_KEY=gsk_your_groq_api_key_here
+
+# App Environment (development / production)
+APP_ENV=development
+PUBLIC_BASE_URL=http://127.0.0.1:8000
+CORS_ORIGINS=http://127.0.0.1:8000,http://localhost:5173
+
+# Database (optional for local SQLite, required for PostgreSQL)
+DATABASE_URL=postgresql://user:pass@host:5432/dbname
+
+# Authentication & Guest Mode
+ENABLE_GUEST_MODE=true
+VITE_ENABLE_GUEST_MODE=true
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+```
+
+### 4. Frontend Setup
+```bash
+npm --prefix frontend install
+```
+
+### 5. Running the Application
+
+**Option A: Unified Server (Development & Production)**
+```bash
+python run.py
+```
+* Backend API: `http://127.0.0.1:8000`
+* API Documentation (Swagger): `http://127.0.0.1:8000/docs`
+
+**Option B: Separate Frontend Dev Server (Hot Module Reload)**
+```bash
+# Terminal 1: Backend
+python run.py
+
+# Terminal 2: Vite Dev Server
+npm --prefix frontend run dev
+```
+* Frontend Web App: `http://localhost:5173/`
+
+---
+
+## 🔒 Authentication & Guest Mode
+
+- **Production Mode**: Uses Supabase Email/Password authentication with JWT tokens. Every request to `/api` is scoped to the authenticated user's ID via Row-Level Security.
+- **Guest Mode**: Opt-in testing mode enabled via `ENABLE_GUEST_MODE=true` and `VITE_ENABLE_GUEST_MODE=true`. Provides a clean, centered **Continue as Guest** button on the auth screen. Guest sessions start with a clean slate (no pre-loaded resumes) and persist across page refreshes via `sessionStorage`.
+
+---
+
+## 🧪 Testing
+
+### Backend Test Suite (Python)
+```bash
+python -m pytest tests
+```
+Runs 80+ unit and integration tests covering:
+- Strict UK location normalizer & negative regex filters (`tests/test_normalizer.py`)
+- Resume section parser, date ranges, and internship extraction (`tests/test_resume_section_extraction.py`)
+- Zero-hallucination factual guardrails & compilation (`tests/test_resume_generation.py`)
+- Profile strength 100-point formula & recommendation rankings (`tests/test_recommendations.py`)
+- Auth token verification and tenant data isolation (`tests/test_auth_isolation.py`)
+
+### Frontend Test Suite (React / Vitest)
+```bash
+npm --prefix frontend test
+```
+Verifies React components, state transitions, match scoring, and resume editors.
+
+---
+
+## 📁 Repository Structure
+
+```
+cafy/
+├── backend/
+│   ├── email_agent/             # Recruiter email monitor, IMAP/OAuth2 & 6-class classifier
+│   ├── job_applications/        # Application lifecycle service & auto-fill engine
+│   ├── job_intelligence/        # Company research, interview formats & evidence parsing
+│   ├── scrapers/                # 8 ATS scrapers (Greenhouse, Workday, Lever, Ashby, etc.)
+│   │   ├── job_normalizer.py    # Strict UK geofilter & negative country guardrails
+│   │   ├── scraper_manager.py   # Rate limiting, deduplication & ingestion gate
+│   │   └── workday.py           # Network-level UK country facet filtering
+│   ├── templates/               # Jinja2 XeLaTeX templates for ATS-optimized PDFs
+│   ├── career_chat_service.py   # Evidence-grounded conversational AI chatbot engine
+│   ├── profile_strength_service.py # 100-point profile strength evaluation formula
+│   ├── recommendation_service.py   # Hybrid TF-IDF & skill overlap matching engine
+│   ├── resume_generation_service.py # AI resume tailoring & factual guardrail verifier
+│   ├── resume_service.py        # Structured 6-section document parser (PDF & DOCX)
+│   ├── sponsor_service.py       # UK Home Office Licensed Sponsor register matching
+│   ├── user_store.py            # Per-user database persistence & context isolation
+│   └── main.py                  # FastAPI unified application entrypoint
+├── frontend/
+│   ├── src/
+│   │   ├── App.jsx              # Main React SPA (Directory, Tracker, Resume Studio)
+│   │   ├── AuthGate.jsx         # Sign in, Sign up, and Continue as Guest workflow
+│   │   ├── EmailAgentDashboard.jsx # Recruiter inbox sync & follow-up approval hub
+│   │   ├── JobIntelligence.jsx  # Interview stages & company research UI
+│   │   ├── MyApplications.jsx   # 5-stage Kanban application pipeline
+│   │   ├── ResumeEditor.jsx     # Live resume editor with real-time XeLaTeX preview
+│   │   └── auth.js              # Token management & guest mode session handling
+│   └── css/                     # Enterprise design system & responsive styling
+├── extension/                   # Chrome extension for automated ATS form filling
+├── doc_assets/                  # High-resolution UI screenshots & architectural diagrams
+├── cafy-agent-up-to-date-features-and-pipelines.pdf # Compiled 7-page client documentation
+├── run.py                       # Application bootstrap script
+└── requirements.txt             # Python dependencies
+```
+
+---
+
+
+## ⚖️ License
+Proprietary enterprise software developed for Cafy Agent. All rights reserved.

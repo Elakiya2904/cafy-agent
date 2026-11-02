@@ -111,12 +111,12 @@ class ScraperManager:
             scraped_jobs = scraper.scrape_all(companies)
             jobs = [
                 job for job in scraped_jobs
-                if JobNormalizer.is_uk_or_ireland_location(job.get("location", ""))
+                if JobNormalizer.is_uk_location(job.get("location", ""))
             ]
             excluded_count = len(scraped_jobs) - len(jobs)
             if excluded_count:
                 logger.info(
-                    f"[ScraperManager] Excluded {excluded_count} non-UK/Ireland jobs from '{p_key}'"
+                    f"[ScraperManager] Excluded {excluded_count} non-UK jobs from '{p_key}'"
                 )
             if not jobs and companies:
                 status = "empty"

@@ -75,7 +75,7 @@ class TestJobDatabase(unittest.TestCase):
         self.assertEqual(stats["recent_runs"][0]["platform"], "greenhouse")
         self.assertEqual(stats["recent_runs"][0]["jobs_found"], 25)
 
-    def test_non_uk_and_ireland_jobs_are_not_stored(self):
+    def test_non_uk_jobs_are_not_stored(self):
         job = {
             "id": "greenhouse_stripe_us",
             "source_job_id": "us-1",
@@ -87,8 +87,14 @@ class TestJobDatabase(unittest.TestCase):
             "description": "Build software.",
             "extracted_skills": ["Python"],
         }
+        ireland_job = dict(
+            job,
+            id="greenhouse_stripe_ireland",
+            source_job_id="ireland-1",
+            location="Dublin, Ireland",
+        )
 
-        result = self.db.save_or_update_jobs([job])
+        result = self.db.save_or_update_jobs([job, ireland_job])
 
         self.assertEqual(result["new"], 0)
         self.assertEqual(self.db.get_jobs(), [])

@@ -67,6 +67,24 @@ class TestPlatformScrapersParsing(unittest.TestCase):
         self.assertIn("React", jobs[0]["extracted_skills"])
 
     @patch("requests.Session.post")
+    def test_workday_country_facet_selects_only_uk(self, mock_post):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "facets": [{
+                "facetParameter": "Country",
+                "values": [
+                    {"descriptor": "United Kingdom", "id": "uk-id"},
+                    {"descriptor": "Ireland", "id": "ie-id"},
+                ],
+            }]
+        }
+        mock_post.return_value = mock_resp
+
+        facets = WorkdayScraper()._uk_country_facet("https://example.com/jobs", {})
+
+        self.assertEqual(facets, {"Country": ["uk-id"]})
+
+    @patch("requests.Session.post")
     def test_workday_parsing(self, mock_post):
         mock_resp = MagicMock()
         mock_resp.status_code = 200

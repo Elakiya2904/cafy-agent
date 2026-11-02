@@ -13,7 +13,7 @@ os.environ.setdefault("EMAIL_AGENT_SECRET", "test-secret")
 
 from fastapi.testclient import TestClient
 
-from backend import main
+from backend import auth, main
 from backend.database import JobDatabase
 from backend.user_store import UserSession, UserStore
 
@@ -34,7 +34,11 @@ class AuthTests(unittest.TestCase):
         self.db = JobDatabase(db_path=os.path.join(self.tmp.name, "auth.db"))
         store = UserStore(self.db)
         self.patches = [
-            mock.patch.dict(os.environ, {"SUPABASE_JWT_SECRET": SECRET, "APP_ENV": "development"}),
+            mock.patch.dict(os.environ, {
+                "SUPABASE_JWT_SECRET": SECRET,
+                "APP_ENV": "development",
+                "ENABLE_GUEST_MODE": "false",
+            }),
             mock.patch.object(main, "db", self.db),
             mock.patch.object(main, "user_store", store),
             mock.patch.object(main, "ACTIVE_SESSION", UserSession(store)),
@@ -55,6 +59,24 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/resume/current").status_code, 401)
         self.assertEqual(self.client.get("/api/email-agent/dashboard").status_code, 401)
 
+    def test_guest_mode_requires_development_opt_in_and_is_isolated(self):
+        guest_headers = {"X-Cafy-Guest": "true"}
+        self.assertEqual(self.client.get("/api/resume/current", headers=guest_headers).status_code, 401)
+
+        main.user_store.set_resume("guest", {"candidate_name": "Guest Test Profile"})
+        main.user_store.set_resume("alice", {"candidate_name": "Alice"})
+        with mock.patch.dict(os.environ, {"ENABLE_GUEST_MODE": "true"}):
+            guest = self.client.get("/api/resume/current", headers=guest_headers)
+            alice = self.client.get("/api/resume/current", headers=bearer("alice"))
+        self.assertEqual(guest.status_code, 200)
+        self.assertEqual(guest.json()["resume"]["candidate_name"], "Guest Test Profile")
+        self.assertEqual(alice.json()["resume"]["candidate_name"], "Alice")
+
+    def test_guest_mode_is_rejected_in_production(self):
+        with mock.patch.dict(os.environ, {"APP_ENV": "production", "ENABLE_GUEST_MODE": "true"}):
+            response = self.client.get("/api/resume/current", headers={"X-Cafy-Guest": "true"})
+        self.assertEqual(response.status_code, 401)
+
     def test_health_and_oauth_callback_are_public(self):
         self.assertEqual(self.client.get("/api/health").status_code, 200)
         r = self.client.get("/api/email-agent/oauth/gmail/callback?error=access_denied", follow_redirects=False)
@@ -62,7 +84,7 @@ class AuthTests(unittest.TestCase):
 
     def test_bad_tokens_rejected(self):
         cases = {
-            "expired": bearer("u1", exp=-10),
+            "expired": bearer("u1", exp=-(auth.JWT_LEEWAY_SECONDS + 5)),
             "wrong audience": bearer("u1", aud="anon"),
             "wrong secret": bearer("u1", secret="another-secret-another-secret-another-secret"),
             "garbage": {"Authorization": "Bearer not.a.jwt"},
@@ -111,6 +133,20 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/resume/uploaded", headers=bob).json(), {"uploaded": None})
         self.assertEqual(self.client.get("/api/resume/uploaded/file", headers=bob).status_code, 404)
         self.assertEqual(self.client.get("/api/resume/uploaded/file", headers=alice).content, b"%PDF-alice")
+
+    def test_job_results_include_uk_location_scope_for_country_filters(self):
+        jobs = [
+            {"id": "london", "location": "London"},
+            {"id": "toronto", "location": "Toronto, Canada"},
+        ]
+        with mock.patch.object(self.db, "get_jobs", return_value=jobs):
+            response = self.client.get("/api/jobs", headers=bearer("alice"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [job["is_uk_location"] for job in response.json()["jobs"]],
+            [True, False],
+        )
 
     def test_tailored_resumes_and_downloads_are_private(self):
         rid = "a" * 32

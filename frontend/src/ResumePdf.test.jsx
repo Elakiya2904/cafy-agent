@@ -11,6 +11,9 @@ const resume = (bulletCount) => ({
   professional_summary: "Engineer with a record of shipping reliable systems.",
   experience: [{ title: "Engineer", organization: "Analytical Engines", dates: "2020 - Present", location: "London", bullets: Array.from({ length: bulletCount }, (_, i) => `Delivered feature ${i} that cut latency by ${i + 10}% across the platform for all customers.`) }],
   projects: [], education: [{ degree: "BSc Maths", institution: "UCD", dates: "2016 - 2020", bullets: [] }],
+  internships: [{ title: "Research Intern", organization: "UCD", dates: "2019", bullets: [] }],
+  publications: [{ title: "Reliable Systems", organization: "Systems Journal", dates: "2023", description: "Research on resilient services." }],
+  achievements: [{ title: "Department Prize", dates: "2020" }],
   certifications: [{ name: "AWS SAA", issuer: "Amazon", dates: "2022" }],
   skills: ["Python", "React", "SQL"],
 });

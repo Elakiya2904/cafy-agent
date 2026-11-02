@@ -8,8 +8,8 @@ logger = logging.getLogger("cafy.scrapers.workday")
 class WorkdayScraper(BaseScraper):
     platform_name = "workday"
 
-    def _uk_ireland_facets(self, url: str, headers: Dict[str, str]) -> Dict[str, List[str]]:
-        """Use the tenant's country facet (when it has one) to ask Workday for UK/Ireland jobs only."""
+    def _uk_country_facet(self, url: str, headers: Dict[str, str]) -> Dict[str, List[str]]:
+        """Use the tenant's country facet (when it has one) to ask Workday for UK jobs only."""
         resp = self.post(url, json={"appliedFacets": {}, "limit": 1, "offset": 0, "searchText": ""}, headers=headers)
         if not resp:
             return {}
@@ -23,7 +23,7 @@ class WorkdayScraper(BaseScraper):
                 continue
             ids = [
                 v["id"] for v in facet.get("values", [])
-                if v.get("descriptor", "").strip().lower() in ("united kingdom", "ireland", "uk")
+                if v.get("descriptor", "").strip().lower() in ("united kingdom", "uk")
                 and v.get("id")
             ]
             if ids:
@@ -49,7 +49,7 @@ class WorkdayScraper(BaseScraper):
         limit = 20
         offset = 0
         max_total = 2000  # Workday does not serve results beyond ~2000 per query
-        applied_facets = self._uk_ireland_facets(url, headers)
+        applied_facets = self._uk_country_facet(url, headers)
         total_available = None
 
         while offset < max_total:

@@ -117,4 +117,29 @@ describe("ResumeEditor", () => {
     expect(screen.getByRole("button", { name: "Remove skill Docker" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "+ Docker" })).not.toBeInTheDocument();
   });
+
+  it("edits and autosaves publications without changing projects", () => {
+    const onSave = vi.fn();
+    const initial = {
+      ...base(),
+      projects: [{ title: "Dashboard", description: "Built an inventory dashboard.", bullets: [] }],
+      publications: [
+        { title: "Paper One", organization: "Research Journal", dates: "2023", description: "First paper." },
+        { title: "Paper Two", organization: "Systems Conference", dates: "2024", description: "Second paper." },
+      ],
+    };
+    render(<Harness initial={initial} onSave={onSave} />);
+
+    goTo(/Publications/);
+    const titles = screen.getAllByLabelText("Publication title");
+    expect(titles[0]).toHaveValue("Paper One");
+    expect(titles[1]).toHaveValue("Paper Two");
+    fireEvent.change(screen.getByLabelText("publications description 1"), { target: { value: "Updated first paper." } });
+    act(() => { vi.advanceTimersByTime(2100); });
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave.mock.calls[0][0].publications[0].description).toBe("Updated first paper.");
+    expect(onSave.mock.calls[0][0].publications[1].title).toBe("Paper Two");
+    expect(onSave.mock.calls[0][0].projects[0].title).toBe("Dashboard");
+  });
 });

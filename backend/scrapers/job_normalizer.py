@@ -7,21 +7,44 @@ from urllib.parse import urlparse
 from ..resume_service import ResumeService
 
 _resume_svc = ResumeService()
-UK_IRELAND_LOCATION_PATTERN = re.compile(
+UK_LOCATION_PATTERN = re.compile(
     r"\b(?:u\.?k\.?|united kingdom|great britain|britain|england|scotland|"
-    r"wales|northern ireland|ireland|republic of ireland|eire)\b",
+    r"wales|northern ireland)\b",
     re.IGNORECASE,
 )
-UK_IRELAND_CITY_PATTERN = re.compile(
+UK_CITY_PATTERN = re.compile(
     r"\b(?:aberdeen|belfast|birmingham|bradford|brighton|bristol|cambridge|"
-    r"cardiff|cork|derry|dublin|dundee|edinburgh|exeter|galway|glasgow|"
-    r"leeds|limerick|liverpool|london|manchester|newcastle|norwich|"
-    r"nottingham|oxford|reading|sheffield|southampton|swansea|waterford|"
+    r"cardiff|derry|dundee|edinburgh|exeter|glasgow|"
+    r"leeds|liverpool|london|manchester|newcastle|norwich|"
+    r"nottingham|oxford|reading|sheffield|southampton|swansea|"
     r"york)\b",
     re.IGNORECASE,
 )
-NON_UK_IRELAND_COUNTRY_PATTERN = re.compile(
-    r"\b(?:new[-\s]+york(?: city)?|san francisco|seattle|united states|u\.?s\.?a?\.?|canada|australia|india|singapore|"
+IRELAND_LOCATION_PATTERN = re.compile(
+    r"\b(?:(?<!northern )ireland|republic of ireland|eire)\b",
+    re.IGNORECASE,
+)
+US_STATE_SUFFIX_PATTERN = re.compile(
+    r",\s*(?:"
+    r"AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|"
+    r"MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|"
+    r"TX|UT|VT|VA|WA|WV|WI|WY"
+    r")\b(?:\s+\d{5}(?:-\d{4})?)?\s*$",
+    re.IGNORECASE,
+)
+US_STATE_NAME_PATTERN = re.compile(
+    r",\s*(?:Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|"
+    r"Delaware|Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|"
+    r"Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|"
+    r"Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|"
+    r"New Mexico|New York|North Carolina|North Dakota|Ohio|Oklahoma|Oregon|"
+    r"Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|Texas|"
+    r"Utah|Vermont|Virginia|Washington|West Virginia|Wisconsin|Wyoming)"
+    r"\b(?:\s+\d{5}(?:-\d{4})?)?\s*$",
+    re.IGNORECASE,
+)
+NON_UK_COUNTRY_PATTERN = re.compile(
+    r"\b(?:new[-\s]+york(?: city)?|san francisco|seattle|united stat(?:es)?(?: of america)?|u\.?s\.?a?\.?|canada|australia|india|singapore|"
     r"new zealand|netherlands|germany|france|spain|italy|japan|china|"
     r"taiwan|malaysia|mexico|romania|israel|poland|sweden|switzerland|"
     r"belgium|brazil|philippines|indonesia|south korea|thailand|vietnam|"
@@ -38,16 +61,21 @@ class JobNormalizer:
     """
 
     @staticmethod
-    def is_uk_or_ireland_location(location: str) -> bool:
-        """Return whether a location identifies a UK or Ireland role."""
+    def is_uk_location(location: str) -> bool:
+        """Return whether a location identifies a UK role."""
         normalized_location = (location or "").strip()
         if not normalized_location:
             return False
-        if NON_UK_IRELAND_COUNTRY_PATTERN.search(normalized_location):
+        if (
+            NON_UK_COUNTRY_PATTERN.search(normalized_location)
+            or IRELAND_LOCATION_PATTERN.search(normalized_location)
+            or US_STATE_SUFFIX_PATTERN.search(normalized_location)
+            or US_STATE_NAME_PATTERN.search(normalized_location)
+        ):
             return False
         return bool(
-            UK_IRELAND_LOCATION_PATTERN.search(normalized_location)
-            or UK_IRELAND_CITY_PATTERN.search(normalized_location)
+            UK_LOCATION_PATTERN.search(normalized_location)
+            or UK_CITY_PATTERN.search(normalized_location)
         )
 
     @staticmethod

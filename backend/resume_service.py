@@ -137,7 +137,11 @@ class ResumeService:
 
     def _read_pdf(self, content_bytes: bytes) -> str:
         reader = pypdf.PdfReader(io.BytesIO(content_bytes))
-        pages_text = [page.extract_text() for page in reader.pages if page.extract_text()]
+        pages_text = []
+        for page in reader.pages:
+            page_text = page.extract_text()
+            if page_text:
+                pages_text.append(page_text)
         return "\n".join(pages_text)
 
     def _read_docx(self, content_bytes: bytes) -> str:
@@ -160,9 +164,9 @@ class ResumeService:
         # Name heuristic
         candidate_name = self._detect_name(text, filename)
 
-        # Skill Extraction: catalog skills found anywhere + skills the résumé lists itself
-        skills = self.extract_skills(text)
         sections = self._extract_sections(text)
+        # A skill mention in a project or publication is not necessarily a listed skill.
+        skills = self.extract_skills(sections.get("skills", ""))
         known = {k.lower() for k in skills}
         for listed in self._extract_listed_skills(sections.get("skills", "")):
             normalized = self._normalize(listed)
@@ -187,9 +191,21 @@ class ResumeService:
 
         # Extract structured sections
         experience = self._parse_experience(sections.get("experience", ""))
+        internships = self._parse_experience(sections.get("internships", ""))
+        if not experience and internships:
+            experience = list(internships)
+        elif internships:
+            exp_keys = {(e.get("title", "").lower(), (e.get("company") or e.get("organization") or "").lower()) for e in experience}
+            for item in internships:
+                key = (item.get("title", "").lower(), (item.get("company") or item.get("organization") or "").lower())
+                if key not in exp_keys:
+                    experience.append(item)
+                    exp_keys.add(key)
         target_roles = self._detect_roles(text, experience)
         education = self._parse_education(sections.get("education", ""))
         projects = self._parse_projects(sections.get("projects", ""))
+        publications = self._parse_publications(sections.get("publications", ""))
+        achievements = self._parse_achievements(sections.get("achievements", ""))
         certifications = self._parse_certifications(sections.get("certifications", ""))
 
         # Only use a summary the résumé actually contains; never paste raw text in.
@@ -212,9 +228,12 @@ class ResumeService:
             "target_roles": target_roles,
             "summary": summary,
             "experience": experience,
+            "internships": internships,
             "education": education,
             "projects": projects,
+            "publications": publications,
             "certifications": certifications,
+            "achievements": achievements,
         }
 
         # Calculate profile strength score & recommendations
@@ -356,12 +375,15 @@ class ResumeService:
     def _extract_sections(self, text: str) -> Dict[str, str]:
         """Segments resume text into named sections based on header patterns."""
         headers = {
-            "summary": re.compile(r"^(?:professional\s+summary|executive\s+summary|summary|profile|about\s+me)\b", re.I),
-            "skills": re.compile(r"^(?:key\s+skills|technical\s+skills|top\s+skills|areas\s+of\s+expertise|skills\s*(?:&|and)\s*technologies|core\s+competencies|skills)\b", re.I),
-            "experience": re.compile(r"^(?:work\s+experience|professional\s+experience|employment\s+history|experience)\b", re.I),
-            "education": re.compile(r"^(?:education|academic\s+background|qualifications)\b", re.I),
-            "projects": re.compile(r"^(?:technical\s+projects|key\s+projects|portfolio\s+projects|personal\s+projects|projects)\b", re.I),
-            "certifications": re.compile(r"^(?:certifications\s*(?:&|and)\s*licenses|certifications|licenses|certificates)\b", re.I),
+            "summary": r"(?:professional\s+summary|executive\s+summary|professional\s+profile|career\s+(?:summary|profile|objective)|profile\s+summary|objective|summary|profile|about\s+me)",
+            "skills": r"(?:key\s+skills|technical\s+skills|top\s+skills|areas\s+of\s+expertise|skills\s*(?:&|and)\s*technologies|core\s+competencies|skills)",
+            "experience": r"(?:work\s+experience|professional\s+experience|employment\s+history|work\s+history|experience)",
+            "internships": r"(?:internships?\s*(?:experience)?|intern\s+experience|internships?\s*&?\s*experience)",
+            "education": r"(?:education|academic\s+background|qualifications)",
+            "projects": r"(?:(?:technical|academic|personal|key|portfolio|course)\s+projects|projects)",
+            "publications": r"(?:(?:research|selected)\s+publications?|publications?|research\s+papers?|papers?\s+published)",
+            "certifications": r"(?:certifications?\s*(?:&|and)\s*licenses|certifications?|licenses|certificates)",
+            "achievements": r"(?:achievements?\s*(?:&|and)\s*awards?|achievements?|accomplishments?|honors?\s*(?:&|and)\s*awards?|awards?)",
         }
 
         current_section = "preamble"
@@ -372,20 +394,31 @@ class ResumeService:
         for line in lines:
             trimmed = line.strip()
             if not trimmed:
+                section_lines[current_section].append("")
                 continue
 
-            # Check if this line is a section header (usually short, <= 45 chars)
             matched_sec = None
-            if len(trimmed) <= 45:
-                # Strip leading/trailing hashes, asterisks or dashes
-                clean_heading = re.sub(r"^[\s#\-\*•:]+|[\s#\-\*•:]+$", "", trimmed)
-                for sec_key, pattern in headers.items():
-                    if pattern.search(clean_heading):
-                        matched_sec = sec_key
-                        break
+            inline_content = ""
+            clean_heading = re.sub(r"^[\s#\-\*•:]+|[\s#\-\*•:]+$", "", trimmed)
+            clean_heading = re.sub(r"\s+", " ", clean_heading)
+            for sec_key, label_pattern in headers.items():
+                if re.fullmatch(rf"(?:{label_pattern})", clean_heading, re.I):
+                    matched_sec = sec_key
+                    break
+                inline_match = re.match(
+                    rf"^(?:{label_pattern})\s*[:\-–—]\s*(.+)$",
+                    clean_heading,
+                    re.I,
+                )
+                if inline_match:
+                    matched_sec = sec_key
+                    inline_content = inline_match.group(1).strip()
+                    break
 
             if matched_sec:
                 current_section = matched_sec
+                if inline_content:
+                    section_lines[current_section].append(inline_content)
             else:
                 section_lines[current_section].append(trimmed)
 
@@ -399,7 +432,27 @@ class ResumeService:
         entries = []
         current: Optional[Dict[str, Any]] = None
 
-        date_pat = re.compile(r"(?:\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+)?\b(?:19|20)\d{2}\s*(?:-|–|to)\s*(?:(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+)?(?:19|20)\d{2}|Present|Current)", re.I)
+        range_date_pat = re.compile(
+            r"(?:\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+)?\b(?:19|20)\d{2}\s*(?:-|–|—|to)\s*"
+            r"(?:(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+)?(?:19|20)\d{2}|Present|Current)",
+            re.I,
+        )
+        single_date_pat = re.compile(
+            r"\b(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+)?\b(?:19|20)\d{2}\b|"
+            r"\b(?:Summer|Winter|Spring|Fall|Autumn)\s+(?:19|20)\d{2}\b",
+            re.I,
+        )
+        TITLE_HINTS = re.compile(
+            r"\b(?:intern|internship|engineer|developer|designer|manager|lead|architect|analyst|"
+            r"consultant|admin|administrator|trainee|apprentice|specialist|officer|associate|programmer)\b",
+            re.I,
+        )
+        COMPANY_HINTS = re.compile(
+            r"\b(?:pvt|ltd|limited|technologies|inc|corp|corporation|solutions|services|systems|"
+            r"labs|llc|gmbh|co|infotech|consulting|enterprises)\b",
+            re.I,
+        )
+        LOCATION_LINE_PAT = re.compile(r"^[A-Za-z\s.\-]+,\s*[A-Za-z\s.\-]+$")
 
         lines = text.split("\n")
         for line in lines:
@@ -410,41 +463,31 @@ class ResumeService:
             is_bullet = bool(re.match(r"^[\s\-\*•\d\.\)]+", line_str))
             clean_line = re.sub(r"^[\s\-\*•\d\.\)]+", "", line_str).strip()
 
-            # Check if line looks like a job header: has '|' or ' - ' or dates
-            has_dates = bool(date_pat.search(line_str))
-            has_separator = ("|" in line_str or " - " in line_str or " at " in line_str.lower())
+            d_match = range_date_pat.search(line_str) or single_date_pat.search(line_str)
+            has_separator = ("|" in line_str or " - " in line_str or " — " in line_str or " at " in line_str.lower())
 
-            if (has_dates or has_separator) and not is_bullet and len(line_str) < 120:
+            if (d_match or has_separator) and not is_bullet and len(line_str) < 140:
                 if current:
                     entries.append(current)
 
-                title = ""
-                company = ""
-                dates = ""
+                dates = d_match.group(0).strip("()") if d_match else ""
+                remainder = line_str[:d_match.start()] + line_str[d_match.end():] if d_match else line_str
+                remainder = re.sub(r"[\(\)\[\]]", "", remainder).strip(" -|")
 
-                # Extract dates if present
-                d_match = date_pat.search(line_str)
-                if d_match:
-                    dates = d_match.group(0).strip("()")
-                    remainder = line_str[:d_match.start()] + line_str[d_match.end():]
-                else:
-                    remainder = line_str
-
-                # Split title and company
-                if "|" in remainder:
-                    parts = [p.strip() for p in remainder.split("|") if p.strip()]
+                parts = [p.strip() for p in re.split(r"\s*(?:\|| - | — |\s+at\s+)\s*", remainder) if p.strip()]
+                if len(parts) >= 2:
+                    if TITLE_HINTS.search(parts[1]) or COMPANY_HINTS.search(parts[0]):
+                        title = parts[1]
+                        company = parts[0]
+                    else:
+                        title = parts[0]
+                        company = parts[1]
+                elif len(parts) == 1:
                     title = parts[0]
-                    company = parts[1] if len(parts) > 1 else ""
-                elif " - " in remainder:
-                    parts = [p.strip() for p in remainder.split(" - ") if p.strip()]
-                    title = parts[0]
-                    company = parts[1] if len(parts) > 1 else ""
-                elif " at " in remainder.lower():
-                    parts = re.split(r"\s+at\s+", remainder, flags=re.I)
-                    title = parts[0].strip()
-                    company = parts[1].strip() if len(parts) > 1 else ""
+                    company = ""
                 else:
-                    title = remainder.strip()
+                    title = ""
+                    company = ""
 
                 current = {
                     "title": title.strip("()[] "),
@@ -458,6 +501,11 @@ class ResumeService:
             elif current:
                 if is_bullet:
                     current["bullets"].append(clean_line)
+                elif not current["location"] and LOCATION_LINE_PAT.match(clean_line) and len(clean_line) < 60:
+                    current["location"] = clean_line
+                elif current["bullets"]:
+                    # Continuation of the previous wrapped bullet line
+                    current["bullets"][-1] = current["bullets"][-1].rstrip() + " " + clean_line
                 else:
                     if not current["description"]:
                         current["description"] = clean_line
@@ -540,12 +588,61 @@ class ResumeService:
         return entries
 
     def _parse_projects(self, text: str) -> List[Dict[str, Any]]:
-        """Parses project entries from projects section text."""
+        """Parse project entries without mistaking short description lines for titles."""
+        return self._parse_named_entries(text, "projects")
+
+    def _parse_publications(self, text: str) -> List[Dict[str, Any]]:
+        """Parse publication citations separately from project entries."""
+        return self._parse_named_entries(text, "publications")
+
+    @staticmethod
+    def _looks_like_entry_title(text: str) -> bool:
+        candidate = text.strip()
+        words = re.findall(r"[A-Za-z0-9]+", candidate)
+        return (
+            2 <= len(candidate) <= 100
+            and len(words) <= 14
+            and not re.search(r"[.!?;]$", candidate)
+            and bool(words)
+            and all(word.isupper() or word[0].isupper() for word in words)
+        )
+
+    @staticmethod
+    def _split_entry_heading(text: str) -> Optional[Tuple[str, str]]:
+        for separator in (" | ", " — ", " – ", " - "):
+            if separator in text:
+                title, details = text.split(separator, 1)
+                if title.strip() and details.strip():
+                    return title.strip(), details.strip()
+        if ":" in text:
+            title, details = text.split(":", 1)
+            if ResumeService._looks_like_entry_title(title) and details.strip():
+                return title.strip(), details.strip()
+        return None
+
+    def _parse_named_entries(self, text: str, section: str) -> List[Dict[str, Any]]:
         if not text:
             return []
 
-        entries = []
+        entries: List[Dict[str, Any]] = []
         current: Optional[Dict[str, Any]] = None
+
+        def finish() -> None:
+            if current and any(
+                current.get(key)
+                for key in ("title", "organization", "description", "bullets")
+            ):
+                entries.append(current.copy())
+
+        def start(title: str = "", organization: str = "", description: str = "") -> Dict[str, Any]:
+            return {
+                "title": title,
+                "name": title,
+                "organization": organization,
+                "dates": self._extract_year(organization),
+                "description": description,
+                "bullets": [],
+            }
 
         lines = text.split("\n")
         for line in lines:
@@ -553,29 +650,69 @@ class ResumeService:
             if not line_str:
                 continue
 
-            is_bullet = bool(re.match(r"^[\s\-\*•]+", line_str))
-            clean_line = re.sub(r"^[\s\-\*•]+", "", line_str).strip()
+            bullet_match = re.match(r"^(?:[-*•·▪●]+|\d+[.)])\s*", line_str)
+            is_bullet = bool(bullet_match)
+            clean_line = line_str[bullet_match.end():].strip() if bullet_match else line_str
+            if not clean_line:
+                continue
 
-            if not is_bullet and ("|" in line_str or ":" in line_str or len(line_str) < 70):
-                if current:
-                    entries.append(current)
-                title = line_str.split("|")[0].split(":")[0].strip()
-                current = {
-                    "title": title,
-                    "name": title,
-                    "description": line_str,
-                    "bullets": [],
-                    "dates": "",
-                }
-            elif current:
-                if is_bullet:
+            if is_bullet:
+                if section == "publications" and current:
+                    finish()
+                    current = None
+                if current is None:
+                    current = start(
+                        title=clean_line if section == "publications" else "",
+                        description="" if section == "publications" else "",
+                    )
+                if section != "publications":
                     current["bullets"].append(clean_line)
+                continue
+
+            split_heading = self._split_entry_heading(clean_line)
+            is_heading = split_heading is not None or self._looks_like_entry_title(clean_line)
+            if current is None:
+                if split_heading:
+                    title, organization = split_heading
+                    current = start(title, organization)
+                elif self._looks_like_entry_title(clean_line) or section == "publications":
+                    current = start(title=clean_line)
                 else:
+                    current = start(description=clean_line)
+            elif is_heading:
+                finish()
+                if split_heading:
+                    title, organization = split_heading
+                    current = start(title, organization)
+                else:
+                    current = start(title=clean_line)
+            else:
+                if current.get("description"):
                     current["description"] += " " + clean_line
+                elif not current.get("title"):
+                    current["description"] = clean_line
+                else:
+                    current["description"] = clean_line
 
-        if current:
-            entries.append(current)
+        finish()
+        return entries
 
+    @staticmethod
+    def _extract_year(text: str) -> str:
+        match = re.search(r"\b(?:19|20)\d{2}\b", text or "")
+        return match.group(0) if match else ""
+
+    @staticmethod
+    def _parse_achievements(text: str) -> List[Dict[str, Any]]:
+        if not text:
+            return []
+        entries = []
+        for line in text.split("\n"):
+            line = line.strip()
+            bullet_match = re.match(r"^(?:[-*•·▪●]+|\d+[.)])\s*", line)
+            cleaned = line[bullet_match.end():].strip() if bullet_match else line
+            if cleaned:
+                entries.append({"title": cleaned, "name": cleaned, "dates": ""})
         return entries
 
     def _parse_certifications(self, text: str) -> List[Dict[str, Any]]:

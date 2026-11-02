@@ -1,70 +1,10 @@
 from __future__ import annotations
-import math
+
 import re
-from collections import Counter
-from typing import List, Dict, Any, Optional, Tuple
-from .resume_service import ResumeService
+from typing import Any, Dict, List, Optional, Tuple
+
 from .skill_catalog import WEAK_MATCH_SKILLS, role_matches_title
 from .skill_matching import stems, text_has_skill
-
-try:
-    from sklearn.feature_extraction.text import TfidfVectorizer
-    from sklearn.metrics.pairwise import cosine_similarity
-    SKLEARN_AVAILABLE = True
-except ImportError:
-    TfidfVectorizer = None  # type: ignore
-    cosine_similarity = None  # type: ignore
-    SKLEARN_AVAILABLE = False
-
-
-def _pure_python_cosine_similarities(query_text: str, doc_texts: List[str]) -> List[float]:
-    """
-    Computes TF-IDF cosine similarities between query_text and each document in doc_texts
-    using only Python standard library (no external dependencies required).
-    """
-    if not doc_texts:
-        return []
-
-    def tokenize(text: str) -> List[str]:
-        return [w for w in re.findall(r"[a-zA-Z0-9+#.-]+", (text or "").lower()) if len(w) > 1]
-
-    query_tokens = tokenize(query_text)
-    docs_tokens = [tokenize(d) for d in doc_texts]
-    all_docs = [query_tokens] + docs_tokens
-    num_docs = len(all_docs)
-
-    # Document frequency
-    df = Counter()
-    for doc in all_docs:
-        df.update(set(doc))
-
-    # IDF with standard smoothing
-    idf = {term: math.log((num_docs + 1) / (count + 1)) + 1.0 for term, count in df.items()}
-
-    def get_tfidf_vec(tokens: List[str]) -> Dict[str, float]:
-        tf = Counter(tokens)
-        total = len(tokens) or 1
-        vec = {term: (count / total) * idf.get(term, 1.0) for term, count in tf.items()}
-        norm = math.sqrt(sum(v * v for v in vec.values()))
-        if norm > 0:
-            return {k: v / norm for k, v in vec.items()}
-        return {}
-
-    query_vec = get_tfidf_vec(query_tokens)
-    if not query_vec:
-        return [0.0] * len(doc_texts)
-
-    results = []
-    for doc_toks in docs_tokens:
-        d_vec = get_tfidf_vec(doc_toks)
-        if not d_vec:
-            results.append(0.0)
-            continue
-        # Cosine similarity of unit vectors is their dot product
-        score = sum(query_vec[term] * val for term, val in d_vec.items() if term in query_vec)
-        results.append(max(0.0, min(1.0, float(score))))
-
-    return results
 
 
 EXPERIENCE_REQUIREMENT_PATTERN = re.compile(
@@ -121,202 +61,107 @@ def _experience_level_matches(job: Dict[str, Any], candidate_years: int) -> bool
 
 
 class RecommendationService:
-    """
-    Ranks verified stored jobs against candidate resume skills and experience.
-    Provides explainable match percentages, aligned skills, missing skills,
-    and direct application links. Never invents fake vacancies.
-    """
-
-    def __init__(self):
-        self.resume_service = ResumeService()
-        self.vectorizer = (
-            TfidfVectorizer(stop_words="english")
-            if SKLEARN_AVAILABLE and TfidfVectorizer is not None
-            else None
-        )
+    """Rank verified jobs using the legacy high-confidence match score."""
 
     def recommend_jobs(
         self,
         resume_data: Dict[str, Any],
         jobs: List[Dict[str, Any]],
-        min_score: int = 60,
-        platform_filter: str = "all"
+        min_score: int = 0,
+        platform_filter: str = "all",
     ) -> List[Dict[str, Any]]:
-        # Recommendations are high-confidence matches by design. Keep callers'
-        # thresholds, but never lower the exceptional-match gate.
-        min_score = max(85, min_score if min_score is not None else 85)
-
-        # If no verified jobs exist in the database, return clean empty list
         if not jobs:
             return []
 
-        candidate_skills = resume_data.get("skills", [])
-        resume_skills_set = {s.lower() for s in candidate_skills}
-        target_roles = [r.lower() for r in resume_data.get("target_roles", [])]
-        # lower-cased role -> original role (catalog lookup is case-sensitive)
-        role_originals = {r.lower(): [r] for r in resume_data.get("target_roles", [])}
-        seniority = (resume_data.get("seniority_level") or "").lower()
+        from .job_match_analysis_service import _job_skills, _norm
+
+        threshold = max(85, min(100, int(min_score if min_score is not None else 85)))
         raw_years = resume_data.get("years_of_experience")
         try:
             candidate_years = max(0, int(raw_years)) if raw_years is not None else 0
         except (TypeError, ValueError):
             candidate_years = 0
-        # A manually supplied seniority level is useful when a resume does not
-        # contain a numeric years-of-experience value.
         if raw_years is None:
-            if any(level in seniority for level in ("principal", "lead")):
+            seniority = str(resume_data.get("seniority_level") or "").casefold()
+            if "principal" in seniority or "lead" in seniority:
                 candidate_years = 7
             elif "senior" in seniority:
                 candidate_years = 5
 
-        # Build candidate TF-IDF representation
-        resume_corpus = (
-            " ".join(resume_data.get("skills", [])) * 3 + " " +
-            " ".join(resume_data.get("target_roles", [])) * 2 + " " +
-            (resume_data.get("summary") or "")
-        )
-
-        job_texts = []
-        filtered_jobs = []
-
-        for j in jobs:
+        recommendations: List[Dict[str, Any]] = []
+        candidate_skills = [str(skill) for skill in (resume_data.get("skills") or [])]
+        profile_skill_keys = {_norm(skill) for skill in candidate_skills if _norm(skill)}
+        seniority = str(resume_data.get("seniority_level") or "").casefold()
+        for job in jobs:
             if platform_filter and platform_filter != "all":
-                if j.get("platform", "").lower() != platform_filter.lower():
+                if job.get("platform", "").lower() != platform_filter.lower():
                     continue
-
-            # Ensure skills are present; extract from title+description if missing
-            skills = j.get("extracted_skills") or []
-            if not skills:
-                skills = self.resume_service.extract_skills(f"{j.get('title', '')} {j.get('description', '')}")
-                j["extracted_skills"] = skills
-
-            filtered_jobs.append(j)
-            job_texts.append(f"{j.get('title', '')} {' '.join(skills) * 2} {j.get('description', '')}")
-
-        if not filtered_jobs:
-            return []
-
-        # Calculate TF-IDF cosine similarities
-        tfidf_scores = [0.0] * len(filtered_jobs)
-        try:
-            if SKLEARN_AVAILABLE and self.vectorizer is not None and cosine_similarity is not None:
-                corpus = [resume_corpus] + job_texts
-                matrix = self.vectorizer.fit_transform(corpus)
-                sims = cosine_similarity(matrix[0:1], matrix[1:]).flatten()
-                tfidf_scores = [float(s) for s in sims]
-            else:
-                tfidf_scores = _pure_python_cosine_similarities(resume_corpus, job_texts)
-        except Exception:
-            try:
-                tfidf_scores = _pure_python_cosine_similarities(resume_corpus, job_texts)
-            except Exception:
-                tfidf_scores = [0.0] * len(filtered_jobs)
-
-        recommendations = []
-
-        for idx, job in enumerate(filtered_jobs):
             if not _experience_level_matches(job, candidate_years):
                 continue
 
-            job_skills = job.get("extracted_skills", [])
-            job_skills_lower = {s.lower(): s for s in job_skills}
+            title = str(job.get("title") or "")
+            role_match = any(
+                role_matches_title(str(role), title)
+                for role in (resume_data.get("target_roles") or [])
+            )
+            job_skills = _job_skills(job)
+            if not job.get("extracted_skills"):
+                job["extracted_skills"] = job_skills
 
-            # 1. Skill Overlap Calculation
-            matched = []
-            missing = []
-            for s_lower, canonical in job_skills_lower.items():
-                if s_lower in resume_skills_set:
-                    matched.append(canonical)
-                else:
-                    missing.append(canonical)
+            matched_skills = [
+                skill for skill in job_skills
+                if _norm(skill) in profile_skill_keys and skill.casefold() not in WEAK_MATCH_SKILLS
+            ]
+            description = f"{title} {job.get('description') or ''}"
+            description_stems = stems(description)
+            matched_keys = {_norm(skill) for skill in matched_skills}
+            for skill in candidate_skills:
+                key = _norm(skill)
+                if (
+                    key
+                    and key not in matched_keys
+                    and text_has_skill(skill, description, description_stems)
+                    and skill.casefold() not in WEAK_MATCH_SKILLS
+                ):
+                    matched_skills.append(skill)
+                    matched_keys.add(key)
 
-            # Augment: scan title + description text for candidate skills not yet matched
-            title_lower = (job.get("title") or "").lower()
-            desc_lower = f"{title_lower} {job.get('description', '')}".lower()
-            matched_lower = {m.lower() for m in matched}
-            doc_stems = stems(desc_lower)
-            for c_skill in candidate_skills:
-                c_lower = c_skill.lower()
-                if c_lower not in matched_lower and text_has_skill(c_skill, desc_lower, doc_stems):
-                    matched.append(c_skill)
-                    matched_lower.add(c_lower)
-
-            # Generic skills (communication, teamwork, ...) appear in every posting and prove nothing.
-            matched = [m for m in matched if m.lower() not in WEAK_MATCH_SKILLS]
-
-            # 2. Role Title & Domain Alignment
-            title_lower = (job.get("title") or "").lower()
-            is_role_match = False
-            GENERIC_TITLE_WORDS = {"engineer", "developer", "lead", "senior", "manager", "director", "intern", "specialist", "associate", "consultant", "executive", "assistant", "officer", "analyst", "coordinator"}
-            # Broader role matching: also match by domain keywords (e.g. "fullstack", "backend", "frontend")
-            ROLE_DOMAIN_KEYWORDS = {
-                "full stack": ["fullstack", "full stack", "full-stack"],
-                "frontend": ["frontend", "front-end", "front end", "ui engineer"],
-                "backend": ["backend", "back-end", "back end", "server-side"],
-                "software engineer": ["software engineer", "software developer", "swe"],
-                "devops": ["devops", "sre", "site reliability", "platform engineer", "infrastructure"],
-                "machine learning": ["machine learning", "ml engineer", "ai engineer"],
-                "data engineer": ["data engineer", "data platform"],
-                "data scientist": ["data scientist", "data science"],
-            }
-            for r in target_roles:
-                r_lower = r.lower().strip()
-                if r_lower in title_lower:
-                    is_role_match = True; break
-                # Catalog phrases cover every profession (teacher, accountant, hardware engineer, ...)
-                if role_matches_title(r, title_lower) or any(role_matches_title(orig, title_lower) for orig in role_originals.get(r_lower, [])):
-                    is_role_match = True; break
-                non_generic = [w for w in r_lower.split() if w not in GENERIC_TITLE_WORDS and len(w) > 2]
-                if non_generic and all(tok in title_lower for tok in non_generic):
-                    is_role_match = True; break
-                # Check domain keyword synonyms
-                for domain, synonyms in ROLE_DOMAIN_KEYWORDS.items():
-                    if any(kw in r_lower for kw in synonyms) and any(kw in title_lower for kw in synonyms):
-                        is_role_match = True; break
-                if is_role_match:
-                    break
-
-            # High confidence needs four shared skills, or a title match backed by at least three.
-            if len(matched) < 4 and not (is_role_match and len(matched) >= 3):
+            if len(matched_skills) < 4 and not (role_match and len(matched_skills) >= 3):
                 continue
 
-            # Skill score: candidate coverage & job coverage
-            candidate_coverage = len(matched) / max(len(candidate_skills), 1)
-            job_coverage = len(matched) / max(len(job_skills), 1) if job_skills else candidate_coverage
-            skill_score = min(1.0, candidate_coverage * 0.4 + job_coverage * 0.6)
+            missing_skills = [
+                skill for skill in job_skills
+                if _norm(skill) not in matched_keys
+            ]
+            seniority_bonus = 0
+            if (
+                "senior" in seniority
+                and any(word in title.casefold() for word in ("senior", "staff", "principal", "lead"))
+            ) or (
+                "lead" in seniority
+                and any(word in title.casefold() for word in ("lead", "principal", "staff"))
+            ) or (
+                "junior" in seniority
+                and any(word in title.casefold() for word in ("junior", "associate"))
+            ):
+                seniority_bonus = 2
 
-            role_score = 0.95 if is_role_match else 0.40
-
-            seniority_bonus = 0.0
-            if "senior" in seniority and any(w in title_lower for w in ["senior", "staff", "principal", "lead"]):
-                seniority_bonus = 2.0
-            elif "lead" in seniority and any(w in title_lower for w in ["lead", "principal", "staff"]):
-                seniority_bonus = 2.0
-            elif "junior" in seniority and ("junior" in title_lower or "associate" in title_lower):
-                seniority_bonus = 2.0
-
-            # 3. Textual Content Similarity (TF-IDF)
-            semantic_points = min(3, round(tfidf_scores[idx] * 5))
-
-            # High-confidence formula: the four-skill gate is followed by a
-            # deliberately narrow 85-98% range.
-            raw_pct = (
+            score = min(
+                98,
                 85
-                + min(8, max(0, len(matched) - 4) * 2)
-                + (3 if is_role_match else 0)
-                + seniority_bonus
-                + semantic_points
+                + min(8, max(0, len(matched_skills) - 4) * 2)
+                + (3 if role_match else 0)
+                + seniority_bonus,
             )
-            percentage = int(max(85, min(98, raw_pct)))
-            fit_level = "Exceptional Match"
+            if score < threshold:
+                continue
 
-            # Explainable match reasons
             reasons = []
-            if matched:
-                reasons.append(f"Strong overlap on {', '.join(matched[:4])}")
-            if is_role_match:
+            if matched_skills:
+                reasons.append(f"Strong overlap on {', '.join(matched_skills[:4])}")
+            if role_match:
                 reasons.append("Matches your target job title")
-            if seniority_bonus > 0:
+            if seniority_bonus:
                 reasons.append(f"Aligned with your {seniority.title()} seniority level")
             minimum_years, maximum_years = _job_experience_requirement(job)
             if minimum_years is not None:
@@ -329,18 +174,14 @@ class RecommendationService:
             if job.get("is_remote"):
                 reasons.append("Remote-friendly opportunity")
 
-            rec_item = {
+            recommendations.append({
                 **job,
-                "match_score": percentage,
-                "fit_level": fit_level,
-                "matched_skills": matched,
-                "missing_skills": missing,
-                "match_reasons": reasons
-            }
+                "match_score": score,
+                "fit_level": "Exceptional Match",
+                "matched_skills": matched_skills,
+                "missing_skills": missing_skills,
+                "match_reasons": reasons,
+            })
 
-            if percentage >= min_score:
-                recommendations.append(rec_item)
-
-        # Sort descending by match score
-        recommendations.sort(key=lambda x: x["match_score"], reverse=True)
+        recommendations.sort(key=lambda item: item["match_score"], reverse=True)
         return recommendations

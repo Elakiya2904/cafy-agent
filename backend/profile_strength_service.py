@@ -131,14 +131,14 @@ def evaluate_profile_strength(resume: Optional[Dict[str, Any]]) -> Dict[str, Any
     skills_score = min(100, skills_score)
 
     # 3. Evaluate Work Experience (25% weight)
-    experience = resume.get("experience") or []
+    experience = resume.get("experience") or resume.get("internships") or []
     raw_text = resume.get("raw_text") or ""
     exp_score = 0
     exp_notes = []
 
     # If experience array is empty, check if raw_text indicates experience
     years = resume.get("years_of_experience") or 0
-    has_raw_exp = bool(re.search(r"\b(?:experience|employment|work history)\b", raw_text, re.I))
+    has_raw_exp = bool(re.search(r"\b(?:experience|employment|work history|internship|internships)\b", raw_text, re.I))
 
     if experience and isinstance(experience, list):
         role_count = len(experience)
