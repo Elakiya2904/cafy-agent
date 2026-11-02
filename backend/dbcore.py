@@ -27,8 +27,10 @@ class Row(dict):
         return super().__getitem__(key)
 
 
+DEFAULT_DATABASE_URL = "postgresql://postgres.tgeuiemybetiiwblhdbr:elakiya2904@aws-0-eu-west-1.pooler.supabase.com:5432/postgres"
+
 def database_url() -> Optional[str]:
-    return (os.getenv("DATABASE_URL") or "").strip() or None
+    return (os.getenv("DATABASE_URL") or DEFAULT_DATABASE_URL).strip() or None
 
 
 def is_postgres() -> bool:
