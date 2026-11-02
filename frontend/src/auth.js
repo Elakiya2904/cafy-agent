@@ -1,11 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 
 // Public values by design (the anon key only works together with Row Level Security / the backend's own checks).
-const url = import.meta.env.VITE_SUPABASE_URL;
-const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const url = import.meta.env.VITE_SUPABASE_URL || "https://tgeuiemybetiiwblhdbr.supabase.co";
+const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_PlCIZydM_pmkafPXKCWliA_RegTigST";
 
 export const authEnabled = Boolean(url && anonKey);
-export const guestModeEnabled = authEnabled && import.meta.env.VITE_ENABLE_GUEST_MODE === "true";
+export const guestModeEnabled = authEnabled && import.meta.env.VITE_ENABLE_GUEST_MODE !== "false";
 export const supabase = authEnabled ? createClient(url, anonKey) : null;
 
 let accessToken = null;

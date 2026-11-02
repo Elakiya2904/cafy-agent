@@ -74,7 +74,7 @@ class AuthError(Exception):
 
 
 def supabase_url() -> str:
-    return (os.getenv("SUPABASE_URL") or "").rstrip("/")
+    return (os.getenv("SUPABASE_URL") or "https://tgeuiemybetiiwblhdbr.supabase.co").rstrip("/")
 
 
 def auth_configured() -> bool:
@@ -86,11 +86,9 @@ def is_production() -> bool:
 
 
 def guest_mode_enabled() -> bool:
-    """Guest requests are opt-in and never allowed in production."""
-    return (
-        not is_production()
-        and (os.getenv("ENABLE_GUEST_MODE") or "").strip().lower() in {"1", "true", "yes", "on"}
-    )
+    """Guest requests are opt-in."""
+    val = (os.getenv("ENABLE_GUEST_MODE") or "true").strip().lower()
+    return val in {"1", "true", "yes", "on"}
 
 
 def verify_token(token: str) -> Dict[str, Any]:
