@@ -225,3 +225,135 @@ cafy/
 
 ## ⚖️ License
 Proprietary enterprise software developed for Cafy Agent. All rights reserved.
+
+### 3. Environment Configuration
+Copy `.env.example` to `.env` in the project root:
+```bash
+cp .env.example .env
+```
+Fill in the essential configuration parameters:
+```ini
+# Core LLM API
+GROQ_API_KEY=gsk_your_groq_api_key_here
+
+# App Environment (development / production)
+APP_ENV=development
+PUBLIC_BASE_URL=http://127.0.0.1:8000
+CORS_ORIGINS=http://127.0.0.1:8000,http://localhost:5173
+
+# Database (optional for local SQLite, required for PostgreSQL)
+DATABASE_URL=postgresql://user:pass@host:5432/dbname
+
+# Authentication & Guest Mode
+ENABLE_GUEST_MODE=true
+VITE_ENABLE_GUEST_MODE=true
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+```
+
+### 4. Frontend Setup
+```bash
+npm --prefix frontend install
+```
+
+### 5. Running the Application
+
+**Option A: Unified Server (Development & Production)**
+```bash
+python run.py
+```
+* Backend API: `http://127.0.0.1:8000`
+* API Documentation (Swagger): `http://127.0.0.1:8000/docs`
+
+**Option B: Separate Frontend Dev Server (Hot Module Reload)**
+```bash
+# Terminal 1: Backend
+python run.py
+
+# Terminal 2: Vite Dev Server
+npm --prefix frontend run dev
+```
+* Frontend Web App: `http://localhost:5173/`
+
+---
+
+## 🔒 Authentication & Guest Mode
+
+- **Production Mode**: Uses Supabase Email/Password authentication with JWT tokens. Every request to `/api` is scoped to the authenticated user's ID via Row-Level Security.
+- **Guest Mode**: Opt-in testing mode enabled via `ENABLE_GUEST_MODE=true` and `VITE_ENABLE_GUEST_MODE=true`. Provides a clean, centered **Continue as Guest** button on the auth screen. Guest sessions start with a clean slate (no pre-loaded resumes) and persist across page refreshes via `sessionStorage`.
+
+---
+
+## 🧪 Testing
+
+### Backend Test Suite (Python)
+```bash
+python -m pytest tests
+```
+Runs 80+ unit and integration tests covering:
+- Strict UK location normalizer & negative regex filters (`tests/test_normalizer.py`)
+- Resume section parser, date ranges, and internship extraction (`tests/test_resume_section_extraction.py`)
+- Zero-hallucination factual guardrails & compilation (`tests/test_resume_generation.py`)
+- Profile strength 100-point formula & recommendation rankings (`tests/test_recommendations.py`)
+- Auth token verification and tenant data isolation (`tests/test_auth_isolation.py`)
+
+### Frontend Test Suite (React / Vitest)
+```bash
+npm --prefix frontend test
+```
+Verifies React components, state transitions, match scoring, and resume editors.
+
+---
+
+## 📁 Repository Structure
+
+```
+cafy/
+├── backend/
+│   ├── email_agent/             # Recruiter email monitor, IMAP/OAuth2 & 6-class classifier
+│   ├── job_applications/        # Application lifecycle service & auto-fill engine
+│   ├── job_intelligence/        # Company research, interview formats & evidence parsing
+│   ├── scrapers/                # 8 ATS scrapers (Greenhouse, Workday, Lever, Ashby, etc.)
+│   │   ├── job_normalizer.py    # Strict UK geofilter & negative country guardrails
+│   │   ├── scraper_manager.py   # Rate limiting, deduplication & ingestion gate
+│   │   └── workday.py           # Network-level UK country facet filtering
+│   ├── templates/               # Jinja2 XeLaTeX templates for ATS-optimized PDFs
+│   ├── career_chat_service.py   # Evidence-grounded conversational AI chatbot engine
+│   ├── profile_strength_service.py # 100-point profile strength evaluation formula
+│   ├── recommendation_service.py   # Hybrid TF-IDF & skill overlap matching engine
+│   ├── resume_generation_service.py # AI resume tailoring & factual guardrail verifier
+│   ├── resume_service.py        # Structured 6-section document parser (PDF & DOCX)
+│   ├── sponsor_service.py       # UK Home Office Licensed Sponsor register matching
+│   ├── user_store.py            # Per-user database persistence & context isolation
+│   └── main.py                  # FastAPI unified application entrypoint
+├── frontend/
+│   ├── src/
+│   │   ├── App.jsx              # Main React SPA (Directory, Tracker, Resume Studio)
+│   │   ├── AuthGate.jsx         # Sign in, Sign up, and Continue as Guest workflow
+│   │   ├── EmailAgentDashboard.jsx # Recruiter inbox sync & follow-up approval hub
+│   │   ├── JobIntelligence.jsx  # Interview stages & company research UI
+│   │   ├── MyApplications.jsx   # 5-stage Kanban application pipeline
+│   │   ├── ResumeEditor.jsx     # Live resume editor with real-time XeLaTeX preview
+│   │   └── auth.js              # Token management & guest mode session handling
+│   └── css/                     # Enterprise design system & responsive styling
+├── extension/                   # Chrome extension for automated ATS form filling
+├── doc_assets/                  # High-resolution UI screenshots & architectural diagrams
+├── cafy-agent-up-to-date-features-and-pipelines.pdf # Compiled 7-page client documentation
+├── run.py                       # Application bootstrap script
+└── requirements.txt             # Python dependencies
+```
+
+---
+
+## 📄 Client Documentation & Architecture Reports
+
+Comprehensive, publication-grade documentation artifacts are maintained in the repository:
+- **[Complete Backend Logic & Systems Manual](file:///C:/Users/vlela/.gemini/antigravity/brain/75d067f9-1e31-4512-b557-ebd599b1d95c/complete-backend-logic-manual.md)**: Conceptual walkthrough of every decision tree, formula, and state machine with Mermaid diagrams.
+- **[Features, Pipelines & UI Specification](file:///C:/Users/vlela/.gemini/antigravity/brain/75d067f9-1e31-4512-b557-ebd599b1d95c/cafy-agent-features-and-pipelines-specification.md)**: Complete client specification with embedded live UI screens for all 6 features.
+- **[UK Job Scraping & Geographic Containment Architecture](file:///C:/Users/vlela/.gemini/antigravity/brain/75d067f9-1e31-4512-b557-ebd599b1d95c/uk-ireland-scraping-architecture.md)**: 4-tier defensive isolation model guaranteeing strict UK-only vacancy containment.
+- **Compiled 7-Page Client Presentation PDF**: [`cafy-agent-up-to-date-features-and-pipelines.pdf`](file:///c:/Users/vlela/OneDrive/Documents/cafy/scrap/cafy-agent-up-to-date-features-and-pipelines.pdf).
+
+---
+
+## ⚖️ License
+Proprietary enterprise software developed for Cafy Agent. All rights reserved.
