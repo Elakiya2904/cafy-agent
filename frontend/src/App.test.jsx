@@ -4,7 +4,7 @@ import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // The PDF engine needs a real browser; the editor falls back to its HTML preview when it fails.
 vi.mock('./PdfPreview.jsx', () => ({ default: () => null }));
-import { ApplicationTrackingView, DirectoryView, JobDetailModal } from './App.jsx';
+import App, { ApplicationTrackingView, DirectoryView, JobDetailModal, normalizeClientResume } from './App.jsx';
 
 const job = {
   id: 'job-1',
@@ -28,8 +28,106 @@ const resume = {
   location: 'London, UK',
 };
 
+describe('normalizeClientResume', () => {
+  it('keeps projects, publications, internships, and achievements in separate fields', () => {
+    const normalized = normalizeClientResume(
+      {
+        professional_summary: '',
+        projects: [
+          { title: 'Project A', description: 'Built a service.' },
+          { title: 'Project B', description: 'Built a dashboard.' },
+        ],
+        publications: [{ title: 'Paper A', organization: 'Research Journal', dates: '2024' }],
+        achievements: ['Finalist, Data Challenge'],
+      },
+      {
+        summary: 'Experienced engineer.',
+        internships: [{ title: 'Research Intern', organization: 'Lab' }],
+        publications: [{ title: 'Older Paper', organization: 'Journal' }],
+      },
+      job
+    );
+
+    expect(normalized.professional_summary).toBe('Experienced engineer.');
+    expect(normalized.projects.map((entry) => entry.title)).toEqual(['Project A', 'Project B']);
+    expect(normalized.publications).toEqual([
+      expect.objectContaining({ title: 'Paper A', organization: 'Research Journal', dates: '2024' }),
+    ]);
+    expect(normalized.internships).toEqual([
+      expect.objectContaining({ title: 'Research Intern', organization: 'Lab' }),
+    ]);
+    expect(normalized.achievements).toEqual([
+      expect.objectContaining({ title: 'Finalist, Data Challenge' }),
+    ]);
+  });
+
+  it('respects explicitly cleared sections when reopening a saved resume', () => {
+    const normalized = normalizeClientResume(
+      { projects: [], publications: [] },
+      {
+        projects: [{ title: 'Source Project' }],
+        publications: [{ title: 'Source Paper' }],
+      },
+      job
+    );
+
+    expect(normalized.projects).toEqual([]);
+    expect(normalized.publications).toEqual([]);
+  });
+});
+
+describe('Find Jobs resume removal', () => {
+  it('offers a remove-resume action when a resume is loaded', () => {
+    const onRemoveResume = vi.fn();
+    render(
+      <DirectoryView
+        jobs={[job]}
+        matchedJobs={[job]}
+        resume={resume}
+        platforms={[]}
+        pipelineJobIds={new Set()}
+        onTogglePipeline={() => {}}
+        onAddAllToPipeline={() => {}}
+        onSelectJob={() => {}}
+        onRefresh={() => {}}
+        onRemoveResume={onRemoveResume}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Remove résumé/i }));
+    expect(onRemoveResume).toHaveBeenCalledOnce();
+  });
+});
+
+describe('Find Jobs country location filters', () => {
+  it('matches all UK-classified jobs when searching for UK', () => {
+    render(
+      <DirectoryView
+        jobs={[
+          { ...job, id: 'london-no-country', location: 'London', is_uk_location: true },
+          { ...job, id: 'edinburgh-no-country', location: 'Edinburgh', is_uk_location: true },
+          { ...job, id: 'toronto', location: 'Toronto, Canada', is_uk_location: false },
+        ]}
+        matchedJobs={[]}
+        resume={null}
+        platforms={[]}
+        pipelineJobIds={new Set()}
+        onTogglePipeline={() => {}}
+        onAddAllToPipeline={() => {}}
+        onSelectJob={() => {}}
+        onRefresh={() => {}}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText('City or Location'), { target: { value: 'UK' } });
+
+    expect(screen.getByRole('button', { name: /Show 2 matching jobs/i })).toBeInTheDocument();
+  });
+});
+
 beforeEach(() => {
   document.body.innerHTML = '<div id="root"></div>';
+  window.sessionStorage.clear();
   window.open = vi.fn();
   global.fetch = vi.fn().mockImplementation((url, opts) => {
     const body = opts?.body ? JSON.parse(opts.body) : {};
@@ -127,6 +225,39 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
+describe('App page reload', () => {
+  it('returns to the selected page and restores the saved resume after reload', async () => {
+    global.fetch = vi.fn((input) => {
+      const url = String(input);
+      const data = url.includes('/api/resume/current')
+        ? { resume, matched_jobs: [job] }
+        : url.includes('/api/platforms')
+          ? { platforms: [], total_jobs: 1 }
+          : url.includes('/api/jobs')
+            ? { jobs: [job], count: 1 }
+            : {};
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(data),
+      });
+    });
+
+    const firstLoad = render(<App />);
+    fireEvent.click(screen.getByRole('link', { name: /Find Jobs/i }));
+    expect(await screen.findByRole('heading', { name: 'Job Discovery' })).toBeInTheDocument();
+    expect(await screen.findByText('Alex Morgan')).toBeInTheDocument();
+    expect(window.sessionStorage.getItem('cafy-agent-active-tab')).toBe('find-jobs');
+
+    firstLoad.unmount();
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'Job Discovery' })).toBeInTheDocument();
+    expect(await screen.findByText('Alex Morgan')).toBeInTheDocument();
+    expect(screen.queryByText('Upload your résumé')).not.toBeInTheDocument();
+  });
+});
+
 describe('Cafy Agent job application drawer', () => {
   it('normalizes HTML job descriptions in the tailor textarea', async () => {
     const htmlJob = {
@@ -183,6 +314,7 @@ describe('Cafy Agent job application drawer', () => {
     render(<DrawerHarness />);
     screen.debug();
     fireEvent.click(screen.getByRole('button', { name: /Show 1 matching jobs/i }));
+    expect(await screen.findAllByText('92% Job Match')).not.toHaveLength(0);
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Tailor with Cafy/i })).toBeInTheDocument();
@@ -247,14 +379,14 @@ describe('Cafy Agent job application drawer', () => {
     fireEvent.click(screen.getByRole('button', { name: /Generate Tailored Resume/i }));
 
     const scoreBar = await screen.findByTestId('editor-match-score', {}, { timeout: 3000 });
-    expect(scoreBar).toHaveTextContent(/^72%Job Match · Good Match/);
+    expect(scoreBar).toHaveTextContent(/^72%Job Match · Current Draft · Good Match/);
     expect(scoreBar).toHaveTextContent('Professional Summary 60%');
     expect(screen.getAllByTitle('Professional Summary: 60% match for this job').length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getAllByRole('button', { name: /Improve with AI/i })[0]);
 
     await waitFor(() => {
-      expect(screen.getByTestId('editor-match-score')).toHaveTextContent(/^80%Job Match · Strong Match/);
+      expect(screen.getByTestId('editor-match-score')).toHaveTextContent(/^80%Job Match · Current Draft · Strong Match/);
     }, { timeout: 3000 });
     expect(screen.getByTestId('editor-match-score')).toHaveTextContent('+8 since last change');
     expect(screen.getAllByTitle('Professional Summary: 95% match for this job').length).toBeGreaterThan(0);
@@ -269,7 +401,7 @@ describe('Cafy Agent job application drawer', () => {
     expect(panel).toHaveTextContent('Profile Completeness');
     expect(panel).toHaveTextContent('64%');
     expect(panel).toHaveTextContent('72%');
-    expect(panel).toHaveTextContent('Profile Section Scores');
+    expect(panel).toHaveTextContent('Job Requirement Fit by Section');
     expect(screen.getByRole('tab', { name: 'All (2)' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('tab', { name: 'Missing Qualification (1)' }));

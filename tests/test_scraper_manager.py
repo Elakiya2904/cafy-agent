@@ -6,12 +6,13 @@ from backend.scrapers.scraper_manager import ScraperManager
 
 class TestScraperManagerLocationScope(unittest.TestCase):
 
-    def test_scrape_platform_keeps_only_uk_and_ireland_jobs(self):
+    def test_scrape_platform_keeps_only_uk_jobs(self):
         manager = ScraperManager()
         manager.platforms_config = {"greenhouse": {"companies": [{"name": "Example"}]}}
         manager.scrapers["greenhouse"] = Mock()
         manager.scrapers["greenhouse"].scrape_all.return_value = [
             {"id": "uk", "location": "London, UK"},
+            {"id": "northern_ireland", "location": "Belfast, Northern Ireland"},
             {"id": "ireland", "location": "Dublin, Ireland"},
             {"id": "us", "location": "New York, United States"},
             {"id": "unknown", "location": "Remote"},
@@ -19,7 +20,7 @@ class TestScraperManagerLocationScope(unittest.TestCase):
 
         result = manager.scrape_platform("greenhouse")
 
-        self.assertEqual([job["id"] for job in result["jobs"]], ["uk", "ireland"])
+        self.assertEqual([job["id"] for job in result["jobs"]], ["uk", "northern_ireland"])
         self.assertEqual(result["jobs_count"], 2)
 
 

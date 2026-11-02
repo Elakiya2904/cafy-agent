@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
 from .scrapers.scraper_manager import ScraperManager
+from .scrapers.job_normalizer import JobNormalizer
 from .database import JobDatabase
 from .auth import AuthMiddleware, auth_configured, is_production, require_cron_secret, validate_production_config
 from .context import current_candidate
@@ -132,9 +133,12 @@ class ProfileUpdateRequest(BaseModel):
     summary: Optional[str] = None
     skills: Optional[List[str]] = None
     experience: Optional[List[Dict[str, Any]]] = None
+    internships: Optional[List[Dict[str, Any]]] = None
     education: Optional[List[Dict[str, Any]]] = None
     projects: Optional[List[Dict[str, Any]]] = None
+    publications: Optional[List[Dict[str, Any]]] = None
     certifications: Optional[List[Dict[str, Any]]] = None
+    achievements: Optional[List[Dict[str, Any]]] = None
     seniority_level: Optional[str] = None
     target_roles: Optional[List[str]] = None
 
@@ -270,6 +274,13 @@ def health():
         "scheduler_active": scheduler.is_running
     }
 
+def _annotate_job_location_scope(jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return [
+        {**job, "is_uk_location": JobNormalizer.is_uk_location(job.get("location") or "")}
+        for job in jobs
+    ]
+
+
 @app.get("/api/platforms")
 def get_platforms():
     platforms = scraper_mgr.get_supported_platforms()
@@ -343,6 +354,7 @@ def get_jobs(
     """Retrieve stored jobs from database with optional filters."""
     jobs = db.get_jobs(platform=platform, search=search, remote_only=remote_only, limit=limit, offset=offset)
     jobs = enrich_jobs_with_company_profiles(sponsor_registry.annotate_jobs(jobs))
+    jobs = _annotate_job_location_scope(jobs)
     return {
         "count": len(jobs),
         "jobs": jobs
@@ -367,9 +379,12 @@ def _profile_as_resume(profile: Dict[str, Any]) -> Dict[str, Any]:
         "professional_summary": profile.get("summary") or "",
         "skills": profile.get("skills") or [],
         "experience": profile.get("experience") or [],
+        "internships": profile.get("internships") or [],
         "projects": profile.get("projects") or [],
+        "publications": profile.get("publications") or [],
         "education": profile.get("education") or [],
         "certifications": profile.get("certifications") or [],
+        "achievements": profile.get("achievements") or [],
     }
 
 
@@ -434,8 +449,9 @@ async def upload_resume(file: UploadFile = File(...)):
 
         # Query database across all platforms (up to 3000 jobs)
         stored_jobs = db.get_jobs(limit=3000)
-        recommendations = rec_svc.recommend_jobs(parsed, stored_jobs, min_score=60)
+        recommendations = rec_svc.recommend_jobs(parsed, stored_jobs, min_score=0)
         recommendations = enrich_jobs_with_company_profiles(sponsor_registry.annotate_jobs(recommendations))
+        recommendations = _annotate_job_location_scope(recommendations)
         ACTIVE_SESSION["last_matched_jobs"] = recommendations
 
         return {
@@ -461,10 +477,11 @@ def get_current_resume():
     matched = ACTIVE_SESSION["last_matched_jobs"]
     if not matched:
         stored_jobs = db.get_jobs(limit=3000)
-        matched = rec_svc.recommend_jobs(resume, stored_jobs, min_score=60)
+        matched = rec_svc.recommend_jobs(resume, stored_jobs, min_score=0)
         matched = enrich_jobs_with_company_profiles(sponsor_registry.annotate_jobs(matched))
         ACTIVE_SESSION["last_matched_jobs"] = matched
-    return {"resume": resume, "profile_strength": strength, "matched_jobs": enrich_jobs_with_company_profiles(matched)}
+    matched = enrich_jobs_with_company_profiles(matched)
+    return {"resume": resume, "profile_strength": strength, "matched_jobs": _annotate_job_location_scope(matched)}
 
 
 @app.post("/api/resume/update")
@@ -792,12 +809,13 @@ def download_resume_pdf(resume_id: str):
 
 @app.post("/api/jobs/match")
 @app.post("/api/recommend")
-def recommend_filtered(platform: str = "all", min_score: int = 60):
+def recommend_filtered(platform: str = "all", min_score: int = 0):
     if not ACTIVE_SESSION["resume"]:
         raise HTTPException(status_code=400, detail="No résumé uploaded yet.")
     stored_jobs = db.get_jobs(platform=platform, limit=3000)
     recs = rec_svc.recommend_jobs(ACTIVE_SESSION["resume"], stored_jobs, min_score=min_score, platform_filter=platform)
     recs = enrich_jobs_with_company_profiles(sponsor_registry.annotate_jobs(recs))
+    recs = _annotate_job_location_scope(recs)
     return {
         "count": len(recs),
         "matched_jobs": recs
@@ -852,20 +870,27 @@ def career_chat(request: CareerChatRequest):
     matched_jobs = []
     if resume:
         active_resume = ACTIVE_SESSION.get("resume") or {}
-        same_profile = (
-            set(active_resume.get("skills", [])) == set(resume.get("skills", []))
-            and active_resume.get("target_roles", []) == resume.get("target_roles", [])
+        score_inputs = (
+            "summary",
+            "skills",
+            "experience",
+            "education",
+            "projects",
+            "certifications",
+            "years_of_experience",
         )
-        # Reuse cached matches if same profile — avoids re-running TF-IDF
+        same_profile = all(active_resume.get(key) == resume.get(key) for key in score_inputs)
+        # Reuse scores only when every field used by job-match analysis is unchanged.
         if same_profile and ACTIVE_SESSION.get("last_matched_jobs"):
             matched_jobs = ACTIVE_SESSION["last_matched_jobs"]
         else:
             matched_jobs = rec_svc.recommend_jobs(
                 resume,
                 [dict(job) for job in jobs],
-                min_score=60,
+                min_score=0,
             )
             matched_jobs = enrich_jobs_with_company_profiles(sponsor_registry.annotate_jobs(matched_jobs))
+            matched_jobs = _annotate_job_location_scope(matched_jobs)
             ACTIVE_SESSION["last_matched_jobs"] = matched_jobs
 
     context, job_cards, intent = build_career_context(

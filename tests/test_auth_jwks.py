@@ -47,7 +47,13 @@ class JwksTests(unittest.TestCase):
         cls.server.shutdown()
 
     def sign(self, key=None, **claims):
-        payload = {"sub": "user-1", "aud": "authenticated", "exp": int(time.time()) + 600, **claims}
+        payload = {
+            "sub": "user-1",
+            "aud": "authenticated",
+            "iss": f"{self.url}/auth/v1",
+            "exp": int(time.time()) + 600,
+            **claims,
+        }
         return jwt.encode(payload, key or self.key, algorithm="ES256", headers={"kid": "test-key"})
 
     def test_valid_es256_token_is_accepted(self):
@@ -62,7 +68,30 @@ class JwksTests(unittest.TestCase):
     def test_expired_es256_token_is_rejected(self):
         with mock.patch.dict(os.environ, {"SUPABASE_URL": self.url}, clear=False):
             with self.assertRaises(auth.AuthError):
-                auth.verify_token(self.sign(exp=int(time.time()) - 5))
+                auth.verify_token(self.sign(exp=int(time.time()) - auth.JWT_LEEWAY_SECONDS - 2))
+
+    def test_iat_within_clock_skew_leeway_is_accepted(self):
+        with mock.patch.dict(os.environ, {"SUPABASE_URL": self.url}, clear=False):
+            token = self.sign(iat=int(time.time()) + auth.JWT_LEEWAY_SECONDS)
+            self.assertEqual(auth.verify_token(token)["sub"], "user-1")
+
+    def test_iat_beyond_clock_skew_leeway_is_rejected(self):
+        with mock.patch.dict(os.environ, {"SUPABASE_URL": self.url}, clear=False):
+            token = self.sign(iat=int(time.time()) + auth.JWT_LEEWAY_SECONDS + 2)
+            with self.assertRaises(auth.AuthError):
+                auth.verify_token(token)
+
+    def test_expired_beyond_clock_skew_leeway_is_rejected(self):
+        with mock.patch.dict(os.environ, {"SUPABASE_URL": self.url}, clear=False):
+            token = self.sign(exp=int(time.time()) - auth.JWT_LEEWAY_SECONDS - 2)
+            with self.assertRaises(auth.AuthError):
+                auth.verify_token(token)
+
+    def test_token_with_wrong_issuer_is_rejected(self):
+        with mock.patch.dict(os.environ, {"SUPABASE_URL": self.url}, clear=False):
+            token = self.sign(iss="https://another-project.supabase.co/auth/v1")
+            with self.assertRaises(auth.AuthError):
+                auth.verify_token(token)
 
     def test_hs256_token_cannot_be_forged_with_the_public_key(self):
         """Classic alg-confusion attack: HS256 token whose 'secret' is the public key must not pass when no HS secret is configured."""

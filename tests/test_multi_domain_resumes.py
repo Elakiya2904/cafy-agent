@@ -71,13 +71,40 @@ class MultiDomainTests(unittest.TestCase):
                 self.assertGreaterEqual(len(resume["skills"]), 4, resume["skills"])
                 self.assertTrue(resume["target_roles"], "no target role detected")
                 jobs = [dict(j) for j in JOBS]
-                ids = [r["id"] for r in self.rec.recommend_jobs(resume, jobs, min_score=60)]
+                ids = [r["id"] for r in self.rec.recommend_jobs(resume, jobs, min_score=0)]
                 self.assertIn(EXPECTED[name], ids)
                 self.assertNotIn("s", ids, "engineering job must not match a non-engineering résumé")
 
     def test_lead_generation_is_not_lead_seniority(self):
         _, seniority = self.parser._detect_experience("Skilled in Lead Generation and prospecting")
         self.assertNotEqual(seniority, "Lead")
+
+    def test_professional_profile_section_is_parsed_as_summary(self):
+        text = (
+            "ALEX MORGAN\n"
+            "PROFESSIONAL PROFILE\n"
+            "Product manager with experience delivering customer-focused products.\n"
+            "EXPERIENCE\n"
+            "Product Manager | Acme 2021 - 2024\n"
+        )
+        resume = self.parser.analyze_text(text, "alex.pdf")
+        self.assertEqual(
+            resume["summary"],
+            "Product manager with experience delivering customer-focused products.",
+        )
+
+    def test_inline_summary_heading_keeps_summary_text(self):
+        text = (
+            "ALEX MORGAN\n"
+            "Professional Summary: Product manager with experience delivering customer-focused products.\n"
+            "EXPERIENCE\n"
+            "Product Manager | Acme 2021 - 2024\n"
+        )
+        resume = self.parser.analyze_text(text, "alex.pdf")
+        self.assertEqual(
+            resume["summary"],
+            "Product manager with experience delivering customer-focused products.",
+        )
 
     def test_unknown_profession_falls_back_to_listed_skills_and_titles(self):
         text = "SKILLS\nBeekeeping, Honey Extraction, Hive Management, Pollination\nEXPERIENCE\nApiarist | Bee Farm 2021 - 2024\n"

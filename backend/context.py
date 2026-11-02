@@ -3,6 +3,7 @@ from contextvars import ContextVar
 from typing import Optional
 
 DEV_CANDIDATE = "local"
+GUEST_CANDIDATE = "guest"
 
 _current: ContextVar[Optional[str]] = ContextVar("cafy_candidate", default=None)
 

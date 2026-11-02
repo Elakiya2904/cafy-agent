@@ -42,9 +42,12 @@ export const EDITOR_SECTIONS = [
   ["summary", "Professional Summary"],
   ["skills", "Skills"],
   ["experience", "Work Experience"],
+  ["internships", "Internships"],
   ["projects", "Projects"],
+  ["publications", "Publications"],
   ["education", "Education"],
   ["certifications", "Certifications"],
+  ["achievements", "Achievements"],
 ];
 
 const SETTINGS_KEY = "cafy.resumePdfSettings";
@@ -147,7 +150,7 @@ function SortableRow({ id, className, children }) {
 }
 
 function BulletList({ section, entryIndex, bullets, isRewriting, focusKey, setFocusKey, edit, onImprove, pendingFocus }) {
-  const label = section === "projects" ? "Project" : "Experience";
+  const label = section === "projects" ? "Project" : section === "internships" ? "Internship" : "Experience";
   return (
     <div className="re-bullets">
       <div className="re-field-label">Achievements</div>
@@ -238,7 +241,7 @@ function BulletList({ section, entryIndex, bullets, isRewriting, focusKey, setFo
   );
 }
 
-function EntryList({ section, entries, fields, titleOf, addLabel, hasBullets, isRewriting, focusKey, setFocusKey, edit, onImprove, pendingFocus }) {
+function EntryList({ section, entries, fields, titleOf, addLabel, hasBullets, hasDescription, isRewriting, focusKey, setFocusKey, edit, onImprove, pendingFocus }) {
   return (
     <>
       <SortableList count={entries.length} onMove={(from, to) => edit.moveEntry(section, from, to)}>
@@ -287,6 +290,15 @@ function EntryList({ section, entries, fields, titleOf, addLabel, hasBullets, is
                     />
                   ))}
                 </div>
+                {hasDescription && (
+                  <textarea
+                    className="editor-input re-entry-description"
+                    placeholder="Description or publication details"
+                    value={entry.description || ""}
+                    onChange={(e) => edit.updateEntryField(section, idx, "description", e.target.value)}
+                    aria-label={`${section} description ${idx + 1}`}
+                  />
+                )}
                 {hasBullets && (
                   <BulletList
                     section={section}
@@ -529,6 +541,10 @@ export default function ResumeEditor({
               ? { degree: "", institution: "", dates: "", location: "", bullets: [] }
               : section === "certifications"
               ? { name: "", issuer: "", dates: "" }
+              : section === "publications"
+              ? { title: "", organization: "", dates: "", description: "", bullets: [] }
+              : section === "achievements"
+              ? { title: "", dates: "", description: "" }
               : { title: "", organization: "", dates: "", location: "", bullets: [] }
           );
           return list;
@@ -685,18 +701,53 @@ export default function ResumeEditor({
             />
           )}
 
+          {section === "internships" && (
+            <EntryList
+              {...common}
+              section="internships"
+              entries={resume.internships || []}
+              hasBullets
+              hasDescription
+              titleOf={(e) => [e.title, e.organization].filter(Boolean).join(" — ")}
+              addLabel="+ Add Internship Entry"
+              fields={[
+                ["title", "Internship Role", "Internship title"],
+                ["organization", "Company / Organization", "Internship company"],
+                ["dates", "Dates", "Internship dates"],
+                ["location", "Location", "Internship location"],
+              ]}
+            />
+          )}
+
           {section === "projects" && (
             <EntryList
               {...common}
               section="projects"
               entries={resume.projects || []}
               hasBullets
+              hasDescription
               titleOf={(e) => e.title}
               addLabel="+ Add Project Entry"
               fields={[
                 ["title", "Project Name / Title", "Project title"],
                 ["organization", "Organization / Tech Stack", "Project organization"],
                 ["dates", "Dates", "Project dates"],
+              ]}
+            />
+          )}
+
+          {section === "publications" && (
+            <EntryList
+              {...common}
+              section="publications"
+              entries={resume.publications || []}
+              hasDescription
+              titleOf={(e) => e.title}
+              addLabel="+ Add Publication"
+              fields={[
+                ["title", "Publication / Paper Title", "Publication title"],
+                ["organization", "Journal / Conference", "Publication venue"],
+                ["dates", "Year", "Publication year"],
               ]}
             />
           )}
@@ -728,6 +779,21 @@ export default function ResumeEditor({
                 ["name", "Certification name", "Certification name"],
                 ["issuer", "Issuer", "Certification issuer"],
                 ["dates", "Date", "Certification date"],
+              ]}
+            />
+          )}
+
+          {section === "achievements" && (
+            <EntryList
+              {...common}
+              section="achievements"
+              entries={resume.achievements || []}
+              hasDescription
+              titleOf={(e) => e.title}
+              addLabel="+ Add Achievement"
+              fields={[
+                ["title", "Achievement / Award", "Achievement title"],
+                ["dates", "Date", "Achievement date"],
               ]}
             />
           )}

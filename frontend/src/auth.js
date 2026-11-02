@@ -5,10 +5,23 @@ const url = import.meta.env.VITE_SUPABASE_URL;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const authEnabled = Boolean(url && anonKey);
+export const guestModeEnabled = authEnabled && import.meta.env.VITE_ENABLE_GUEST_MODE === "true";
 export const supabase = authEnabled ? createClient(url, anonKey) : null;
 
 let accessToken = null;
+let guestModeActive = typeof window !== 'undefined' && window.sessionStorage?.getItem('cafy_guest_mode') === 'true';
 export const getAccessToken = () => accessToken;
+
+export function setGuestMode(enabled) {
+  guestModeActive = guestModeEnabled && enabled;
+  if (typeof window !== 'undefined') {
+    if (guestModeActive) {
+      window.sessionStorage?.setItem('cafy_guest_mode', 'true');
+    } else {
+      window.sessionStorage?.removeItem('cafy_guest_mode');
+    }
+  }
+}
 
 /** For file previews/downloads opened in a new tab, which cannot send an Authorization header. */
 export function withToken(path) {
@@ -36,9 +49,15 @@ export function installAuthFetch() {
   const original = window.fetch.bind(window);
   window.fetch = async (input, init = {}) => {
     const target = typeof input === "string" ? input : input?.url || "";
-    if (!target.includes("/api/") || !accessToken) return original(input, init);
+    if (!target.includes("/api/")) return original(input, init);
     const headers = new Headers(init.headers || (typeof input !== "string" ? input.headers : undefined));
-    if (!headers.has("Authorization")) headers.set("Authorization", `Bearer ${accessToken}`);
+    if (accessToken && !headers.has("Authorization")) {
+      headers.set("Authorization", `Bearer ${accessToken}`);
+    } else if (guestModeActive && !headers.has("Authorization")) {
+      headers.set("X-Cafy-Guest", "true");
+    } else if (!accessToken) {
+      return original(input, init);
+    }
     const response = await original(input, { ...init, headers });
     if (response.status === 401 && supabase) supabase.auth.signOut();  // expired or revoked session
     return response;

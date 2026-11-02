@@ -166,15 +166,14 @@ class JobDatabase:
             from .job_intelligence.schema import JOB_INTELLIGENCE_SCHEMA
             conn.executescript(JOB_INTELLIGENCE_SCHEMA)
 
-            # Keep legacy worldwide listings out of the active feed after the
-            # scraper scope changed to UK and Ireland only.
+            # Keep listings outside the UK out of the active feed.
             legacy_rows = cursor.execute(
                 "SELECT id, location FROM jobs WHERE status = 'active'"
             ).fetchall()
             out_of_scope_ids = [
                 row["id"]
                 for row in legacy_rows
-                if not JobNormalizer.is_uk_or_ireland_location(row["location"] or "")
+                if not JobNormalizer.is_uk_location(row["location"] or "")
             ]
             if out_of_scope_ids:
                 cursor.executemany(
@@ -182,7 +181,7 @@ class JobDatabase:
                     [(job_id,) for job_id in out_of_scope_ids],
                 )
                 logger.info(
-                    "[JobDatabase] Deactivated %d legacy non-UK/Ireland jobs",
+                    "[JobDatabase] Deactivated %d legacy non-UK jobs",
                     len(out_of_scope_ids),
                 )
 
@@ -217,9 +216,9 @@ class JobDatabase:
                 job_id = job.get("id")
                 if not job_id:
                     continue
-                if not JobNormalizer.is_uk_or_ireland_location(job.get("location", "")):
+                if not JobNormalizer.is_uk_location(job.get("location", "")):
                     logger.info(
-                        "[JobDatabase] Skipping non-UK/Ireland job %s",
+                        "[JobDatabase] Skipping non-UK job %s",
                         job_id,
                     )
                     continue

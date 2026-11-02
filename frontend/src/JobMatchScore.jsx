@@ -63,21 +63,27 @@ export function useJobMatchAnalysis(jobId, profile, debounceMs = 0) {
   const [previousScore, setPreviousScore] = useState(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState("");
-  const lastScoreRef = useRef(null);
+  const lastScoreRef = useRef({ jobId: null, score: null });
   const profileKey = JSON.stringify(profile ?? null);
+  const requestKey = `${jobId || ""}:${profileKey}`;
 
   useEffect(() => {
-    if (!jobId || !profile) return undefined;
-    let cancelled = false;
-    const timer = setTimeout(async () => {
-      setIsAnalyzing(true);
+    if (!jobId || !profile) {
+      setIsAnalyzing(false);
       setError("");
+      return undefined;
+    }
+    let cancelled = false;
+    setIsAnalyzing(true);
+    setError("");
+    const timer = setTimeout(async () => {
       try {
         const data = await fetchJobMatchAnalysis(jobId, profile);
         if (cancelled) return;
-        setPreviousScore(lastScoreRef.current);
-        lastScoreRef.current = data.job_match_score;
-        setAnalysis(data);
+        const lastScore = lastScoreRef.current;
+        setPreviousScore(lastScore.jobId === jobId ? lastScore.score : null);
+        lastScoreRef.current = { jobId, score: data.job_match_score };
+        setAnalysis({ key: requestKey, data });
       } catch (err) {
         if (!cancelled) setError(err.message || "Could not analyse this job match.");
       } finally {
@@ -90,9 +96,14 @@ export function useJobMatchAnalysis(jobId, profile, debounceMs = 0) {
     };
     // profileKey captures profile content; the object identity changes on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobId, profileKey, debounceMs]);
+  }, [jobId, profileKey, debounceMs, requestKey]);
 
-  return { analysis, previousScore, isAnalyzing, error };
+  return {
+    analysis: analysis?.key === requestKey ? analysis.data : null,
+    previousScore: analysis?.key === requestKey ? previousScore : null,
+    isAnalyzing,
+    error: jobId && !profile ? "Upload a résumé to calculate this job match." : error,
+  };
 }
 
 export function SectionScoreBadge({ section }) {
@@ -130,7 +141,7 @@ export function EditorMatchScore({ analysis, previousScore, isAnalyzing, error }
       <div className="jms-editor-score-main">
         <strong>{analysis.job_match_score}%</strong>
         <span>
-          Job Match · {analysis.match_tier}
+          Job Match · Current Draft · {analysis.match_tier}
           {delta !== 0 && (
             <em className={delta > 0 ? "up" : "down"}> {delta > 0 ? `+${delta}` : delta} since last change</em>
           )}
@@ -151,4 +162,3 @@ export function EditorMatchScore({ analysis, previousScore, isAnalyzing, error }
     </div>
   );
 }
-

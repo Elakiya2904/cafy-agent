@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
 Discover which UK visa-sponsor employers run a public ATS job board, and how many
-UK / Ireland jobs each one has. Built to run unattended overnight.
+UK jobs each one has. Built to run unattended overnight.
 
 How it works
   1. Read the Home Office sponsor register (sponsor-data/*.csv).
   2. Turn every organisation name into candidate board slugs ("Trading 212 UK Ltd" -> trading212).
   3. Probe the public job-board APIs of Greenhouse, Lever, Ashby, SmartRecruiters and Workable.
-  4. Keep boards that exist and count their UK/Ireland jobs with the project's own location filter.
-  5. Merge boards that have UK/Ireland jobs into backend/scrapers/sources.yaml.
+  4. Keep boards that exist and count their UK jobs with the project's own location filter.
+  5. Merge boards that have UK jobs into backend/scrapers/sources.yaml.
 
 Usage
   pip install aiohttp pyyaml truststore
@@ -47,16 +47,16 @@ sys.path.insert(0, str(ROOT))
 try:
     from backend.scrapers.job_normalizer import JobNormalizer
 
-    is_uk_ie = JobNormalizer.is_uk_or_ireland_location
+    is_uk = JobNormalizer.is_uk_location
 except Exception:  # standalone fallback so the script still works on its own
     _UK = re.compile(
         r"\b(?:u\.?k\.?|united kingdom|great britain|britain|england|scotland|wales|northern ireland|"
-        r"ireland|republic of ireland|eire|london|dublin|edinburgh|manchester|glasgow|belfast|cardiff|"
-        r"bristol|birmingham|leeds|cambridge|oxford|cork|galway)\b",
+        r"london|edinburgh|manchester|glasgow|belfast|cardiff|"
+        r"bristol|birmingham|leeds|cambridge|oxford)\b",
         re.I,
     )
 
-    def is_uk_ie(loc: str) -> bool:
+    def is_uk(loc: str) -> bool:
         return bool(loc and _UK.search(loc))
 
 
@@ -302,7 +302,7 @@ class Runner:
             log.debug("probe error %s/%s: %s", platform, slug, e)
             locs = None
         if locs:
-            uk = sum(1 for l in locs if is_uk_ie(l))
+            uk = sum(1 for l in locs if is_uk(l))
             self.hits_fh.write(json.dumps({
                 "platform": platform, "slug": slug, "org": orgs[0], "total": len(locs), "uk_ie": uk,
             }) + "\n")
@@ -333,7 +333,7 @@ class Runner:
             done = self.stats["slugs_done"]
             eta = (total - done) / (done / (now - started)) / 60 if done else float("inf")
             log.info(
-                "[%s] %d/%d | %.0f req/s (limit %.0f) | boards %d, with UK/IE %d, UK/IE jobs %d | "
+                "[%s] %d/%d | %.0f req/s (limit %.0f) | boards %d, with UK %d, UK jobs %d | "
                 "429/5xx %d | err %d | ETA %.0f min",
                 platform, done, total, rps, self.limiters[platform].rate, self.stats["boards"],
                 self.stats["boards_with_uk"], self.stats["uk_ie_jobs"], self.stats["pushback"],

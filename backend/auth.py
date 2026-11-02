@@ -19,6 +19,7 @@ from . import context
 logger = logging.getLogger("cafy.auth")
 
 ALLOWED_ALGS = {"HS256", "ES256", "RS256"}
+JWT_LEEWAY_SECONDS = 30
 PUBLIC_PATHS = (
     re.compile(r"^/api/health/?$"),
     re.compile(r"^/api/email-agent/oauth/[a-z]+/callback/?$"),   # Google redirects the browser here; the signed state authenticates it
@@ -84,8 +85,16 @@ def is_production() -> bool:
     return (os.getenv("APP_ENV") or "").lower() in ("production", "prod")
 
 
+def guest_mode_enabled() -> bool:
+    """Guest requests are opt-in and never allowed in production."""
+    return (
+        not is_production()
+        and (os.getenv("ENABLE_GUEST_MODE") or "").strip().lower() in {"1", "true", "yes", "on"}
+    )
+
+
 def verify_token(token: str) -> Dict[str, Any]:
-    """Validate signature, expiry and audience; return the JWT claims."""
+    """Validate signature, timestamps, issuer and audience; return the JWT claims."""
     try:
         alg = jwt.get_unverified_header(token).get("alg")
         if alg not in ALLOWED_ALGS:
@@ -100,12 +109,22 @@ def verify_token(token: str) -> Dict[str, Any]:
                 raise AuthError("Asymmetric tokens are not accepted by this server.")
             client = _jwks.setdefault(supabase_url(), jwt.PyJWKClient(f"{supabase_url()}/auth/v1/.well-known/jwks.json", cache_keys=True))
             key = client.get_signing_key_from_jwt(token).key
-        claims = jwt.decode(token, key, algorithms=[alg], audience="authenticated", options={"require": ["exp", "sub"]})
+        project_url = supabase_url()
+        claims = jwt.decode(
+            token,
+            key,
+            algorithms=[alg],
+            audience="authenticated",
+            issuer=f"{project_url}/auth/v1" if project_url else None,
+            leeway=JWT_LEEWAY_SECONDS,
+            options={"require": ["exp", "sub"]},
+        )
     except AuthError:
         raise
     except jwt.ExpiredSignatureError as err:
         raise AuthError("Session expired. Please sign in again.") from err
     except (jwt.PyJWTError, ValueError) as err:
+        logger.warning("Supabase JWT validation failed: %s", err)
         raise AuthError("Invalid sign-in token.") from err
     return claims
 
@@ -132,12 +151,17 @@ class AuthMiddleware(BaseHTTPMiddleware):
         else:
             token = _bearer(request)
             if not token:
-                return JSONResponse({"detail": "Sign in required."}, status_code=401, headers={"WWW-Authenticate": "Bearer"})
-            try:
-                claims = verify_token(token)
-            except AuthError as err:
-                return JSONResponse({"detail": str(err)}, status_code=err.status, headers={"WWW-Authenticate": "Bearer"})
-            marker = context.set_candidate(claims["sub"])
+                guest_requested = request.headers.get("x-cafy-guest", "").strip().lower() == "true"
+                if guest_requested and guest_mode_enabled():
+                    marker = context.set_candidate(context.GUEST_CANDIDATE)
+                else:
+                    return JSONResponse({"detail": "Sign in required."}, status_code=401, headers={"WWW-Authenticate": "Bearer"})
+            else:
+                try:
+                    claims = verify_token(token)
+                except AuthError as err:
+                    return JSONResponse({"detail": str(err)}, status_code=err.status, headers={"WWW-Authenticate": "Bearer"})
+                marker = context.set_candidate(claims["sub"])
         try:
             return await call_next(request)
         finally:

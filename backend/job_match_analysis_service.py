@@ -118,12 +118,23 @@ def _entry_bullets(entry: Any) -> List[str]:
     return [p.strip(" -*") for p in parts if p.strip(" -*")]
 
 
-def _skills_in_text(job_skills: List[str], text: str) -> List[str]:
+def _skills_in_text(
+    job_skills: List[str],
+    text: str,
+    skill_evidence_cache: Optional[Dict[str, Set[str]]] = None,
+) -> List[str]:
     """Return the job skills that are evidenced anywhere in ``text``."""
     if not text:
         return []
     lower = f" {text.lower()} "
-    found_norm = {_norm(s) for s in _skill_extractor.extract_skills(text)}
+    if skill_evidence_cache is not None:
+        if text not in skill_evidence_cache:
+            skill_evidence_cache[text] = {
+                _norm(skill) for skill in _skill_extractor.extract_skills(text)
+            }
+        found_norm = skill_evidence_cache[text]
+    else:
+        found_norm = {_norm(skill) for skill in _skill_extractor.extract_skills(text)}
     evidenced = []
     for skill in job_skills:
         key = _norm(skill)
@@ -209,7 +220,11 @@ def _summary_length_fraction(length: int) -> float:
     return max(0.0, 1 - (length - SUMMARY_IDEAL_MAX) / SUMMARY_IDEAL_MAX)
 
 
-def analyze_profile_for_job(profile: Optional[Dict[str, Any]], job: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def analyze_profile_for_job(
+    profile: Optional[Dict[str, Any]],
+    job: Optional[Dict[str, Any]],
+    skill_evidence_cache: Optional[Dict[str, Set[str]]] = None,
+) -> Dict[str, Any]:
     """Score ``profile`` against ``job`` and return section scores, gaps and suggestions."""
     profile = profile or {}
     job = job or {}
@@ -249,10 +264,10 @@ def analyze_profile_for_job(profile: Optional[Dict[str, Any]], job: Optional[Dic
     matched_skills = [s for s in job_skills if _norm(s) in profile_skill_keys]
     missing_skills = [s for s in job_skills if _norm(s) not in profile_skill_keys]
     evidence_text = f"{summary} {experience_text} {project_text}"
-    evidenced_elsewhere = _skills_in_text(missing_skills, evidence_text)
+    evidenced_elsewhere = _skills_in_text(missing_skills, evidence_text, skill_evidence_cache)
     unevidenced = [s for s in missing_skills if s not in evidenced_elsewhere]
     work_evidence_text = f"{experience_text} {project_text}"
-    matched_with_evidence = _skills_in_text(matched_skills, work_evidence_text)
+    matched_with_evidence = _skills_in_text(matched_skills, work_evidence_text, skill_evidence_cache)
     matched_without_evidence = [s for s in matched_skills if s not in matched_with_evidence]
 
     if job_skill_count:
@@ -291,7 +306,7 @@ def analyze_profile_for_job(profile: Optional[Dict[str, Any]], job: Optional[Dic
         candidate_years = int(profile.get("years_of_experience") or 0)
     except (TypeError, ValueError):
         candidate_years = 0
-    exp_evidenced = _skills_in_text(job_skills, experience_text)
+    exp_evidenced = _skills_in_text(job_skills, experience_text, skill_evidence_cache)
     exp_bullets = [_entry_bullets(e) for e in experience]
     all_exp_bullets = [b for bullets in exp_bullets for b in bullets]
     metric_bullets = [b for b in all_exp_bullets if METRIC_PATTERN.search(b)]
@@ -408,7 +423,7 @@ def analyze_profile_for_job(profile: Optional[Dict[str, Any]], job: Optional[Dic
     # 50: share of ALL job skills evidenced in project text
     # 30: share of projects with a description or bullets
     # 20: share of projects showing a measurable result
-    proj_evidenced = _skills_in_text(job_skills, project_text)
+    proj_evidenced = _skills_in_text(job_skills, project_text, skill_evidence_cache)
     if projects:
         detailed = [p for p in projects if _entry_bullets(p)]
         with_metric = [p for p in projects if METRIC_PATTERN.search(_entry_text([p], ("description", "bullets")))]

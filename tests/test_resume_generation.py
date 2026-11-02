@@ -44,6 +44,36 @@ class TestResumeGeneration(unittest.TestCase):
         self.assertEqual(len(normalized[0]["bullets"]), 2)
         self.assertEqual(normalized[0]["bullets"][0], "Engineered high-throughput event pipeline")
 
+    def test_blank_generated_summary_falls_back_to_uploaded_profile(self):
+        normalized = self.service._validate_and_normalize(
+            {"professional_summary": "   "},
+            {"summary": "Experienced engineer with a proven delivery record."},
+            {},
+        )
+        self.assertEqual(
+            normalized["professional_summary"],
+            "Experienced engineer with a proven delivery record.",
+        )
+
+    def test_normalization_keeps_projects_publications_and_achievements_separate(self):
+        source = {
+            "projects": [{"title": "Project One"}, {"title": "Project Two"}],
+            "internships": [{"title": "Research Intern", "organization": "Lab"}],
+            "publications": [{"title": "Paper One", "organization": "Research Journal"}],
+            "achievements": [{"title": "Finalist, Data Challenge"}],
+        }
+
+        normalized = self.service._validate_and_normalize({}, source, {})
+
+        self.assertEqual([item["title"] for item in normalized["projects"]], ["Project One", "Project Two"])
+        self.assertEqual(normalized["internships"][0]["title"], "Research Intern")
+        self.assertEqual(normalized["publications"][0]["title"], "Paper One")
+        self.assertEqual(normalized["achievements"][0]["title"], "Finalist, Data Challenge")
+        latex = self.service._render_latex(normalized)
+        self.assertIn(r"\section*{Projects}", latex)
+        self.assertIn(r"\section*{Publications}", latex)
+        self.assertNotIn("Paper One", latex.split(r"\section*{Projects}", 1)[1].split(r"\section*{Publications}", 1)[0])
+
     def test_database_persistence(self):
         job_id = "test-job-persist-123"
         resume_id = "test-res-persist-456"
@@ -53,6 +83,7 @@ class TestResumeGeneration(unittest.TestCase):
             "skills": ["Python", "Docker"],
             "experience": [],
             "projects": [],
+            "publications": [{"title": "Paper One"}],
             "education": [],
             "certifications": [],
         }
@@ -61,6 +92,7 @@ class TestResumeGeneration(unittest.TestCase):
         self.assertIsNotNone(retrieved)
         self.assertEqual(retrieved["resume_id"], resume_id)
         self.assertEqual(retrieved["resume"]["personal_info"]["name"], "Test Candidate")
+        self.assertEqual(retrieved["resume"]["publications"], [{"title": "Paper One"}])
 
 
 if __name__ == "__main__":
