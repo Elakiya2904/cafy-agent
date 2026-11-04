@@ -125,6 +125,42 @@ describe('Find Jobs country location filters', () => {
   });
 });
 
+describe('Find Jobs browse layout', () => {
+  it('shows the job list and About-first detail panel without opening the advanced filters', () => {
+    render(
+      <DirectoryView
+        jobs={[{
+          ...job,
+          visa_sponsored: true,
+          visa_sponsor_country: 'UK',
+          company_description: 'A growing technology company.',
+          company_website: 'https://example.com',
+        }]}
+        matchedJobs={[]}
+        resume={null}
+        platforms={[]}
+        pipelineJobIds={new Set()}
+        onTogglePipeline={() => {}}
+        onAddAllToPipeline={() => {}}
+        onSelectJob={() => {}}
+        onRefresh={() => {}}
+      />
+    );
+
+    expect(screen.getByRole('searchbox', { name: 'Job role' })).toBeInTheDocument();
+    expect(screen.getByRole('searchbox', { name: 'Company or location' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '1 active job' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Company details' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Job info' })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByRole('tab', { name: 'Job Intelligence' })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Why This Job?' })).not.toBeInTheDocument();
+    expect(screen.getByText('LICENSED UK VISA SPONSOR')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Apply with autofill/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Apply now/i })).toHaveAttribute('target', '_blank');
+
+  });
+});
+
 beforeEach(() => {
   document.body.innerHTML = '<div id="root"></div>';
   window.sessionStorage.clear();
@@ -259,7 +295,7 @@ describe('App page reload', () => {
 });
 
 describe('Cafy Agent job application drawer', () => {
-  it('normalizes HTML job descriptions in the tailor textarea', async () => {
+  it('normalizes HTML job descriptions on the job review screen', async () => {
     const htmlJob = {
       ...job,
       description: '<p><strong>Build products</strong>&nbsp;&amp; lead teams.</p><p>Use React.</p>',
@@ -276,9 +312,10 @@ describe('Cafy Agent job application drawer', () => {
       />
     );
 
-    const description = await screen.findByDisplayValue(/Build products & lead teams/i);
-    expect(description).not.toHaveValue(expect.stringContaining('<p>'));
-    expect(description).not.toHaveValue(expect.stringContaining('&nbsp;'));
+    const description = await screen.findByText(/Build products\s+& lead teams/i);
+    expect(description.textContent).not.toContain('<p>');
+    expect(description.textContent).not.toContain('&nbsp;');
+    expect(description.textContent).not.toContain('&amp;');
   });
 
   it('opens the application drawer and switches tabs', async () => {
@@ -317,17 +354,18 @@ describe('Cafy Agent job application drawer', () => {
     expect(await screen.findAllByText('92% Job Match')).not.toHaveLength(0);
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Tailor with Cafy/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Apply with autofill/i })).toBeInTheDocument();
     });
 
-    // "Apply Now" is a link to the original posting; "Tailor with Cafy" opens the tailor setup first.
-    expect(screen.getByRole('link', { name: /Apply Now/i })).toHaveAttribute('target', '_blank');
-    fireEvent.click(screen.getByRole('button', { name: /Tailor with Cafy/i }));
+    // "Apply now" opens the employer posting; "Apply with autofill" opens the tailoring workflow.
+    expect(screen.getByRole('link', { name: /Apply now/i })).toHaveAttribute('target', '_blank');
+    fireEvent.click(screen.getByRole('button', { name: /Apply with autofill/i }));
 
-    // Inputs and the pre-generation analysis come first; nothing is generated until the user asks.
-    expect(await screen.findByText('Tailor your resume')).toBeInTheDocument();
+    // The selected job and its description come first; nothing is generated until the user asks.
+    expect(await screen.findByText('Selected job')).toBeInTheDocument();
+    expect(screen.getByText('Job description')).toBeInTheDocument();
     expect(screen.getByText(/Additional instructions/i)).toBeInTheDocument();
-    expect(await screen.findByTestId('application-analysis')).toBeInTheDocument();
+    expect(screen.queryByTestId('editor-match-score')).not.toBeInTheDocument();
     expect(global.fetch).not.toHaveBeenCalledWith(expect.stringContaining('/api/resumes/generate'), expect.anything());
 
     fireEvent.change(screen.getByPlaceholderText(/Emphasise my Python/i), { target: { value: 'Emphasise Python' } });
@@ -338,9 +376,12 @@ describe('Cafy Agent job application drawer', () => {
     const call = global.fetch.mock.calls.find(([u]) => u.includes('/api/resumes/generate'));
     expect(JSON.parse(call[1].body).additional_instructions).toBe('Emphasise Python');
     expect(screen.queryByRole('tab', { name: /^Requirements$/i })).not.toBeInTheDocument();
+    // Generating lands in the Resume Editor and the job review card goes away.
+    expect(await screen.findByRole('navigation', { name: 'Structured editor sections' }, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.queryByText('Selected job')).not.toBeInTheDocument();
   });
 
-  it('generates a tailored resume, downloads it, and opens the application URL', async () => {
+  it('generates a tailored resume without the removed output action bar', async () => {
     render(
       <JobDetailModal
         job={job}
@@ -353,21 +394,9 @@ describe('Cafy Agent job application drawer', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Generate Tailored Resume/i }));
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Download/i })).toBeInTheDocument();
-    }, { timeout: 3000 });
-
-    fireEvent.click(screen.getByRole('button', { name: /Download Resume/i }));
-    expect(window.open).toHaveBeenCalled();
-
-    const continueBtn = screen.getByRole('button', { name: /Continue to Application/i });
-    fireEvent.click(continueBtn);
-    expect(screen.queryByText(/Supported Form Autofill/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Multi-step Application/i)).not.toBeInTheDocument();
-    // The application is registered (duplicate check) before the company page opens.
-    await waitFor(() => expect(window.open).toHaveBeenCalledTimes(2));
-    expect(window.open).toHaveBeenLastCalledWith('https://example.com/apply', '_blank', 'noopener,noreferrer');
-    expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('/api/job-applications/start'), expect.anything());
+    await screen.findByRole('navigation', { name: 'Structured editor sections' }, { timeout: 3000 });
+    expect(screen.queryByRole('button', { name: /Download Resume/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Continue to Application/i })).not.toBeInTheDocument();
   });
 
   it('shows live section scores in the Resume Editor and updates them after Improve with AI', async () => {
@@ -379,14 +408,14 @@ describe('Cafy Agent job application drawer', () => {
     fireEvent.click(screen.getByRole('button', { name: /Generate Tailored Resume/i }));
 
     const scoreBar = await screen.findByTestId('editor-match-score', {}, { timeout: 3000 });
-    expect(scoreBar).toHaveTextContent(/^72%Job Match · Current Draft · Good Match/);
-    expect(scoreBar).toHaveTextContent('Professional Summary 60%');
+    expect(scoreBar).toHaveTextContent(/72%ATS MATCH READINESS\s*Good Match\s*Optimized for:/);
+    expect(scoreBar).toHaveTextContent('Summary60%');
     expect(screen.getAllByTitle('Professional Summary: 60% match for this job').length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getAllByRole('button', { name: /Improve with AI/i })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: /AI Enhance & Optimize/i })[0]);
 
     await waitFor(() => {
-      expect(screen.getByTestId('editor-match-score')).toHaveTextContent(/^80%Job Match · Current Draft · Strong Match/);
+      expect(screen.getByTestId('editor-match-score')).toHaveTextContent(/80%ATS MATCH READINESS\s*Strong Match\s*Optimized for:/);
     }, { timeout: 3000 });
     expect(screen.getByTestId('editor-match-score')).toHaveTextContent('+8 since last change');
     expect(screen.getAllByTitle('Professional Summary: 95% match for this job').length).toBeGreaterThan(0);
@@ -416,8 +445,8 @@ describe('Cafy Agent job application drawer', () => {
     // Generate button sits below the analysis; the editor then shows one section at a time.
     fireEvent.click(screen.getByRole('button', { name: /Generate Tailored Resume/i }));
     const nav = await screen.findByRole('navigation', { name: 'Structured editor sections' }, { timeout: 3000 });
-    fireEvent.click(within(nav).getByRole('button', { name: /Certifications/ }));
-    expect(screen.getByRole('button', { name: '+ Add Certification' })).toBeInTheDocument();
+    fireEvent.click(within(nav).getByRole('button', { name: /Education/ }));
+    expect(screen.getByRole('button', { name: '+ Add Education Entry' })).toBeInTheDocument();
     expect(screen.queryByLabelText('Professional summary')).not.toBeInTheDocument();
   });
 
@@ -429,29 +458,17 @@ describe('Cafy Agent job application drawer', () => {
     expect(screen.queryByText(/Meta|Microsoft|NVIDIA/)).not.toBeInTheDocument();
 
     rerender(<ApplicationTrackingView pipelineJobIds={new Set(['job-1'])} allJobs={[job]} onSelectJob={() => {}} />);
-    expect(screen.getByText('Senior Software Engineer')).toBeInTheDocument();
+    expect(screen.getAllByText('Senior Software Engineer').length).toBeGreaterThan(0);
     const status = screen.getByTitle('Click to change status');
     expect(status).toHaveTextContent('In pipeline');
     fireEvent.click(status);
     expect(screen.getByTitle('Click to change status')).toHaveTextContent('Applied');
   });
 
-  it('Rewrite with AI rewrites the whole resume, reports kept lines and only recommends skills', async () => {
+  it('does not show the removed rewrite action bar', async () => {
     render(<JobDetailModal job={job} resume={resume} onClose={() => {}} onTogglePipeline={() => {}} inPipeline={false} />);
     fireEvent.click(screen.getByRole('button', { name: /Generate Tailored Resume/i }));
-    const rewriteBtn = await screen.findByRole('button', { name: 'Rewrite with AI' }, { timeout: 3000 });
-    fireEvent.click(rewriteBtn);
-
-    const result = await screen.findByTestId('rewrite-result');
-    expect(result).toHaveTextContent('saved as a new version');
-    expect(result).toHaveTextContent('1 line was kept as written');
-    expect(screen.getByLabelText('Professional summary')).toHaveValue('Rewritten summary using only existing facts.');
-
-    // Recommended skills are not added until the user chooses to.
-    const call = global.fetch.mock.calls.find(([u]) => u.includes('/api/resumes/rewrite-full'));
-    expect(JSON.parse(call[1].body).resume.skills).not.toContain('Kubernetes');
-    const add = within(result).getByRole('button', { name: /Kubernetes/ });
-    fireEvent.click(add);
-    expect(within(result).getByRole('button', { name: /Kubernetes/ })).toBeDisabled();
+    await screen.findByRole('navigation', { name: 'Structured editor sections' }, { timeout: 3000 });
+    expect(screen.queryByRole('button', { name: 'Rewrite with AI' })).not.toBeInTheDocument();
   });
 });

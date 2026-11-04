@@ -44,6 +44,8 @@ from .job_match_analysis_service import analyze_profile_for_job
 from .email_agent.service import EmailAgentService
 from .email_agent.api import build_router as build_email_agent_router
 from .email_agent.monitor import EmailMonitor
+from .nango_api import build_router as build_nango_router
+from .nango_service import NangoService
 from .job_applications.service import JobApplicationService
 from .job_applications.api import build_router as build_job_applications_router
 from .job_applications.answers import groq_answer
@@ -191,6 +193,8 @@ resume_generation_svc = ResumeGenerationService(PROJECT_ROOT)
 email_agent_svc = EmailAgentService(db)
 email_monitor = EmailMonitor(email_agent_svc)
 app.include_router(build_email_agent_router(email_agent_svc, email_monitor))
+nango_svc = NangoService()
+app.include_router(build_nango_router(nango_svc))
 
 
 def _stored_resume_file() -> Optional[Dict[str, Any]]:

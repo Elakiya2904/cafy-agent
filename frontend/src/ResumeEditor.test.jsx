@@ -74,15 +74,15 @@ describe("ResumeEditor", () => {
     render(<Harness />);
     const box = () => screen.getByLabelText("Professional summary");
     fireEvent.change(box(), { target: { value: "Changed." } });
-    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    fireEvent.keyDown(box(), { key: "z", ctrlKey: true });
     expect(box()).toHaveValue("Engineer.");
-    fireEvent.click(screen.getByRole("button", { name: "Redo" }));
+    fireEvent.keyDown(box(), { key: "y", ctrlKey: true });
     expect(box()).toHaveValue("Changed.");
   });
 
   it("adds a bullet on Enter, removes an empty one on Backspace, and splits pasted lists", () => {
     render(<Harness />);
-    goTo(/Work Experience/);
+    goTo(/Experience/);
     const first = screen.getByLabelText("Experience bullet 1");
     fireEvent.keyDown(first, { key: "Enter" });
     const second = screen.getByLabelText("Experience bullet 2");
@@ -99,7 +99,7 @@ describe("ResumeEditor", () => {
 
   it("shows writing tips only for the bullet being edited", () => {
     render(<Harness initial={{ ...base(), experience: [{ ...base().experience[0], bullets: ["Responsible for servers"] }] }} />);
-    goTo(/Work Experience/);
+    goTo(/Experience/);
     expect(screen.queryByLabelText("Writing tips")).not.toBeInTheDocument();
     fireEvent.focus(screen.getByLabelText("Experience bullet 1"));
     expect(screen.getByLabelText("Writing tips")).toHaveTextContent(/action verb/);
@@ -118,28 +118,26 @@ describe("ResumeEditor", () => {
     expect(screen.queryByRole("button", { name: "+ Docker" })).not.toBeInTheDocument();
   });
 
-  it("edits and autosaves publications without changing projects", () => {
+  it("edits and autosaves projects without changing education", () => {
     const onSave = vi.fn();
     const initial = {
       ...base(),
-      projects: [{ title: "Dashboard", description: "Built an inventory dashboard.", bullets: [] }],
-      publications: [
-        { title: "Paper One", organization: "Research Journal", dates: "2023", description: "First paper." },
-        { title: "Paper Two", organization: "Systems Conference", dates: "2024", description: "Second paper." },
+      projects: [
+        { title: "Project One", organization: "Training Provider", dates: "2023", description: "First project." },
+        { title: "Project Two", organization: "Systems Academy", dates: "2024", description: "Second project." },
       ],
     };
     render(<Harness initial={initial} onSave={onSave} />);
 
-    goTo(/Publications/);
-    const titles = screen.getAllByLabelText("Publication title");
-    expect(titles[0]).toHaveValue("Paper One");
-    expect(titles[1]).toHaveValue("Paper Two");
-    fireEvent.change(screen.getByLabelText("publications description 1"), { target: { value: "Updated first paper." } });
+    goTo(/Projects/);
+    const titles = screen.getAllByLabelText("Project title");
+    expect(titles[0]).toHaveValue("Project One");
+    expect(titles[1]).toHaveValue("Project Two");
+    fireEvent.change(screen.getAllByLabelText("projects description 1")[0], { target: { value: "Updated project." } });
     act(() => { vi.advanceTimersByTime(2100); });
 
     expect(onSave).toHaveBeenCalledTimes(1);
-    expect(onSave.mock.calls[0][0].publications[0].description).toBe("Updated first paper.");
-    expect(onSave.mock.calls[0][0].publications[1].title).toBe("Paper Two");
-    expect(onSave.mock.calls[0][0].projects[0].title).toBe("Dashboard");
+    expect(onSave.mock.calls[0][0].projects[0].description).toBe("Updated project.");
+    expect(onSave.mock.calls[0][0].projects[1].title).toBe("Project Two");
   });
 });

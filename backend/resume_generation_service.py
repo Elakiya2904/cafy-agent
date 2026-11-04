@@ -69,6 +69,7 @@ class ResumeGenerationService:
                 structured = self.rewrite_full(structured, job, skill_extractor, instructions)["resume"]
             except ResumeGenerationError as error:
                 logger.warning("Tailoring rewrite skipped, using profile text as-is: %s", error)
+        structured = self._ensure_education_descriptions(structured)
         resume_id = uuid.uuid4().hex
 
         # Render LaTeX
@@ -255,6 +256,18 @@ class ResumeGenerationService:
                 "professional_summary": tailored.get("professional_summary") or "",
                 "experience": entry_payload(tailored.get("experience")),
                 "projects": entry_payload(tailored.get("projects")),
+                "education": [
+                    {
+                        "index": i,
+                        "degree": e.get("degree") or e.get("title") or "",
+                        "institution": e.get("institution") or e.get("organization") or "",
+                        "dates": e.get("dates") or "",
+                        "location": e.get("location") or "",
+                        "bullets": list(e.get("bullets") or []),
+                    }
+                    for i, e in enumerate(tailored.get("education") or [])
+                    if isinstance(e, dict) and not e.get("description")
+                ],
             },
         }
         system = (
@@ -262,9 +275,12 @@ class ResumeGenerationService:
             "project description and bullet so they are concise, outcome-focused, start with strong action verbs and "
             "align with the job. STRICT RULES: use ONLY facts already present in the resume. Never add numbers, metrics, "
             "percentages, dates, employers, tools, technologies, skills or achievements that are not already in the resume. "
+            "For supplied education entries, write a concise description relevant to the stated degree, using only "
+            "their supplied degree, institution, dates, location and bullets. Do not invent modules, grades, awards "
+            "or other facts. "
             "Never add new bullets beyond the original count for an entry. Keep each entry's index. "
             "Return JSON only: {\"professional_summary\": str, \"experience\": [{\"index\": int, \"description\": str, "
-            "\"bullets\": [str]}], \"projects\": [same shape]}."
+            "\"bullets\": [str]}], \"projects\": [same shape], \"education\": [{\"index\": int, \"description\": str}]}."
         )
         steer = re.sub(r"\s+", " ", str(instructions or "")).strip()[:500]
         if steer:
@@ -345,6 +361,14 @@ class ResumeGenerationService:
                     accept(new_bullets[j] if j < len(new_bullets) else "", old)
                     for j, old in enumerate(old_bullets)
                 ]
+        education_by_index = {
+            item.get("index"): item for item in (rewritten.get("education") or [])
+            if isinstance(item, dict) and isinstance(item.get("index"), int)
+        }
+        for i, entry in enumerate(result.get("education") or []):
+            new = education_by_index.get(i)
+            if isinstance(entry, dict) and not entry.get("description") and new:
+                entry["description"] = accept(new.get("description"), "")
         return {"resume": result, "rejected_lines": rejected}
 
     def _tailor_with_groq(self, resume: Dict[str, Any], job: Dict[str, Any], source_text: str) -> Dict[str, Any]:
@@ -606,6 +630,9 @@ class ResumeGenerationService:
             "publications": self._normalize_entries(generated.get("publications") or resume.get("publications"), section="publications"),
             "certifications": self._normalize_entries(generated.get("certifications") or resume.get("certifications"), section="certifications"),
             "achievements": self._normalize_entries(generated.get("achievements") or resume.get("achievements"), section="achievements"),
+            "activities": resume.get("activities", generated.get("activities", [])),
+            "leadership": resume.get("leadership", generated.get("leadership", [])),
+            "awards": resume.get("awards", generated.get("awards", [])),
             "skills": deduped_skills,
         }
         return self._enforce_single_page_limits(res)
@@ -674,8 +701,44 @@ class ResumeGenerationService:
 
         return data
 
+    @classmethod
+    def _ensure_education_descriptions(cls, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Fill missing education descriptions with degree-relevant factual context."""
+        result = json.loads(json.dumps(data))
+        for item in result.get("education") or []:
+            if not isinstance(item, dict) or cls._clean_text(item.get("description")):
+                continue
+            degree = cls._clean_text(item.get("degree") or item.get("title"))
+            institution = cls._clean_text(item.get("institution") or item.get("organization"))
+            degree_lower = degree.casefold()
+            if any(term in degree_lower for term in ("information technology", "it ", "it-", "software")):
+                focus = "software development, databases, networking, systems analysis, and information technology applications"
+            elif any(term in degree_lower for term in ("computer science", "computing", "informatics")):
+                focus = "algorithms, programming, data structures, databases, software engineering, and computing systems"
+            elif any(term in degree_lower for term in ("data science", "analytics", "artificial intelligence", "machine learning")):
+                focus = "data analysis, statistical methods, programming, machine learning, and practical data-driven problem solving"
+            elif any(term in degree_lower for term in ("business", "management", "commerce", "mba")):
+                focus = "business principles, analytical decision-making, organisational practice, and commercial problem solving"
+            elif any(term in degree_lower for term in ("engineering", "technology")):
+                focus = "engineering principles, technical analysis, design methods, and practical problem solving"
+            else:
+                focus = "the core theory, practical application, analytical thinking, and subject-specific problem solving of the discipline"
+            label = degree or "the qualification"
+            description = f"Studied {focus} through the {label}"
+            if institution:
+                description += f" at {institution}"
+            description += "."
+            item["description"] = description
+        return result
+
     def _export_docx(self, structured: Dict[str, Any], docx_path: Path) -> Path:
         """Exports ATS-friendly clean single-column DOCX format."""
+        structured = {
+            **structured,
+            "internships": [],
+            "publications": [],
+            "achievements": [],
+        }
         doc = docx.Document()
 
         # Set standard margins (0.75 in / 1.9 cm)
@@ -739,10 +802,10 @@ class ResumeGenerationService:
             run.font.name = "Calibri"
             run.font.color.rgb = RGBColor(30, 41, 59)
 
-        # Professional Summary
+        # About Me
         summary = structured.get("professional_summary")
         if summary:
-            add_section_heading("Professional Summary")
+            add_section_heading("About Me")
             p_sum = doc.add_paragraph(summary)
             p_sum.paragraph_format.space_after = Pt(6)
             for r in p_sum.runs:
@@ -789,27 +852,6 @@ class ResumeGenerationService:
                         r.font.size = Pt(9.5)
                         r.font.name = "Calibri"
 
-        internships = structured.get("internships") or []
-        if internships:
-            add_section_heading("Internships")
-            for item in internships:
-                p_item = doc.add_paragraph()
-                p_item.paragraph_format.space_before = Pt(4)
-                p_item.paragraph_format.space_after = Pt(1)
-                r_title = p_item.add_run(item.get("title") or "")
-                r_title.bold = True
-                r_title.font.name = "Calibri"
-                r_title.font.size = Pt(10.5)
-                organization = item.get("organization") or item.get("company")
-                if organization:
-                    p_item.add_run(f" | {organization}" if item.get("title") else organization)
-                if item.get("dates"):
-                    p_item.add_run(f" ({item['dates']})").italic = True
-                if item.get("description"):
-                    doc.add_paragraph(item["description"])
-                for bullet in item.get("bullets") or []:
-                    doc.add_paragraph(bullet, style="List Bullet")
-
         # Projects
         projects = structured.get("projects") or []
         if projects:
@@ -843,27 +885,6 @@ class ResumeGenerationService:
                     for r in p_b.runs:
                         r.font.size = Pt(9.5)
                         r.font.name = "Calibri"
-
-        publications = structured.get("publications") or []
-        if publications:
-            add_section_heading("Publications")
-            for item in publications:
-                p_item = doc.add_paragraph()
-                p_item.paragraph_format.space_after = Pt(2)
-                title = item.get("title") or item.get("name") or ""
-                run = p_item.add_run(title)
-                run.bold = True
-                run.font.name = "Calibri"
-                run.font.size = Pt(10)
-                organization = item.get("organization") or item.get("venue") or ""
-                if organization:
-                    p_item.add_run(f" | {organization}" if title else organization)
-                if item.get("dates"):
-                    p_item.add_run(f" ({item['dates']})").italic = True
-                if item.get("description"):
-                    doc.add_paragraph(item["description"])
-                for bullet in item.get("bullets") or []:
-                    doc.add_paragraph(bullet, style="List Bullet")
 
         # Education
         education = structured.get("education") or []
@@ -905,43 +926,6 @@ class ResumeGenerationService:
             for r in p_sk.runs:
                 r.font.size = Pt(9.5)
                 r.font.name = "Calibri"
-
-        # Certifications
-        certs = structured.get("certifications") or []
-        if certs:
-            add_section_heading("Certifications")
-            for item in certs:
-                p_item = doc.add_paragraph()
-                p_item.paragraph_format.space_after = Pt(2)
-                r_name = p_item.add_run(item.get("name") or item.get("title") or "")
-                r_name.bold = True
-                r_name.font.name = "Calibri"
-                r_name.font.size = Pt(10)
-                if item.get("issuer") or item.get("organization"):
-                    issuer = item.get('issuer') or item.get('organization')
-                    r_iss = p_item.add_run(f" - {issuer}" if (item.get("name") or item.get("title")) else issuer)
-                    r_iss.font.name = "Calibri"
-                    r_iss.font.size = Pt(9.5)
-                if item.get("dates"):
-                    r_d = p_item.add_run(f" ({item['dates']})")
-                    r_d.font.name = "Calibri"
-                    r_d.font.size = Pt(9.5)
-                    r_d.font.italic = True
-
-        achievements = structured.get("achievements") or []
-        if achievements:
-            add_section_heading("Achievements")
-            for item in achievements:
-                p_item = doc.add_paragraph()
-                title = item.get("title") or item.get("name") or ""
-                run = p_item.add_run(title)
-                run.bold = True
-                run.font.name = "Calibri"
-                run.font.size = Pt(10)
-                if item.get("dates"):
-                    p_item.add_run(f" ({item['dates']})").italic = True
-                if item.get("description"):
-                    doc.add_paragraph(item["description"])
 
         doc.save(str(docx_path))
         return docx_path

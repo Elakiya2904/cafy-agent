@@ -36,8 +36,8 @@ export default function ResumePdf({ resume, settings = DEFAULT_PDF_SETTINGS }) {
   const styles = StyleSheet.create({
     page: { padding: sp.page, paddingBottom: sp.page - 4, fontFamily: s.font, fontSize: fs, color: "#111827", lineHeight: 1.3 },
     name: { fontFamily: bold(s.font), fontSize: fs * 2, textAlign: "center", color: s.accent, letterSpacing: 1 },
-    role: { textAlign: "center", fontSize: fs * 1.1, color: "#475569", marginTop: 2 },
-    contact: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", marginTop: 4, fontSize: fs * 0.9, color: "#334155" },
+    role: { textAlign: "center", fontSize: fs * 1.1, color: "#475569", marginTop: 10 },
+    contact: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", marginTop: 7, fontSize: fs * 0.9, color: "#334155" },
     sep: { marginHorizontal: 4, color: "#94a3b8" },
     link: { color: "#334155", textDecoration: "none" },
     section: { marginTop: sp.section },
@@ -51,6 +51,8 @@ export default function ResumePdf({ resume, settings = DEFAULT_PDF_SETTINGS }) {
     dot: { width: 9 },
     bulletText: { flex: 1, textAlign: "left" },
     para: { textAlign: "left" },
+    skillsGrid: { flexDirection: "row", flexWrap: "wrap" },
+    skillItem: { width: "33.333%", paddingRight: 8, marginBottom: 2 },
   });
 
   const r = resume || {};
@@ -97,24 +99,24 @@ export default function ResumePdf({ resume, settings = DEFAULT_PDF_SETTINGS }) {
 
         {r.professional_summary ? (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Professional Summary</Text>
+            <Text style={styles.sectionTitle}>About Me</Text>
             <Text style={styles.para}>{r.professional_summary}</Text>
           </View>
         ) : null}
+
+        {(r.education || []).length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Education</Text>
+            {r.education.map((e, i) => (
+              <Entry key={i} left={join(e.institution || e.organization, e.location)} sub={e.degree || e.title} dates={e.dates} bullets={e.bullets} description={e.description} />
+            ))}
+          </View>
+        )}
 
         {(r.experience || []).length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Work Experience</Text>
             {r.experience.map((e, i) => (
-              <Entry key={i} left={join(e.organization || e.company, e.location)} sub={e.title} dates={e.dates} bullets={e.bullets} description={e.description} />
-            ))}
-          </View>
-        )}
-
-        {(r.internships || []).length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Internships</Text>
-            {r.internships.map((e, i) => (
               <Entry key={i} left={join(e.organization || e.company, e.location)} sub={e.title} dates={e.dates} bullets={e.bullets} description={e.description} />
             ))}
           </View>
@@ -129,54 +131,17 @@ export default function ResumePdf({ resume, settings = DEFAULT_PDF_SETTINGS }) {
           </View>
         )}
 
-        {(r.publications || []).length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Publications</Text>
-            {r.publications.map((p, i) => (
-              <Entry key={i} left={join(p.title || p.name, p.organization || p.venue)} dates={p.dates} description={p.description} bullets={p.bullets} />
-            ))}
-          </View>
-        )}
-
-        {(r.education || []).length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Education</Text>
-            {r.education.map((e, i) => (
-              <Entry key={i} left={join(e.institution || e.organization, e.location)} sub={e.degree || e.title} dates={e.dates} bullets={e.bullets} description={e.description} />
-            ))}
-          </View>
-        )}
-
         {(r.skills || []).length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Skills</Text>
-            <Text style={styles.para}>{r.skills.join("  •  ")}</Text>
+            <View style={styles.skillsGrid}>
+              {r.skills.map((skill, i) => (
+                <Text key={i} style={styles.skillItem}>• {skill}</Text>
+              ))}
+            </View>
           </View>
         )}
 
-        {(r.certifications || []).length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Certifications</Text>
-            {r.certifications.map((c, i) => (
-              <View style={[styles.row, { marginBottom: 2 }]} key={i} wrap={false}>
-                <Text>
-                  <Text style={styles.strong}>{c.name || c.title}</Text>
-                  {c.issuer ? <Text style={styles.em}>{`  ${c.issuer}`}</Text> : null}
-                </Text>
-                {c.dates ? <Text style={styles.dates}>{c.dates}</Text> : null}
-              </View>
-            ))}
-          </View>
-        )}
-
-        {(r.achievements || []).length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Achievements</Text>
-            {r.achievements.map((item, i) => (
-              <Entry key={i} left={item.title || item.name} dates={item.dates} description={item.description} bullets={item.bullets} />
-            ))}
-          </View>
-        )}
       </Page>
     </Document>
   );

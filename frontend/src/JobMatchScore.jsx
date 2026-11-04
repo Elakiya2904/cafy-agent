@@ -106,24 +106,26 @@ export function useJobMatchAnalysis(jobId, profile, debounceMs = 0) {
   };
 }
 
-export function SectionScoreBadge({ section }) {
+export function SectionScoreBadge({ section, variant = "badge" }) {
   if (!section) return null;
+  const dot = variant === "dot";
+  const cls = dot ? "jms-score-dot" : "jms-score-badge";
   if (section.score == null) {
     return (
-      <span className="jms-score-badge tone-na" title={`${section.name}: not required by this job`}>
-        N/A
+      <span className={`${cls} tone-na`} title={`${section.name}: not required by this job`}>
+        {dot ? null : "N/A"}
       </span>
     );
   }
   return (
-    <span className={`jms-score-badge tone-${scoreTone(section.score)}`} title={`${section.name}: ${section.score}% match for this job`}>
-      {section.score}%
+    <span className={`${cls} tone-${scoreTone(section.score)}`} title={`${section.name}: ${section.score}% match for this job`}>
+      {dot ? null : `${section.score}%`}
     </span>
   );
 }
 
 /** Compact live score bar shown at the top of the Resume Editor. */
-export function EditorMatchScore({ analysis, previousScore, isAnalyzing, error }) {
+export function EditorMatchScore({ analysis, previousScore, isAnalyzing, error, targetRole, onInspect }) {
   if (!analysis) {
     return (
       <div className="jms-editor-score">
@@ -136,29 +138,43 @@ export function EditorMatchScore({ analysis, previousScore, isAnalyzing, error }
     );
   }
   const delta = previousScore === null ? 0 : analysis.job_match_score - previousScore;
+  const metricSections = [
+    ["summary", "Summary"],
+    ["experience", "Work Exp"],
+    ["skills", "Core Tech"],
+    ["keywords", "Keywords"],
+  ];
   return (
     <div className={`jms-editor-score tone-${scoreTone(analysis.job_match_score)}`} data-testid="editor-match-score">
       <div className="jms-editor-score-main">
-        <strong>{analysis.job_match_score}%</strong>
-        <span>
-          Job Match · Current Draft · {analysis.match_tier}
+        <strong className="jms-score-ring">{analysis.job_match_score}%</strong>
+        <span className="jms-score-head">
+          <b>ATS MATCH READINESS <i className="jms-tier">{analysis.match_tier || "Current draft"}</i></b>
+          <small>Optimized for: <strong>{targetRole || "this target role"}</strong></small>
           {delta !== 0 && (
             <em className={delta > 0 ? "up" : "down"}> {delta > 0 ? `+${delta}` : delta} since last change</em>
           )}
         </span>
         {isAnalyzing && <Loader2 size={14} className="jms-spin" aria-label="Updating score" />}
+        <button type="button" className="jms-inspect" onClick={onInspect} disabled={!onInspect}>Inspect Matrix ›</button>
       </div>
-      <div className="jms-editor-score-sections">
-        {SECTION_ORDER.map((key) => {
+      <div className="jms-editor-score-sections jms-metric-grid">
+        {metricSections.map(([key, label]) => {
           const sec = analysis.sections[key];
           if (!sec) return null;
           return (
-            <span key={key} className={`jms-editor-chip tone-${sec.score == null ? "na" : scoreTone(sec.score)}`}>
-              {sec.name} <b>{sec.score == null ? "N/A" : `${sec.score}%`}</b>
+            <span key={key} className={`jms-editor-chip jms-metric tone-${sec.score == null ? "na" : scoreTone(sec.score)}`}>
+              <small>{label}</small><b>{sec.score == null ? "N/A" : `${sec.score}%`}</b>
             </span>
           );
         })}
       </div>
+      {(analysis.missing_skills || []).length > 0 && (
+        <div className="jms-missing">
+          <span className="jms-missing-label">Missing high-impact tags:</span>
+          {(analysis.missing_skills || []).slice(0, 4).map((skill) => <code key={skill}>+ {skill}</code>)}
+        </div>
+      )}
     </div>
   );
 }

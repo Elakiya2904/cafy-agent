@@ -24,6 +24,7 @@ PUBLIC_PATHS = (
     re.compile(r"^/api/health/?$"),
     re.compile(r"^/api/email-agent/oauth/[a-z]+/callback/?$"),   # Google redirects the browser here; the signed state authenticates it
     re.compile(r"^/api/email-agent/cron/poll/?$"),               # cron endpoints are protected by CRON_SECRET instead
+    re.compile(r"^/api/cron/?$"),
     re.compile(r"^/api/cron/scrape/?$"),
 )
 # Browser navigations (file previews/downloads) cannot send headers, so these GETs may carry ?access_token=.

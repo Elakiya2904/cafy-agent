@@ -166,6 +166,30 @@ class JobDatabase:
             from .job_intelligence.schema import JOB_INTELLIGENCE_SCHEMA
             conn.executescript(JOB_INTELLIGENCE_SCHEMA)
 
+            # 8. Nango integration tracking
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_integrations (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                nango_connection_id TEXT NOT NULL,
+                nango_integration_id TEXT NOT NULL,
+                connected_email TEXT,
+                connection_status TEXT NOT NULL DEFAULT 'connected',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_synced_at TEXT
+            )
+            """)
+            cursor.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_user_integrations_user_conn "
+                "ON user_integrations(user_id, nango_connection_id)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_user_integrations_user_provider "
+                "ON user_integrations(user_id, provider)"
+            )
+
             # Keep listings outside the UK out of the active feed.
             legacy_rows = cursor.execute(
                 "SELECT id, location FROM jobs WHERE status = 'active'"

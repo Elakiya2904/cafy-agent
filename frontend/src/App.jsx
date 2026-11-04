@@ -15,6 +15,7 @@ import DataExport from "./DataExport.jsx";
 import EmailAgentDashboard from "./EmailAgentDashboard.jsx";
 import MyApplications, { startApplication } from "./MyApplications.jsx";
 import JobIntelligence from "./JobIntelligence.jsx";
+import JobFilterPanel, { EMPTY_JOB_FILTERS, LEVEL_BANDS } from "./JobFilterPanel.jsx";
 import {
   AlertTriangle,
   ArrowRight,
@@ -365,7 +366,6 @@ function App() {
         {activeTab === "insights" && <InsightsView platforms={platforms} />}
 
         {/* TAB: MY APPLICATIONS */}
-        {activeTab === "my-applications" && <MyApplications />}
         {activeTab === "my-applications" && (
           <ApplicationTrackingView
             pipelineJobIds={pipelineJobIds}
@@ -1724,27 +1724,23 @@ function JobListItem({ job, selected, inPipeline, onSelect, onTogglePipeline }) 
         onClick={onSelect}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(); } }}
       >
-        <div className="jd-item-logo">
-          <div className="jd-logo"><CompanyBrandLogo company={job.company} /></div>
-          {postingAge && <span className="jd-item-age"><Clock size={11} aria-hidden="true" /> {postingAge}</span>}
-        </div>
         <div className="jd-item-body">
+          <div className="jd-item-company">
+            <span className="jd-logo"><CompanyBrandLogo company={job.company} /></span>
+            <span>{job.company || "Company not listed"}</span>
+            {postingAge && <span className="jd-item-age"><Clock size={11} aria-hidden="true" /> {postingAge}</span>}
+          </div>
           <div className="jd-item-top">
             <h3>{job.title}</h3>
-            {hasMatchScore && <span className={`jd-match ${matchTone(score)}`} title="Job match based on your saved profile">{Math.round(score)}% Job Match</span>}
-          </div>
-          <div className="jd-sub">
-            <span>{job.company || "Company not listed"}</span>
-            <span className="jd-dot">•</span>
-            <span>{job.location || "Location not listed"}</span>
+            {hasMatchScore && <span className={`jd-match ${matchTone(score)}`} title="Job match based on your saved profile">{Math.round(score)}% Match</span>}
           </div>
           <div className="jd-item-tags">
             {job.employment_type && <span>{job.employment_type}</span>}
-            {job.visa_sponsored && <span className="visa">Visa Sponsorship</span>}
             {level && <span>{level[1]}</span>}
+            {job.location && <span>{job.location}</span>}
+            {job.visa_sponsored && <span className="visa">Visa Sponsorship</span>}
           </div>
         </div>
-        <ChevronRight size={18} className="jd-item-chevron" aria-hidden="true" />
       </div>
       <button
         type="button"
@@ -1759,13 +1755,13 @@ function JobListItem({ job, selected, inPipeline, onSelect, onTogglePipeline }) 
   );
 }
 
-function JobDetailPane({ job, inPipeline, onTogglePipeline, onOpenWorkspace }) {
-  const [tab, setTab] = useState("details");
+function JobDetailPane({ job, onOpenWorkspace }) {
+  const [tab, setTab] = useState("about");
   const [company, setCompany] = useState({ jobId: null, data: null, error: "" });
-  useEffect(() => { setTab("details"); }, [job?.id]);
+  useEffect(() => { setTab("about"); }, [job?.id]);
   // Company research is fetched the first time the Company Info tab is opened for a job.
   useEffect(() => {
-    if (tab !== "company" || !job?.id || company.jobId === job.id) return undefined;
+    if (tab !== "about" || !job?.id || company.jobId === job.id) return undefined;
     let cancelled = false;
     setCompany({ jobId: job.id, data: null, error: "" });
     fetch(`${API_BASE}/api/job-intelligence/${encodeURIComponent(job.id)}/company`)
@@ -1787,89 +1783,65 @@ function JobDetailPane({ job, inPipeline, onTogglePipeline, onOpenWorkspace }) {
   const salary = formatSalaryRange(job);
   const mode = getJobWorkMode(job);
   const visa = getVisaState(job);
-  const skills = (job.matched_skills || []).filter(Boolean);
-  const missing = (job.missing_skills || []).filter(Boolean);
-  const reasons = (job.match_reasons || []).filter(Boolean);
   const co = company.jobId === job.id ? company.data : null;
-  const companyLoading = tab === "company" && company.jobId === job.id && !co && !company.error;
+  const companyLoading = tab === "about" && company.jobId === job.id && !co && !company.error;
   const companyRows = [
     ["Industry", co?.industry || job.industry],
     ["Headquarters", co?.headquarters || job.company_headquarters],
     ["Company size", co?.company_size || job.company_size],
-    ["Website", co?.official_website || job.company_website],
     ["Careers page", co?.career_page],
     ["Hiring locations", co?.operating_locations?.length ? co.operating_locations.join("; ") : ""],
   ].filter(([, value]) => value);
   const companyOverview = co?.overview || (job.company_description ? sanitizeDisplayText(job.company_description) : "");
+  const companyWebsite = co?.official_website || job.company_website || job.website;
+  const companyLinkedIn = co?.linkedin_url || job.company_linkedin || job.linkedin_url;
+  const applyUrl = job.url;
 
   return (
     <section className="jd-detail" aria-label={`${job.title} at ${job.company}`}>
       <header className="jd-detail-head">
-        <div className="jd-logo big"><CompanyBrandLogo company={job.company} /></div>
         <div className="jd-detail-title">
           <h2>{job.title}</h2>
-          <div className="jd-sub">
-            <Building2 size={14} aria-hidden="true" />
+          {job.industry && <p className="jd-detail-category">{job.industry}</p>}
+          <div className="jd-detail-company">
+            <span className="jd-logo"><CompanyBrandLogo company={job.company} /></span>
             <span>{job.company || "Company not listed"}</span>
-            <span className="jd-dot">•</span>
-            <MapPin size={14} aria-hidden="true" />
-            <span>{job.location || "Location not listed"}</span>
+            {job.location && <><span className="jd-dot">•</span><MapPin size={14} aria-hidden="true" /><span>{job.location}</span></>}
           </div>
         </div>
         {hasMatchScore && <span className={`jd-match big ${matchTone(score)}`} title="Job match based on your saved profile">{Math.round(score)}% Job Match</span>}
       </header>
 
-      <div className="jd-detail-chips">
-        {job.employment_type && <span>{job.employment_type}</span>}
-        {job.visa_sponsored && <span className="visa">Visa Sponsorship · {job.visa_sponsor_country}</span>}
-        {level && <span>{level[1]}</span>}
-        {mode && <span>{mode}</span>}
-        {salary && <span>{salary}</span>}
-        {postingAge && <span className="muted"><Clock size={13} aria-hidden="true" /> Posted {postingAge}</span>}
-      </div>
-
-      <div className="jd-detail-actions">
-        <button type="button" className={`jd-save-btn ${inPipeline ? "saved" : ""}`} onClick={onTogglePipeline} aria-pressed={inPipeline}
-          aria-label={inPipeline ? "Remove from pipeline" : "Save to pipeline"} title={inPipeline ? "In pipeline" : "Save to pipeline"}>
-          <Bookmark size={18} fill={inPipeline ? "currentColor" : "none"} aria-hidden="true" />
-        </button>
-        <button type="button" className="jd-tailor-btn" onClick={onOpenWorkspace}>
-          <Sparkles size={15} aria-hidden="true" /> Tailor with Cafy
-        </button>
-        {job.url ? (
-          <a className="jd-apply-btn" href={job.url} target="_blank" rel="noopener noreferrer">
-            Apply Now <ExternalLink size={15} aria-hidden="true" />
-          </a>
-        ) : (
-          <button type="button" className="jd-apply-btn" onClick={onOpenWorkspace}>View details</button>
-        )}
-      </div>
-
       <div className="jd-tabs" role="tablist">
-        {[["details", "Job Details"], ["company", "Company Info"], ["intelligence", "Job Intelligence"], ["why", "Why This Job?"]].map(([id, label]) => (
+        {[["about", "Company details"], ["job-info", "Job info"], ["intelligence", "Job Intelligence"]].map(([id, label]) => (
           <button key={id} type="button" role="tab" aria-selected={tab === id} className={tab === id ? "on" : ""} onClick={() => setTab(id)}>{label}</button>
         ))}
+        <button type="button" className="jd-tailor-btn" onClick={onOpenWorkspace}>
+          <Sparkles size={15} aria-hidden="true" /> Apply with autofill
+        </button>
       </div>
 
       <div className="jd-tab-body">
-        {tab === "details" && (
+        {tab === "about" && (
           <>
-            {blocks.length === 0 && <p className="jd-muted">No full description is available for this job. Use Apply Now to read it on the employer's site.</p>}
-            {blocks.map((b, i) => (
-              b.type === "h" ? <h4 key={i}>{b.text}</h4>
-                : b.type === "li" ? <p key={i} className="jd-li"><CheckCircle2 size={15} aria-hidden="true" /><span>{b.text}</span></p>
-                  : <p key={i}>{b.text}</p>
-            ))}
-          </>
-        )}
-
-        {tab === "company" && (
-          <>
+            <div className={`jd-sponsor-callout ${visa.tone}`}>
+              <strong>{job.visa_sponsored
+                ? job.visa_sponsor_country === "Ireland"
+                  ? "VERIFIED IRELAND SPONSOR"
+                  : job.visa_sponsor_country === "UK" ? "LICENSED UK VISA SPONSOR" : "VERIFIED VISA SPONSOR"
+                : visa.title.toUpperCase()}</strong>
+              <span>{visa.detail}</span>
+            </div>
+            <h3 className="jd-about-company">{job.company || "About this employer"}</h3>
+            {(companyWebsite || companyLinkedIn) && (
+              <div className="jd-company-links">
+                {companyWebsite && <a href={companyWebsite} target="_blank" rel="noopener noreferrer"><Globe size={14} aria-hidden="true" /> Website <ExternalLink size={12} aria-hidden="true" /></a>}
+                {companyLinkedIn && <a href={companyLinkedIn} target="_blank" rel="noopener noreferrer"><Linkedin size={14} aria-hidden="true" /> LinkedIn <ExternalLink size={12} aria-hidden="true" /></a>}
+              </div>
+            )}
             {companyLoading && <p className="jd-muted"><Loader2 size={14} className="doc-spin" aria-hidden="true" /> Researching {job.company}…</p>}
             {company.error && <p className="jd-muted">{company.error}</p>}
-            {companyOverview && (
-              <p>{companyOverview}{co?.overview_source && <span className="jd-muted"> (source: {co.overview_source})</span>}</p>
-            )}
+            {companyOverview && <p>{companyOverview}{co?.overview_source && <span className="jd-muted"> (source: {co.overview_source})</span>}</p>}
             {companyRows.length > 0 ? (
               <dl className="jd-facts">
                 {companyRows.map(([label, value]) => (
@@ -1878,32 +1850,41 @@ function JobDetailPane({ job, inPipeline, onTogglePipeline, onOpenWorkspace }) {
                     <dd>{/^https?:\/\//.test(value) ? <a href={value} target="_blank" rel="noopener noreferrer">{value.replace(/^https?:\/\//, "")}</a> : value}</dd>
                   </React.Fragment>
                 ))}
-              </dl>
+                </dl>
             ) : !companyLoading && !companyOverview && <p className="jd-muted">No public company details were found for {job.company || "this company"}.</p>}
             {(co?.notes || []).map((n, i) => <p key={i} className="jd-muted jd-note">{n}</p>)}
           </>
         )}
 
-        {tab === "intelligence" && <JobIntelligence key={job.id} job={job} />}
-
-        {tab === "why" && (
+        {tab === "job-info" && (
           <>
-            {reasons.length > 0 ? reasons.map((r, i) => <p key={i} className="jd-li"><CheckCircle2 size={15} aria-hidden="true" /><span>{r}</span></p>)
-              : <p className="jd-muted">No match explanation is available for this job.</p>}
-            {skills.length > 0 && (<><h4>Your matching skills</h4><div className="jd-skills">{skills.map((sk) => <span key={sk} className="jd-skill">{sk}</span>)}</div></>)}
-            {missing.length > 0 && (<><h4>Skills the posting asks for that your résumé doesn't show</h4><div className="jd-skills">{missing.map((sk) => <span key={sk} className="jd-skill more">{sk}</span>)}</div></>)}
+              <div className="jd-detail-chips">
+                {job.employment_type && <span>{job.employment_type}</span>}
+                {level && <span>{level[1]}</span>}
+                {mode && <span>{mode}</span>}
+                {salary && <span>{salary}</span>}
+                {postingAge && <span className="muted"><Clock size={13} aria-hidden="true" /> Posted {postingAge}</span>}
+              </div>
+              {blocks.length === 0 && <p className="jd-muted">No full description is available for this job. Use Apply now to read it on the employer's site.</p>}
+              {blocks.map((b, i) => (
+                b.type === "h" ? <h4 key={i}>{b.text}</h4>
+                  : b.type === "li" ? <p key={i} className="jd-li"><CheckCircle2 size={15} aria-hidden="true" /><span>{b.text}</span></p>
+                    : <p key={i}>{b.text}</p>
+              ))}
           </>
         )}
+
+        {tab === "intelligence" && <JobIntelligence key={job.id} job={job} />}
       </div>
 
-      <div className={`jd-visa ${visa.tone}`} title={visa.tip}>
-        <span className="jd-visa-icon" aria-hidden="true">
-          {visa.tone === "ok" ? <Check size={14} /> : visa.tone === "warn" ? <AlertTriangle size={13} /> : <X size={13} />}
-        </span>
-        <div>
-          <strong>Visa sponsorship · {visa.title}</strong>
-          <span>{visa.detail}</span>
-        </div>
+      <div className="jd-detail-footer">
+        {applyUrl ? (
+          <a className="jd-apply-btn" href={applyUrl} target="_blank" rel="noopener noreferrer">
+            Apply now <ExternalLink size={15} aria-hidden="true" />
+          </a>
+        ) : (
+          <button type="button" className="jd-apply-btn" onClick={onOpenWorkspace}>Apply now</button>
+        )}
       </div>
     </section>
   );
@@ -2488,6 +2469,9 @@ function SuggestionsPanel({ job, resume, tailoredResume, onRewriteSummary, isRew
 function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline, inPipeline, fullPage = false, resumeOnly = false }) {
   const [activeTab, setActiveTab] = useState("application");
   const [workspaceTab, setWorkspaceTab] = useState("editor");
+  const drawerBodyRef = useRef(null);
+  // In the Apply-with-autofill flow the job review screen comes first, even if a saved resume exists.
+  const [editorOpen, setEditorOpen] = useState(!resumeOnly);
   const [isGeneratingResume, setIsGeneratingResume] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [isRewriting, setIsRewriting] = useState(false);
@@ -2597,7 +2581,11 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
       setResumeReady(true);
       setApplicationStatus("Tailored resume ready");
       setDraftSaved(false);
+      // Land straight in the Resume Editor, scrolled to the top.
+      setActiveTab("application");
       setWorkspaceTab("editor");
+      setEditorOpen(true);
+      drawerBodyRef.current?.scrollTo?.({ top: 0 });
     } catch (error) {
       setResumeError(error.message || "Resume generation failed. Please retry.");
       setApplicationStatus("Generation failed");
@@ -3127,6 +3115,14 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
         } else {
           content = (tailoredResume.projects[itemIndex]?.bullets || []).join("\n") || tailoredResume.projects[itemIndex]?.description || "";
         }
+      } else if (sectionKey === "education" && itemIndex !== null) {
+        const education = tailoredResume.education[itemIndex] || {};
+        content = education.description || [
+          education.degree || education.title,
+          education.institution || education.organization,
+          education.dates,
+          education.location,
+        ].filter(Boolean).join(" — ");
       } else if (sectionKey === "all") {
         content = tailoredResume.professional_summary;
       }
@@ -3185,6 +3181,12 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
             }
             return { ...prev, projects: list };
           });
+        } else if (sectionKey === "education" && itemIndex !== null) {
+          setTailoredResume((prev) => {
+            const list = [...(prev.education || [])];
+            list[itemIndex] = { ...list[itemIndex], description: data.rewritten };
+            return { ...prev, education: list };
+          });
         }
         setDraftSaved(false);
       } else {
@@ -3241,6 +3243,7 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
   ];
 
   const summaryText = sanitizeDisplayText(job.description) || "No full description text available.";
+  const showWorkspace = resumeReady && editorOpen;
   const requirementItems = [
     ...(job.matched_skills || []).slice(0, 6),
     ...(job.missing_skills || []).slice(0, 4),
@@ -3252,34 +3255,21 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
         className={`modal-card modal-drawer workflow-drawer ${fullPage ? "full-page-workspace" : ""}`}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Job Context Header matching resume-pipeline.jpeg Screen 3 */}
-        <div className="drawer-header">
-          <div className="workspace-header-row">
-            <div className="workspace-header-main">
-              <div className="workspace-company-avatar" title={job.company || "Company not listed"}>
-                {(job.company || "?").charAt(0).toUpperCase()}
-              </div>
-              <div className="drawer-title-wrap">
-                <h2 className="drawer-title" style={{ margin: 0, fontSize: "1.35rem" }}>{job.title}</h2>
-                <div className="workspace-header-meta">
-                  <span className="badge-location"><MapPin size={13} aria-hidden="true" /> {job.location || "Location not listed"}</span>
-                  {job.visa_sponsored && (
-                    <span className="badge-visa-sponsored" title="Employer is listed on the UK Sponsor Register for this UK location">
-                      <Check size={13} aria-hidden="true" /> Visa Sponsored
-                    </span>
-                  )}
-                  {job.employment_type && (
-                    <span className="badge-work-type"><Briefcase size={13} aria-hidden="true" /> {job.employment_type}</span>
-                  )}
-                  {job.match_score > 0 && (
-                    <span className="badge-match-pill">
-                      <Check size={13} aria-hidden="true" /> {job.match_score}% match
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-            <div className="workspace-header-actions" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        {/* Compact workspace header matching the resume editor reference. */}
+        <div className="drawer-header workspace-compact-header">
+          <div className="workspace-compact-breadcrumb">
+            <span className="workspace-compact-icon" aria-hidden="true">▣</span>
+            <span>/ Resumes /</span>
+            <strong>{resume?.personal_info?.name || resume?.candidate_name || "Resume"}</strong>
+            <span>— {job.title}</span>
+            <span className="workspace-compact-status"><Check size={12} aria-hidden="true" /> Autosaved</span>
+          </div>
+          <div className="workspace-compact-context">
+            {job.location && <span><MapPin size={12} aria-hidden="true" /> {job.location}</span>}
+            {job.visa_sponsored && <span className="badge-visa-sponsored"><Check size={12} aria-hidden="true" /> Visa Sponsored</span>}
+            {job.match_score > 0 && <span className="badge-match-pill"><Check size={12} aria-hidden="true" /> {job.match_score}% match</span>}
+          </div>
+          <div className="workspace-header-actions" style={{ display: "flex", alignItems: "center", gap: 10 }}>
               {!resumeOnly && (
                 <button
                   type="button"
@@ -3292,7 +3282,6 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
               <button type="button" className="drawer-close-btn" onClick={onClose} aria-label="Close job drawer">
                 ×
               </button>
-            </div>
           </div>
         </div>
 
@@ -3314,7 +3303,7 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
           </div>
         )}
 
-        <div className="modal-body modal-body-tabs drawer-body">
+        <div className="modal-body modal-body-tabs drawer-body" ref={drawerBodyRef}>
           {/* TAB 1: OVERVIEW */}
           {activeTab === "overview" && (
             <div className="job-detail-panel">
@@ -3458,6 +3447,17 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
           {/* TAB 4: APPLICATION & RESUME WORKSPACE */}
           {activeTab === "application" && (
             <div className="job-detail-panel" style={{ padding: "0 0 16px" }}>
+              {!showWorkspace && <div className="application-job-context">
+                <div>
+                  <span className="application-context-label">Selected job</span>
+                  <h3>{job.title}</h3>
+                  <p>{job.company || "Company not listed"} · {job.location || "Location not listed"}</p>
+                </div>
+                <div className="application-context-description">
+                  <span className="application-context-label">Job description</span>
+                  <p>{summaryText}</p>
+                </div>
+              </div>}
               {/* Background tailoring status banner (resume generation handled on backend) */}
               {isGeneratingResume && (
                 <div className="pipeline-generating-banner">
@@ -3466,47 +3466,20 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
                 </div>
               )}
 
-              {/* If not yet ready and not generating */}
-              {!resumeReady && !isGeneratingResume && (
+              {/* Step 1: review the job, then generate. The editor opens only after this. */}
+              {!showWorkspace && !isGeneratingResume && (
                 <div>
                   {resume && resumeOnly ? (
-                    <>
-                      <div className="pipeline-card tailor-setup">
-                        <h3 className="tailor-setup-title">Tailor your resume</h3>
-                        <label className="tailor-field">
-                          <span>Base resume</span>
-                          <input type="text" readOnly value={resume.filename || resume.candidate_name || "Uploaded resume"} />
-                        </label>
-                        <label className="tailor-field">
-                          <span>Target job</span>
-                          <input type="text" readOnly value={[job.title, job.company].filter(Boolean).join(" - ")} />
-                        </label>
-                        <label className="tailor-field">
-                          <span>Job description {job.description ? "(retrieved from the job; edit if needed)" : "(paste it here)"}</span>
-                          <textarea
-                            rows={5}
-                            value={tailorJobDescription}
-                            onChange={(e) => setTailorJobDescription(e.target.value)}
-                          />
-                        </label>
-                        <label className="tailor-field">
-                          <span>Additional instructions (optional)</span>
-                          <textarea
-                            rows={2}
-                            maxLength={500}
-                            placeholder="e.g. Emphasise my Python and RAG experience"
-                            value={additionalInstructions}
-                            onChange={(e) => setAdditionalInstructions(e.target.value)}
-                          />
-                        </label>
-                      </div>
-                      <ApplicationAnalysis
-                        job={job}
-                        resume={resume}
-                        onResumeUpdated={onUpdateResume}
-                        onViewDetails={() => setActiveTab("requirements")}
+                    <label className="tailor-field tailor-instructions">
+                      <span>Additional instructions (optional)</span>
+                      <textarea
+                        rows={2}
+                        maxLength={500}
+                        placeholder="e.g. Emphasise my Python and RAG experience"
+                        value={additionalInstructions}
+                        onChange={(e) => setAdditionalInstructions(e.target.value)}
                       />
-                    </>
+                    </label>
                   ) : resume ? (
                     <ApplicationAnalysis
                       job={job}
@@ -3521,26 +3494,25 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
                   )}
                   {resumeError && <div className="pipeline-error" style={{ marginTop: 16 }}>{resumeError}</div>}
                   <div className="aa-generate-row">
-                    <span className="pipeline-desc" style={{ margin: 0 }}>
-                      Tailored strictly using facts from your uploaded profile.
+                    <span style={{ display: "flex", gap: 8 }}>
+                      <button
+                        type="button"
+                        className="pipeline-btn-primary"
+                        onClick={handleGenerateResume}
+                        disabled={isGeneratingResume}
+                      >
+                        {resumeOnly && resumeError ? "Try again" : resumeReady ? "Regenerate Tailored Resume" : "Generate Tailored Resume"}
+                      </button>
                     </span>
-                    <button
-                      type="button"
-                      className="pipeline-btn-primary"
-                      onClick={handleGenerateResume}
-                      disabled={isGeneratingResume}
-                    >
-                      {resumeOnly && resumeError ? "Try again" : "Generate Tailored Resume"}
-                    </button>
                   </div>
                 </div>
               )}
 
-              {/* Once resumeReady: Full 4-tab review workspace */}
-              {resumeReady && (
+              {/* After generation: Resume Editor / Preview / ATS workspace */}
+              {showWorkspace && (
                 <div>
-                  {/* Workspace Sub-tabs matching resume-pipeline.jpeg Screen 3 & 4 */}
-                  <div className="workspace-tabs-bar" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
+                  {/* Workspace tabs. The editor draws these in its own top bar, so hide them there. */}
+                  {workspaceTab !== "editor" && <div className="workspace-tabs-bar" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
                     <div className="workspace-tabs" role="tablist" aria-label="Resume workspace tabs" style={{ margin: 0 }}>
                       <button
                         type="button"
@@ -3558,19 +3530,19 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
                         role="tab"
                         aria-selected={workspaceTab === "preview"}
                       >
-                        Preview
+                        Preview & Test
                       </button>
                       <button
                         type="button"
-                        className={workspaceTab === "suggestions" ? "active" : ""}
-                        onClick={() => setWorkspaceTab("suggestions")}
+                        className={workspaceTab === "ats" ? "active" : ""}
+                        onClick={() => setWorkspaceTab("ats")}
                         role="tab"
-                        aria-selected={workspaceTab === "suggestions"}
+                        aria-selected={workspaceTab === "ats"}
                       >
-                        Suggestions
+                        ATS Insights
                       </button>
                     </div>
-                  </div>
+                  </div>}
 
                   {resumeError && <div className="pipeline-error" style={{ marginBottom: 12 }}>{resumeError}</div>}
 
@@ -3588,6 +3560,9 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
                       isRewriting={isRewriting}
                       onImprove={handleRewriteSection}
                       onPdfReady={handlePdfReady}
+                      workspaceTab={workspaceTab}
+                      onWorkspaceTab={setWorkspaceTab}
+                      onApply={job.url || job.apply_url || job.application_url ? handleOpenCareerPortal : undefined}
                       scoring={editorScoring}
                       recommendedSkills={recommendedSkills}
                       fallbackPreview={
@@ -3614,7 +3589,7 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
                   )}
 
                   {/* SUBTAB: SUGGESTIONS */}
-                  {workspaceTab === "suggestions" && (
+                  {workspaceTab === "ats" && (
                     <div className="workspace-single-panel">
                       <SuggestionsPanel
                         job={job}
@@ -3770,52 +3745,6 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
                       )}
                     </div>
                   )}
-                  {/* Bottom actions keep the official application link next to the resume download. */}
-                  <div className="workflow-output-row" style={{ marginTop: 24 }}>
-                    <div className="editor-toolbar-actions" style={{ width: "100%" }}>
-                      <button
-                        type="button"
-                        className="btn-tool-draft"
-                        onClick={handleSaveDraft}
-                        disabled={isSavingDraft}
-                      >
-                        <Save size={14} aria-hidden="true" /> {isSavingDraft ? "Saving…" : draftSaved ? "Draft Saved" : "Save Draft"}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-tool-ai"
-                        onClick={handleRewriteFull}
-                        disabled={isRewriting}
-                        title="Rewrite the whole resume for this job and save it as a new version"
-                      >
-                        <Sparkles size={14} aria-hidden="true" /> {isRewriting ? "Rewriting…" : "Rewrite with AI"}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-tool-draft"
-                        onClick={() => setWorkspaceTab("editor")}
-                        title="Edit this resume in the built-in editor"
-                      >
-                        <PenLine size={14} aria-hidden="true" /> Edit Resume
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-tool-draft"
-                        onClick={() => handleDownloadResume("pdf")}
-                      >
-                        <Download size={14} aria-hidden="true" /> Download Resume
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-continue-app"
-                        onClick={handleOpenCareerPortal}
-                        disabled={!(job.url || job.apply_url || job.application_url)}
-                        title="Open the official job application page"
-                      >
-                        Continue to Application <ArrowRight size={14} aria-hidden="true" />
-                      </button>
-                    </div>
-                  </div>
                 </div>
               )}
             </div>
@@ -3953,229 +3882,93 @@ function DirectoryView({
   onRefresh,
   onRemoveResume = () => {}
 }) {
-  const [filterQuery, setFilterQuery] = useState("");
-  const [selectedCompany, setSelectedCompany] = useState("all");
-  const [selectedLocation, setSelectedLocation] = useState("");
-  const [selectedLevel, setSelectedLevel] = useState("all");
-  const [selectedWorkMode, setSelectedWorkMode] = useState("all");
-  const [selectedPostedWithin, setSelectedPostedWithin] = useState("any");
+  const [jobFilters, setJobFilters] = useState(EMPTY_JOB_FILTERS);
   const [sortBy, setSortBy] = useState("newest");
   const [activeJobId, setActiveJobId] = useState(null);
-  const [discoverySubmitted, setDiscoverySubmitted] = useState(false);
-  const [salaryError, setSalaryError] = useState("");
-  const [discoveryFilters, setDiscoveryFilters] = useState({
-    roles: "",
-    location: "",
-    postedWithin: "7",
-    sources: ["greenhouse", "lever", "ashby", "workday", "workable", "oracle_cloud", "breezyhr", "pinpoint"],
-    workModes: [],
-    experienceLevel: "all",
-    relocationAssistance: false,
-    salaryMin: "",
-    salaryMax: "",
-    salaryCurrency: "USD",
-    techStack: "",
-    keywords: ""
-  });
-  const resultsRef = useRef(null);
-
-  const updateDiscoveryFilter = (key, value) => {
-    setDiscoveryFilters((current) => ({ ...current, [key]: value }));
-  };
-
-  const toggleDiscoveryOption = (key, value) => {
-    setDiscoveryFilters((current) => {
-      const selected = current[key];
-      return {
-        ...current,
-        [key]: selected.includes(value)
-          ? selected.filter((item) => item !== value)
-          : [...selected, value]
-      };
-    });
-  };
-
-  const handleDiscoverySubmit = (event) => {
-    event.preventDefault();
-    if (
-      discoveryFilters.salaryMin
-      && discoveryFilters.salaryMax
-      && Number(discoveryFilters.salaryMax) < Number(discoveryFilters.salaryMin)
-    ) {
-      setSalaryError("Maximum salary must be at least the minimum salary.");
-      return;
-    }
-    setSalaryError("");
-    setDiscoverySubmitted(true);
-    requestAnimationFrame(() => resultsRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" }));
-  };
 
   // With a resume, show the backend's skill-ranked matches (it applies the score threshold).
   const sourcePool = useMemo(() => (resume ? matchedJobs || [] : jobs), [resume, matchedJobs, jobs]);
 
-  // Extract unique companies from sourcePool
-  const companiesList = useMemo(() => {
-    const set = new Set();
+  // Salary distribution (mid-point of each job's listed pay) in the chosen currency.
+  const salaryStats = useMemo(() => {
+    const values = [];
     sourcePool.forEach((j) => {
-      if (j.company) set.add(j.company);
+      const amounts = getSalaryAmounts(j)
+        .filter((s) => s.currency === jobFilters.currency && s.amount >= 1000)
+        .map((s) => s.amount);
+      if (amounts.length) values.push((Math.min(...amounts) + Math.max(...amounts)) / 2);
     });
-    return Array.from(set).sort();
-  }, [sourcePool]);
+    values.sort((a, b) => a - b);
+    if (!values.length) return { values, bins: [] };
+    // Trim the outer 5% so a single outlier does not flatten the chart.
+    const lo = values[Math.floor(values.length * 0.05)];
+    const hi = values[Math.min(values.length - 1, Math.ceil(values.length * 0.95) - 1)];
+    const count = 8;
+    const width = Math.max(1000, (hi - lo) / count);
+    const bins = Array.from({ length: count }, (_, i) => ({ start: lo + i * width, end: lo + (i + 1) * width, count: 0 }));
+    values.forEach((v) => {
+      const idx = Math.min(count - 1, Math.max(0, Math.floor((v - lo) / width)));
+      bins[idx].count += 1;
+    });
+    return { values, bins };
+  }, [sourcePool, jobFilters.currency]);
 
-  // Filtered jobs
+  // Suggested skills: the résumé's own skills first, then the most common skills in the listings.
+  const skillSuggestions = useMemo(() => {
+    const counts = new Map();
+    sourcePool.forEach((j) => (j.extracted_skills || []).forEach((s) => {
+      const key = String(s).trim();
+      if (key) counts.set(key, (counts.get(key) || 0) + 1);
+    }));
+    const popular = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([s]) => s);
+    const seen = new Set();
+    return [...(resume?.skills || []), ...popular].filter((s) => {
+      const k = String(s).toLowerCase();
+      if (!s || seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    }).slice(0, 12);
+  }, [sourcePool, resume]);
+
   const filtered = useMemo(() => {
+    const f = jobFilters;
+    const roles = f.roles.map((r) => r.toLowerCase());
+    const levels = LEVEL_BANDS.filter((band) => f.levels.includes(band.id)).flatMap((band) => band.levels);
+    const tech = f.tech.map((t) => t.toLowerCase());
+    const exclude = f.excludeTech.map((t) => t.toLowerCase());
+    const salaryMin = f.salaryMin === "" ? null : Number(f.salaryMin);
+    const salaryMax = f.salaryMax === "" || (salaryMin !== null && Number(f.salaryMax) < salaryMin) ? null : Number(f.salaryMax);
+
     return sourcePool.filter((j) => {
-      if (!resume) {
-        const jobText = getJobSearchText(j);
-        const roles = splitFilterTerms(discoveryFilters.roles);
-        if (roles.length && !roles.some((role) => (j.title || "").toLowerCase().includes(role))) {
-          return false;
-        }
-
-        const locations = splitFilterTerms(discoveryFilters.location);
-        if (locations.length && !locations.some((location) => (
-          (j.location || "").toLowerCase().includes(location)
-          || (isUkCountryTerm(location) && j.is_uk_location === true)
-          || (location === "remote" && j.is_remote)
-        ))) {
-          return false;
-        }
-
-        if (
-          discoveryFilters.postedWithin
-          && discoveryFilters.postedWithin !== "any"
-        ) {
-          const postedDate = getPostedDate(j);
-          const ageInDays = postedDate
-            ? (Date.now() - postedDate.getTime()) / (24 * 60 * 60 * 1000)
-            : Number.POSITIVE_INFINITY;
-          if (postedDate && (ageInDays < 0 || ageInDays > Number(discoveryFilters.postedWithin))) {
-            return false;
-          }
-        }
-
-        if (!discoveryFilters.sources.includes((j.platform || "").toLowerCase())) {
-          return false;
-        }
-
-        if (discoveryFilters.experienceLevel !== "all" && getExperienceLevel(j) !== discoveryFilters.experienceLevel) {
-          return false;
-        }
-
-
-        if (discoveryFilters.workModes.length) {
-          const isHybrid = /\bhybrid\b/i.test(jobText);
-          const isRemote = j.is_remote || /\bremote\b/i.test(jobText);
-          const isOnSite = /\b(on[- ]?site|in[- ]office|office[- ]based|in[- ]person)\b/i.test(jobText);
-          if (
-            !discoveryFilters.workModes.some((mode) => (
-              mode === "Remote" ? isRemote : mode === "Hybrid" ? isHybrid : isOnSite
-            ))
-          ) {
-            return false;
-          }
-        }
-
-        if (
-          discoveryFilters.relocationAssistance
-          && !/\brelocation\s+(?:assistance|support|package|provided|available|offered)\b/i.test(jobText)
-        ) {
-          return false;
-        }
-
-        const salaryMin = Number(discoveryFilters.salaryMin);
-        const salaryMax = Number(discoveryFilters.salaryMax);
-        if (discoveryFilters.salaryMin || discoveryFilters.salaryMax) {
-          const amounts = getSalaryAmounts(j).filter((salary) => (
-            salary.currency === discoveryFilters.salaryCurrency
-          ));
-          if (!amounts.length) return false;
-          const low = Math.min(...amounts.map((salary) => salary.amount));
-          const high = Math.max(...amounts.map((salary) => salary.amount));
-          if (
-            (discoveryFilters.salaryMin && high < salaryMin)
-            || (discoveryFilters.salaryMax && low > salaryMax)
-          ) {
-            return false;
-          }
-        }
-
-        const techTerms = splitFilterTerms(discoveryFilters.techStack);
-        if (techTerms.length && !techTerms.some((term) => jobText.includes(term))) {
-          return false;
-        }
-
-        const keywords = splitFilterTerms(discoveryFilters.keywords);
-        if (keywords.length && !keywords.every((term) => jobText.includes(term))) {
-          return false;
-        }
+      const jobText = getJobSearchText(j);
+      if (roles.length && !roles.some((role) => (j.title || "").toLowerCase().includes(role))) return false;
+      if (f.location.trim()) {
+        const location = f.location.trim().toLowerCase();
+        const locationMatches = isUkCountryTerm(location)
+          ? Boolean(j.is_uk_location)
+          : getJobSearchText(j).includes(location);
+        if (!locationMatches) return false;
       }
+      if (levels.length && !levels.includes(getExperienceLevel(j))) return false;
 
-      if (resume) {
-        const jobText = getJobSearchText(j);
-        const locationQuery = selectedLocation.trim().toLowerCase();
-        if (
-          locationQuery
-          && !(j.location || "").toLowerCase().includes(locationQuery)
-          && !(isUkCountryTerm(locationQuery) && j.is_uk_location === true)
-          && !(locationQuery === "remote" && j.is_remote)
-        ) {
-          return false;
-        }
-
-        if (selectedLevel !== "all" && getExperienceLevel(j) !== selectedLevel) {
-          return false;
-        }
-
-        const isRemote = j.is_remote || /\bremote\b/i.test(jobText);
-        const isHybrid = /\bhybrid\b/i.test(jobText);
-        const isOnSite = /\b(on[- ]?site|in[- ]office|office[- ]based|in[- ]person)\b/i.test(jobText);
-        if (
-          (selectedWorkMode === "remote" && !isRemote)
-          || (selectedWorkMode === "hybrid" && !isHybrid)
-          || (selectedWorkMode === "on-site" && !isOnSite)
-        ) {
-          return false;
-        }
-
-        if (selectedPostedWithin !== "any") {
-          const postedDate = getPostedDate(j);
-          const ageInDays = postedDate
-            ? (Date.now() - postedDate.getTime()) / (24 * 60 * 60 * 1000)
-            : Number.POSITIVE_INFINITY;
-          if (!postedDate || ageInDays < 0 || ageInDays > Number(selectedPostedWithin)) {
-            return false;
-          }
-        }
-
+      if (salaryMin !== null || salaryMax !== null) {
+        const amounts = getSalaryAmounts(j).filter((s) => s.currency === f.currency).map((s) => s.amount);
+        if (!amounts.length) return false;
+        if (salaryMin !== null && Math.max(...amounts) < salaryMin) return false;
+        if (salaryMax !== null && Math.min(...amounts) > salaryMax) return false;
       }
+      if (f.equityOnly && !/\b(equity|stock options?|share options?|rsus?|esop|employee stock)\b/i.test(jobText)) return false;
 
-      // Company filter
-      if (selectedCompany !== "all" && (j.company || "").toLowerCase() !== selectedCompany.toLowerCase()) {
-        return false;
+      if (tech.length) {
+        const ok = f.techMode === "and"
+          ? tech.every((term) => jobText.includes(term))
+          : tech.some((term) => jobText.includes(term));
+        if (!ok) return false;
       }
-      // Search query
-      if (filterQuery) {
-        const q = filterQuery.toLowerCase();
-        const inTitle = (j.title || "").toLowerCase().includes(q);
-        const inComp = (j.company || "").toLowerCase().includes(q);
-        const inLoc = (j.location || "").toLowerCase().includes(q);
-        const inSkills = (j.matched_skills || []).some((s) => s.toLowerCase().includes(q));
-        if (!inTitle && !inComp && !inLoc && !inSkills) return false;
-      }
+      if (exclude.length && exclude.some((term) => jobText.includes(term))) return false;
       return true;
     });
-  }, [
-    sourcePool,
-    selectedCompany,
-    selectedLocation,
-    selectedLevel,
-    selectedWorkMode,
-    selectedPostedWithin,
-    filterQuery,
-    resume,
-    discoveryFilters
-  ]);
+  }, [sourcePool, jobFilters]);
 
   const visibleJobs = useMemo(() => {
     const list = [...filtered];
@@ -4191,40 +3984,10 @@ function DirectoryView({
     return list;
   }, [filtered, sortBy]);
 
-  const lastUpdated = useMemo(() => {
-    const stamps = sourcePool.map((j) => Date.parse(j.last_checked || "")).filter(Number.isFinite);
-    return stamps.length ? new Date(Math.max(...stamps)) : null;
-  }, [sourcePool]);
-
-  const stats = useMemo(() => {
-    const scores = sourcePool.map((j) => Number(j.match_score)).filter((n) => Number.isFinite(n) && n > 0);
-    const dayMs = 24 * 60 * 60 * 1000;
-    return {
-      total: sourcePool.length,
-      today: sourcePool.filter((j) => { const d = getPostedDate(j); return d && Date.now() - d.getTime() <= dayMs; }).length,
-      average: scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null,
-      sponsors: sourcePool.filter((j) => j.visa_sponsored).length,
-      top: scores.filter((n) => n >= 90).length,
-    };
-  }, [sourcePool]);
-
   const activeJob = useMemo(
     () => visibleJobs.find((j) => j.id === activeJobId) || visibleJobs[0] || null,
     [visibleJobs, activeJobId]
   );
-
-  const filtersActive = Boolean(
-    filterQuery || selectedLocation || selectedPostedWithin !== "any" || selectedCompany !== "all"
-    || selectedLevel !== "all" || selectedWorkMode !== "all"
-  );
-  const clearFilters = () => {
-    setFilterQuery("");
-    setSelectedLocation("");
-    setSelectedPostedWithin("any");
-    setSelectedCompany("all");
-    setSelectedLevel("all");
-    setSelectedWorkMode("all");
-  };
 
   const allVisibleInPipeline = useMemo(() => {
     if (filtered.length === 0) return false;
@@ -4232,366 +3995,53 @@ function DirectoryView({
   }, [filtered, pipelineJobIds]);
 
   return (
-    <div className="content-container">
-      {resume && (
-        <>
-          <header className="jd-page-header jd-page-header-row">
-            <div>
-              <h1>Job Discovery</h1>
-              <p>Discover the best UK opportunities tailored to your profile.</p>
-            </div>
-            <div className="jd-header-actions">
-              {lastUpdated && (
-                <span className="jd-updated">
-                  Updated {lastUpdated.toLocaleString("en-GB", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-                </span>
-              )}
-              <button type="button" className="jd-refresh" onClick={onRefresh}>
-                <RefreshCw size={16} aria-hidden="true" /> Refresh jobs
-              </button>
-              <button type="button" className="jd-remove-resume" onClick={onRemoveResume}>
-                <Trash2 size={16} aria-hidden="true" /> Remove résumé
-              </button>
-            </div>
-          </header>
-          <section className="jd-stats" aria-label="Job summary">
-            {[
-              [Briefcase, "blue", stats.total, "Matched opportunities", `${stats.today} posted in the last 24 hours`],
-              [Target, "green", stats.average === null ? "–" : `${stats.average}%`, "Average match with your profile", "Across all matched jobs"],
-              [Building2, "indigo", stats.sponsors, "Verified visa sponsors", "UK, location confirmed"],
-              [Star, "amber", stats.top, "Top matches", "90% match or higher"],
-            ].map(([Icon, tone, value, label, note]) => (
-              <div key={label} className="jd-stat">
-                <span className={`jd-stat-icon ${tone}`} aria-hidden="true"><Icon size={24} /></span>
-                <div>
-                  <strong>{value}</strong>
-                  <span>{label}</span>
-                  <small>{note}</small>
-                </div>
-              </div>
-            ))}
-          </section>
-        </>
-      )}
+    <div className="content-container job-browser-page">
+      <h1 className="jd-visually-hidden">{resume ? "Job Discovery" : "Find jobs"}</h1>
+      <div className="jd-browser">
+        <JobFilterPanel
+          filters={jobFilters}
+          onChange={setJobFilters}
+          onReset={() => setJobFilters((current) => ({ ...EMPTY_JOB_FILTERS, currency: current.currency }))}
+          matchCount={filtered.length}
+          salaryStats={salaryStats}
+          skillSuggestions={skillSuggestions}
+        />
 
-      {!resume && (
-        <>
-          <div className="find-jobs-page-header">
-            <div>
-              <span className="hero-tag">PUBLIC JOB SEARCH</span>
-              <h1 className="page-title">Find jobs</h1>
-              <p className="page-subtitle">
-                Filter the latest jobs already collected from selected ATS sources. Upload a résumé later for personalized matches.
-              </p>
-            </div>
-          </div>
-
-          <form className="job-discovery-form" onSubmit={handleDiscoverySubmit}>
-            <div className="discovery-field">
-              <label htmlFor="discovery-roles">Roles to Find</label>
-              <input
-                id="discovery-roles"
-                type="text"
-                value={discoveryFilters.roles}
-                onChange={(event) => updateDiscoveryFilter("roles", event.target.value)}
-                placeholder="Teacher, Accountant, Sales Executive, Hardware Engineer..."
-              />
-            </div>
-
-            <div className="discovery-field">
-              <label htmlFor="discovery-location">City or Location</label>
-              <input
-                id="discovery-location"
-                type="text"
-                value={discoveryFilters.location}
-                onChange={(event) => updateDiscoveryFilter("location", event.target.value)}
-                placeholder="UK, London, Remote..."
-              />
-            </div>
-
-            <div className="discovery-row">
-              <fieldset className="discovery-field discovery-choice-group">
-                <legend>Posted Within</legend>
-                <div className="discovery-options">
-                  {[["1", "24h"], ["3", "3d"], ["7", "7d"], ["14", "14d"], ["30", "30d"], ["any", "Any"]].map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      className={`discovery-chip ${discoveryFilters.postedWithin === value ? "selected" : ""}`}
-                      onClick={() => updateDiscoveryFilter("postedWithin", value)}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </fieldset>
-
-              <fieldset className="discovery-field discovery-choice-group">
-                <legend>Sources</legend>
-                <div className="discovery-options">
-                  {[
-                    ["greenhouse", "Greenhouse"],
-                    ["lever", "Lever"],
-                    ["ashby", "Ashby"],
-                    ["workday", "Workday"],
-                    ["workable", "Workable"],
-                    ["oracle_cloud", "Oracle Cloud"],
-                    ["breezyhr", "BreezyHR"],
-                    ["pinpoint", "Pinpoint"]
-                  ].map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      aria-pressed={discoveryFilters.sources.includes(value)}
-                      className={`discovery-chip ${discoveryFilters.sources.includes(value) ? "selected" : ""}`}
-                      onClick={() => toggleDiscoveryOption("sources", value)}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </fieldset>
-            </div>
-
-            <div className="discovery-row">
-              <fieldset className="discovery-field discovery-choice-group">
-                <legend>Work Mode</legend>
-                <div className="discovery-options">
-                  {["Remote", "Hybrid", "On-site"].map((mode) => (
-                    <button
-                      key={mode}
-                      type="button"
-                      aria-pressed={discoveryFilters.workModes.includes(mode)}
-                      className={`discovery-chip ${discoveryFilters.workModes.includes(mode) ? "selected" : ""}`}
-                      onClick={() => toggleDiscoveryOption("workModes", mode)}
-                    >
-                      {mode}
-                    </button>
-                  ))}
-                  <span className="discovery-hint">No selection shows all modes</span>
-                </div>
-              </fieldset>
-
-              <fieldset className="discovery-field discovery-choice-group">
-                <legend>Relocation</legend>
-                <label className="discovery-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={discoveryFilters.relocationAssistance}
-                    onChange={(event) => updateDiscoveryFilter("relocationAssistance", event.target.checked)}
-                  />
-                  <span>Only listings mentioning relocation assistance</span>
-                </label>
-              </fieldset>
-            </div>
-
-            <div className="discovery-row">
-              <div className="discovery-field">
-                <label>Salary (annual amount as listed)</label>
-                <div className="salary-range-inputs">
-                  <input
-                    type="number"
-                    min="0"
-                    value={discoveryFilters.salaryMin}
-                    onChange={(event) => {
-                      setSalaryError("");
-                      updateDiscoveryFilter("salaryMin", event.target.value);
-                    }}
-                    placeholder="Minimum"
-                    aria-label="Minimum annual salary"
-                  />
-                  <span>to</span>
-                  <input
-                    type="number"
-                    min="0"
-                    value={discoveryFilters.salaryMax}
-                    onChange={(event) => {
-                      setSalaryError("");
-                      updateDiscoveryFilter("salaryMax", event.target.value);
-                    }}
-                    placeholder="Maximum"
-                    aria-label="Maximum annual salary"
-                  />
-                  <select
-                    value={discoveryFilters.salaryCurrency}
-                    onChange={(event) => updateDiscoveryFilter("salaryCurrency", event.target.value)}
-                    aria-label="Salary currency"
-                  >
-                    {["USD", "GBP", "EUR", "CAD", "INR"].map((currency) => (
-                      <option key={currency} value={currency}>{currency}</option>
-                    ))}
-                  </select>
-                </div>
-                <span className="discovery-hint">Only jobs whose description includes a matching currency amount are included. No currency conversion.</span>
-                {salaryError && <span className="discovery-error" role="alert">{salaryError}</span>}
-              </div>
-
-              <div className="discovery-field">
-                <label htmlFor="discovery-tech">Tech Stack</label>
-                <input
-                  id="discovery-tech"
-                  type="text"
-                  value={discoveryFilters.techStack}
-                  onChange={(event) => updateDiscoveryFilter("techStack", event.target.value)}
-                  placeholder="Python, React, AWS..."
-                />
-              </div>
-            </div>
-
-            <div className="discovery-row">
-              <div className="discovery-field">
-                <label htmlFor="discovery-level">Experience level</label>
-                <select
-                  id="discovery-level"
-                  value={discoveryFilters.experienceLevel}
-                  onChange={(event) => updateDiscoveryFilter("experienceLevel", event.target.value)}
-                >
-                  <option value="all">All levels</option>
-                  {EXPERIENCE_LEVELS.map(([value, label]) => (
-                    <option key={value} value={value}>{label}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="discovery-field">
-                <label htmlFor="discovery-keywords">Keywords</label>
-                <input
-                  id="discovery-keywords"
-                  type="text"
-                  value={discoveryFilters.keywords}
-                  onChange={(event) => updateDiscoveryFilter("keywords", event.target.value)}
-                  placeholder="Comma-separated terms that must all match..."
-                />
-              </div>
-            </div>
-
-            <div className="discovery-form-footer">
-              <button type="submit" className="btn-discover-jobs">
-                Show {filtered.length.toLocaleString()} matching jobs
-              </button>
-              <span className="discovery-hint">Search uses saved job listings; it does not start a live scrape.</span>
-            </div>
-          </form>
-        </>
-      )}
-
-      {resume && (
-        <>
-          <div className="jd-filters">
-            <label className="jd-field jd-search">
-              <Search size={17} aria-hidden="true" />
-              <input
-                type="text"
-                placeholder="Search roles, skills or company..."
-                aria-label="Search roles, skills or company"
-                value={filterQuery}
-                onChange={(e) => setFilterQuery(e.target.value)}
-              />
-            </label>
-
-            <label className="jd-field">
-              <MapPin size={16} aria-hidden="true" />
-              <span className="jd-field-body">
-                <small>Location</small>
-                <input
-                  type="text"
-                  placeholder="e.g. London, UK"
-                  aria-label="Filter by location"
-                  value={selectedLocation}
-                  onChange={(event) => setSelectedLocation(event.target.value)}
-                />
-              </span>
-            </label>
-
-            <label className="jd-field">
-              <CalendarDays size={16} aria-hidden="true" />
-              <span className="jd-field-body">
-                <small>Posted within</small>
-                <select aria-label="Posted Within" value={selectedPostedWithin} onChange={(event) => setSelectedPostedWithin(event.target.value)}>
-                  <option value="any">Any time</option>
-                  <option value="1">24 hours</option>
-                  <option value="7">7 days</option>
-                  <option value="14">14 days</option>
-                  <option value="30">30 days</option>
-                </select>
-              </span>
-              <ChevronDown size={15} className="jd-caret" aria-hidden="true" />
-            </label>
-
-            <label className="jd-field">
-              <Building2 size={16} aria-hidden="true" />
-              <span className="jd-field-body">
-                <small>Company</small>
-                <select aria-label="Filter by company" value={selectedCompany} onChange={(e) => setSelectedCompany(e.target.value)}>
-                  <option value="all">All companies</option>
-                  {companiesList.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </span>
-              <ChevronDown size={15} className="jd-caret" aria-hidden="true" />
-            </label>
-
-            <label className="jd-field">
-              <Briefcase size={16} aria-hidden="true" />
-              <span className="jd-field-body">
-                <small>Experience level</small>
-                <select aria-label="Filter by experience level" value={selectedLevel} onChange={(event) => setSelectedLevel(event.target.value)}>
-                  <option value="all">All levels</option>
-                  {EXPERIENCE_LEVELS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                </select>
-              </span>
-              <ChevronDown size={15} className="jd-caret" aria-hidden="true" />
-            </label>
-
-            <label className="jd-field">
-              <User size={16} aria-hidden="true" />
-              <span className="jd-field-body">
-                <small>Work mode</small>
-                <select aria-label="Filter by work mode" value={selectedWorkMode} onChange={(event) => setSelectedWorkMode(event.target.value)}>
-                  <option value="all">All modes</option>
-                  <option value="remote">Remote</option>
-                  <option value="hybrid">Hybrid</option>
-                  <option value="on-site">On-site</option>
-                </select>
-              </span>
-              <ChevronDown size={15} className="jd-caret" aria-hidden="true" />
-            </label>
-
-            {filtersActive && (
-              <button type="button" className="jd-clear" onClick={clearFilters}>Clear all filters</button>
-            )}
-
-            <label className="jd-sort">
-              <span>Sort by</span>
-              <select aria-label="Sort by" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-                <option value="newest">Newest first</option>
-                <option value="best">Best match</option>
-                <option value="company">Company A–Z</option>
-              </select>
-            </label>
-          </div>
-
-        </>
-      )}
-
-      {/* Job list + selected job */}
-      {(resume || discoverySubmitted) && (
-        <div className="jd-split" ref={resultsRef}>
+        <div className="jd-split">
           <div className="jd-list-pane">
+            {resume && <p className="jd-preferences-note">You’re seeing jobs matched to your résumé and preferences.</p>}
             <div className="jd-list-head">
-              <h2>{visibleJobs.length} Job{visibleJobs.length === 1 ? "" : "s"} Found</h2>
-              <button
-                type="button"
-                className="jd-addall"
-                onClick={() => onAddAllToPipeline(visibleJobs)}
-                disabled={visibleJobs.length === 0 || allVisibleInPipeline}
-              >
-                {allVisibleInPipeline ? "All saved" : "Save all"}
-              </button>
+              <h2>{visibleJobs.length.toLocaleString()} active {visibleJobs.length === 1 ? "job" : "jobs"}</h2>
+              <div className="jd-list-tools">
+                <select aria-label="Sort by" value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
+                  <option value="newest">Newest first</option>
+                  {resume && <option value="best">Best match</option>}
+                  <option value="company">Company A–Z</option>
+                </select>
+                {resume && (
+                  <button type="button" className="jd-search-utility" onClick={onRefresh} aria-label="Refresh jobs" title="Refresh jobs">
+                    <RefreshCw size={14} aria-hidden="true" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="jd-addall"
+                  onClick={() => onAddAllToPipeline(visibleJobs)}
+                  disabled={visibleJobs.length === 0 || allVisibleInPipeline}
+                >
+                  {allVisibleInPipeline ? "All saved" : "Save all"}
+                </button>
+              </div>
             </div>
+            {resume && (
+              <button type="button" className="jd-remove-resume" style={{ alignSelf: "flex-end", margin: "6px 14px 0" }} onClick={onRemoveResume}>
+                Remove résumé
+              </button>
+            )}
             {visibleJobs.length === 0 ? (
               <div className="empty-results-box">
                 <h4>No roles match your filter criteria</h4>
-                <p>Try clearing search keywords or filters.</p>
+                <p>Try removing a role, skill or salary limit.</p>
               </div>
             ) : (
               <ul className="jd-list">
@@ -4611,13 +4061,11 @@ function DirectoryView({
           {activeJob && (
             <JobDetailPane
               job={activeJob}
-              inPipeline={pipelineJobIds.has(activeJob.id)}
-              onTogglePipeline={() => onTogglePipeline(activeJob.id)}
               onOpenWorkspace={() => onSelectJob(activeJob)}
             />
           )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -5884,23 +5332,66 @@ function ApplicationTrackingView({
   const countFor = (key) =>
     key === "all" ? pipelineJobs.length : pipelineJobs.filter((j) => getStatusKey(getStatus(j)) === key).length;
   const filteredJobs = pipelineJobs.filter((j) => filter === "all" || getStatusKey(getStatus(j)) === filter);
+  const stagedJobs = pipelineJobs.slice(0, 3);
 
   return (
-    <div className="content-container">
-      <div className="tracking-container" style={{ marginTop: 0 }}>
-        <div className="tracking-title-bar">
-          <div className="tracking-heading">
-            <div>
-              <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 800, color: "#0F172A" }}>
-                Application Tracking
-              </h2>
-              <p style={{ margin: "3px 0 0", color: "#64748B", fontSize: "0.85rem" }}>
-                Jobs you added to your pipeline. Click a status to update it.
-              </p>
-            </div>
+    <div className="content-container applications-workspace">
+      <div className="applications-heading">
+        <div>
+          <div className="applications-kicker">MY APPLICATIONS <span>{stagedJobs.length} staged for review</span></div>
+          <h1>My Applications</h1>
+          <p>Applications generated and staged through Cafy. Review match scores and customized resumes before continuing.</p>
+        </div>
+        <div className="applications-heading-actions">
+          <span className="autopilot-pill">● Auto-Pilot: Ready</span>
+          <button type="button" className="applications-refresh" onClick={() => setStatusMap({})}>↻</button>
+        </div>
+      </div>
+
+      <section className="applications-panel staged-panel">
+        <div className="applications-panel-heading">
+          <div>
+            <h2><span className="panel-accent blue" /> Staged Approvals</h2>
+            <span>Manual Review Required</span>
+          </div>
+          <div className="application-filters">
+            <input placeholder="⌕  Filter by company, role..." aria-label="Filter by company or role" />
+            <select aria-label="Application date"><option>Date: Summer 2027 Run</option></select>
+            <select aria-label="ATS source"><option>ATS: All Sources</option></select>
           </div>
         </div>
+        {stagedJobs.length === 0 ? (
+          <div className="applications-empty">No staged applications. Add jobs to your pipeline from Find Jobs.</div>
+        ) : stagedJobs.map((job) => (
+          <div key={job.id} className="approval-card">
+            <div className="approval-card-top">
+              <div className="company-mark">{(job.company || "?").charAt(0).toUpperCase()}</div>
+              <div className="approval-role">
+                <h3>{job.title} <span>· Summer 2027</span></h3>
+                <p>{job.company || "Company not listed"} · <MapPin size={11} /> {job.location || "Location not listed"} · ATS: {job.ats_platform || "Cafy"}</p>
+              </div>
+              <span className="approval-status">Draft / Pending Review</span>
+              <div className="approval-score">ATS MATCH SCORE <strong>{Math.round(Number(job.match_score) || 0)}%</strong><small>/ 100</small></div>
+            </div>
+            <div className="approval-card-actions">
+              <span className="approval-document">▣ Customized resume ready</span>
+              <span className="approval-document">◎ Targeted for {job.title}</span>
+              <button type="button" className="applications-secondary" onClick={() => onSelectJob(job)}>View Posting</button>
+              <button type="button" className="applications-primary" onClick={() => onSelectJob(job)}>Review Application</button>
+            </div>
+          </div>
+        ))}
+        <div className="applications-notice">ⓘ Review each staged application before continuing. Cafy does not submit applications automatically.</div>
+      </section>
 
+      <section className="applications-panel tracking-panel">
+        <div className="applications-panel-heading">
+          <div>
+            <h2><span className="panel-accent green" /> Application Tracking</h2>
+            <span>Jobs you added to your pipeline. Click a status to update progress.</span>
+          </div>
+          <button type="button" className="applications-secondary">＋ Add Job Manually</button>
+        </div>
         <div className="tracking-tabs">
           {tabs.map((tab) => (
             <button
@@ -5931,7 +5422,7 @@ function ApplicationTrackingView({
                       {(job.company || "?").charAt(0).toUpperCase()}
                     </div>
                     <div className="tracking-item-details">
-                      <strong>{job.title}</strong>
+                      <strong>{job.title} <span className="tracking-type">{job.employment_type || "On-site"}</span></strong>
                       <span>{job.company || "Company not listed"} · {job.location || "Location not listed"}</span>
                     </div>
                   </div>
@@ -5954,7 +5445,8 @@ function ApplicationTrackingView({
             })
           )}
         </div>
-      </div>
+        <div className="applications-footer">Tracking {filteredJobs.length} of {pipelineJobs.length} active job opportunities <span>Last synchronized just now</span></div>
+      </section>
     </div>
   );
 }

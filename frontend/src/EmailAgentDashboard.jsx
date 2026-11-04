@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Loader2, Mail, RefreshCw, Send, X } from "lucide-react";
 import "./emailAgent.css";
+import NangoConnectPanel from "./NangoConnectPanel.jsx";
+import "./nangoConnect.css";
 
 // Mirrors App.jsx: talk to the FastAPI port directly when served from the Vite dev server.
 const API_BASE =
@@ -232,8 +234,8 @@ export default function EmailAgentDashboard({ pipelineJobs = [] }) {
   const sync = async (id) => {
     setSyncing(id);
     try {
-      const s = await api(`/accounts/${id}/sync`, { method: "POST" });
-      notify(`Synced: ${s.job_related} job-related email(s), ${s.duplicates} duplicate(s) skipped.`, "ok");
+      const result = await api(`/accounts/${id}/sync`, { method: "POST" });
+      notify(`Synced: ${result.job_related} job-related email(s), ${result.duplicates} duplicate(s) skipped.`, "ok");
     } catch (e) {
       notify(e.message, "error");
     } finally {
@@ -244,8 +246,8 @@ export default function EmailAgentDashboard({ pipelineJobs = [] }) {
   const disconnect = async (id) => {
     if (!window.confirm("Disconnect this account and revoke Cafy's access?")) return;
     try {
-      const r = await api(`/accounts/${id}`, { method: "DELETE" });
-      notify(r.remote_revoked ? "Account disconnected and access revoked." : "Account disconnected. Remote revocation could not be confirmed – also remove Cafy in your provider's security settings.", r.remote_revoked ? "ok" : "error");
+      const result = await api(`/accounts/${id}`, { method: "DELETE" });
+      notify(result.remote_revoked ? "Account disconnected and access revoked." : "Account disconnected. Remote revocation could not be confirmed.", result.remote_revoked ? "ok" : "error");
     } catch (e) {
       notify(e.message, "error");
     }
@@ -293,26 +295,33 @@ export default function EmailAgentDashboard({ pipelineJobs = [] }) {
 
       <div className="doc-card">
         <h2>Connected accounts</h2>
-        {active.length === 0 && <p className="ea-muted">Connect Gmail or Outlook (OAuth – Cafy never sees your password). The agent reads job-related mail, drafts replies and checks your calendar.</p>}
-        {active.map((a) => (
-          <div key={a.id} className="ea-account">
-            <Mail size={16} /> <strong>{a.email}</strong> <span className="ea-pill">{label(a.provider)}</span>
-            <span className={`ea-pill ${a.status === "connected" ? "ea-pill-ok" : "ea-pill-bad"}`}>{label(a.status)}</span>
-            <span className="ea-muted">{a.last_synced_at ? `Last sync ${fmtDate(a.last_synced_at)}` : "Not synced yet"}</span>
-            {a.status === "expired" && <span className="ea-alert-inline">Authorization expired – reconnect.</span>}
+        {active.length === 0 && <p className="ea-muted">Connect an email account or Google Calendar to enable the email agent.</p>}
+        {active.map((account) => (
+          <div key={account.id} className="ea-account">
+            <Mail size={16} /> <strong>{account.email}</strong>
+            <span className="ea-pill">{label(account.provider)}</span>
+            <span className={`ea-pill ${account.status === "connected" ? "ea-pill-ok" : "ea-pill-bad"}`}>{label(account.status)}</span>
             <span className="ea-spacer" />
-            <button className="ea-btn" disabled={syncing === a.id || a.status !== "connected"} onClick={() => sync(a.id)}>
-              {syncing === a.id ? <Loader2 size={14} className="doc-spin" /> : <RefreshCw size={14} />} Sync now
+            <button className="ea-btn" disabled={syncing === account.id || account.status !== "connected"} onClick={() => sync(account.id)}>
+              {syncing === account.id ? <Loader2 size={14} className="doc-spin" /> : <RefreshCw size={14} />} Sync now
             </button>
-            <button className="ea-btn ea-btn-danger" onClick={() => disconnect(a.id)}>Disconnect</button>
+            <button className="ea-btn ea-btn-danger" onClick={() => disconnect(account.id)}>Disconnect</button>
           </div>
         ))}
         <div className="ea-actions">
-          {["gmail", "outlook"].map((p) => (
-            <button key={p} className="ea-btn" onClick={() => connect(p)} title={d.providers[p] ? "" : "OAuth credentials are not configured on the server"}>
-              Connect {label(p)}
-            </button>
-          ))}
+          <button className="ea-btn" onClick={() => connect("gmail")} title={d.providers.gmail ? "" : "Google OAuth credentials are not configured on the server"}>Connect Gmail</button>
+          <button className="ea-btn" onClick={() => connect("outlook")} title={d.providers.outlook ? "" : "Microsoft OAuth credentials are not configured on the server"}>Connect Outlook</button>
+          <button className="ea-btn" onClick={() => connect("gmail")} title={d.providers.gmail ? "" : "Google OAuth credentials are not configured on the server"}>Connect Calendar</button>
+          <button className="ea-btn" onClick={scanFollowUps} disabled={!active.length}>Scan for follow-ups</button>
+        </div>
+      </div>
+
+      <div className="doc-card">
+        <NangoConnectPanel onStatusChange={(conns) => {
+          // When Nango connections change, reload the dashboard so synced accounts appear.
+          if (conns.length > 0) load();
+        }} />
+        <div className="ea-actions" style={{ marginTop: 12 }}>
           <button className="ea-btn" onClick={scanFollowUps} disabled={!active.length}>Scan for follow-ups</button>
         </div>
       </div>

@@ -200,6 +200,15 @@ class AuthTests(unittest.TestCase):
         scrape.assert_called_once_with("greenhouse")
         self.assertEqual(self.db.get_stats()["recent_runs"][0]["platform"], "greenhouse")
 
+    def test_cron_scrape_all_requires_secret(self):
+        with mock.patch.dict(os.environ, {"CRON_SECRET": "s3cret"}), \
+             mock.patch.object(main.scheduler, "run_now", return_value={"new_jobs": 1}) as run_now:
+            self.assertEqual(self.client.get("/api/cron").status_code, 401)
+            ok = self.client.get("/api/cron", headers={"Authorization": "Bearer s3cret"})
+        self.assertEqual(ok.status_code, 200)
+        run_now.assert_called_once_with()
+        self.assertEqual(ok.json(), {"platform": "all"})
+
     def test_production_boot_refuses_incomplete_config(self):
         from backend.auth import validate_production_config
         env = {"APP_ENV": "production"}

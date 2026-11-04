@@ -1,5 +1,12 @@
+import json
+import re
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
+
+import docx
+
 from backend.resume_generation_service import ResumeGenerationService
 from backend.database import JobDatabase
 
@@ -55,12 +62,29 @@ class TestResumeGeneration(unittest.TestCase):
             "Experienced engineer with a proven delivery record.",
         )
 
-    def test_normalization_keeps_projects_publications_and_achievements_separate(self):
+    def test_allowed_sections_render_without_discarding_extra_resume_data(self):
         source = {
+            "summary": "Experienced engineer with a proven delivery record.",
+            "education": [{
+                "degree": "BSc Computer Science",
+                "institution": "University of Leeds",
+                "dates": "2020–2023",
+                "description": "First complete sentence.\nSecond complete sentence.",
+            }],
+            "experience": [{
+                "title": "Engineer",
+                "company": "Example Ltd",
+                "description": "Built reliable services.",
+            }],
+            "skills": ["Distributed systems"],
             "projects": [{"title": "Project One"}, {"title": "Project Two"}],
             "internships": [{"title": "Research Intern", "organization": "Lab"}],
             "publications": [{"title": "Paper One", "organization": "Research Journal"}],
+            "certifications": [{"name": "Private Certification"}],
             "achievements": [{"title": "Finalist, Data Challenge"}],
+            "activities": [{"title": "Student Society"}],
+            "leadership": [{"title": "Club President"}],
+            "awards": [{"title": "Research Prize"}],
         }
 
         normalized = self.service._validate_and_normalize({}, source, {})
@@ -68,11 +92,104 @@ class TestResumeGeneration(unittest.TestCase):
         self.assertEqual([item["title"] for item in normalized["projects"]], ["Project One", "Project Two"])
         self.assertEqual(normalized["internships"][0]["title"], "Research Intern")
         self.assertEqual(normalized["publications"][0]["title"], "Paper One")
+        self.assertEqual(normalized["certifications"][0]["name"], "Private Certification")
         self.assertEqual(normalized["achievements"][0]["title"], "Finalist, Data Challenge")
+        self.assertEqual(normalized["activities"], source["activities"])
+        self.assertEqual(normalized["leadership"], source["leadership"])
+        self.assertEqual(normalized["awards"], source["awards"])
         latex = self.service._render_latex(normalized)
-        self.assertIn(r"\section*{Projects}", latex)
-        self.assertIn(r"\section*{Publications}", latex)
-        self.assertNotIn("Paper One", latex.split(r"\section*{Projects}", 1)[1].split(r"\section*{Publications}", 1)[0])
+        self.assertEqual(
+            re.findall(r"\\section\*\{([^}]+)\}", latex),
+            ["About Me", "Education", "Work Experience", "Projects", "Skills"],
+        )
+        self.assertTrue(latex.lstrip().startswith(r"\documentclass"))
+        self.assertIn("First complete sentence. Second complete sentence.", latex)
+        self.assertIn("Distributed systems", latex)
+        for excluded in (
+            "Research Intern", "Paper One", "Finalist, Data Challenge", "Student Society",
+            "Club President", "Research Prize",
+        ):
+            self.assertNotIn(excluded, latex)
+        self.assertIn("Project One", latex)
+        self.assertIn("Project Two", latex)
+        self.assertNotIn("Private Certification", latex)
+
+    def test_missing_education_description_is_written_from_supplied_facts(self):
+        class SkillExtractor:
+            @staticmethod
+            def extract_skills(text):
+                return []
+
+        tailored = {
+            "professional_summary": "",
+            "education": [
+                {"degree": "BSc Computer Science", "institution": "University of Leeds",
+                 "dates": "2020–2023", "location": "Leeds", "description": ""},
+                {"degree": "A levels", "institution": "Example College", "description": "Existing description."},
+            ],
+            "experience": [],
+            "projects": [],
+        }
+        rewritten = {
+            "professional_summary": "",
+            "experience": [],
+            "projects": [],
+            "education": [{
+                "index": 0,
+                "description": "Completed a BSc Computer Science at the University of Leeds in Leeds.",
+            }],
+        }
+        response = mock.Mock(status_code=200)
+        response.json.return_value = {"choices": [{"message": {"content": json.dumps(rewritten)}}]}
+
+        with mock.patch.dict("os.environ", {"GROQ_API_KEY": "test-key"}), \
+             mock.patch("backend.resume_generation_service.requests.post", return_value=response) as post:
+            result = self.service.rewrite_full(tailored, {"title": "Engineer"}, SkillExtractor())
+
+        sent = post.call_args.kwargs["json"]["messages"][1]["content"]
+        self.assertIn('"degree": "BSc Computer Science"', sent)
+        self.assertEqual(
+            result["resume"]["education"][0]["description"],
+            rewritten["education"][0]["description"],
+        )
+        self.assertEqual(result["resume"]["education"][1]["description"], "Existing description.")
+
+    def test_generation_fills_missing_education_description_from_degree(self):
+        data = self.service._ensure_education_descriptions({
+            "education": [
+                {"degree": "B.Tech Information Technology", "institution": "Example University", "description": ""},
+                {"degree": "BSc Computer Science", "institution": "Example College"},
+                {"degree": "BSc Information Technology", "description": "Provided description."},
+            ]
+        })
+        self.assertIn("software development", data["education"][0]["description"])
+        self.assertIn("algorithms", data["education"][1]["description"])
+        self.assertEqual(data["education"][2]["description"], "Provided description.")
+
+    def test_docx_includes_projects_and_excludes_certifications(self):
+        data = {
+            "personal_info": {"name": "Test Candidate"},
+            "professional_summary": "Experienced engineer.",
+            "education": [{"degree": "BSc Computer Science", "institution": "Leeds"}],
+            "experience": [{"title": "Engineer", "company": "Example Ltd"}],
+            "skills": ["Python"],
+            "projects": [{"title": "Included Project"}],
+            "internships": [{"title": "Hidden Internship"}],
+            "publications": [{"title": "Hidden Publication"}],
+            "certifications": [{"name": "Included Certification"}],
+            "achievements": [{"title": "Hidden Award"}],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "resume.docx"
+            self.service._export_docx(data, path)
+            paragraphs = [p.text for p in docx.Document(path).paragraphs]
+
+        text = "\n".join(paragraphs)
+        self.assertIn("ABOUT ME", text)
+        self.assertIn("Included Project", text)
+        self.assertNotIn("Included Certification", text)
+        for excluded in ("Hidden Internship", "Hidden Publication", "Hidden Award"):
+            self.assertNotIn(excluded, text)
 
     def test_database_persistence(self):
         job_id = "test-job-persist-123"

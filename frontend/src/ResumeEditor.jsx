@@ -17,11 +17,11 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
-  AlertCircle,
   ArrowLeft,
   ArrowRight,
   Check,
   Download,
+  ExternalLink,
   FileText,
   GripVertical,
   Lightbulb,
@@ -37,17 +37,21 @@ import "./resumeEditor.css";
 // The PDF renderer is large, so it loads only when the editor opens.
 const PdfPreview = lazy(() => import("./PdfPreview.jsx"));
 
+// [key, short tab label, section heading, helper line]
 export const EDITOR_SECTIONS = [
-  ["personal", "Personal Information"],
-  ["summary", "Professional Summary"],
-  ["skills", "Skills"],
-  ["experience", "Work Experience"],
-  ["internships", "Internships"],
-  ["projects", "Projects"],
-  ["publications", "Publications"],
-  ["education", "Education"],
-  ["certifications", "Certifications"],
-  ["achievements", "Achievements"],
+  ["personal", "Personal", "Personal Information", "How recruiters reach you. Keep links short and current."],
+  ["summary", "Summary", "Professional Summary", "Lead with quantifiable impact: your core strengths, the systems you build, and the role you want next."],
+  ["experience", "Experience", "Work Experience", "Most recent first. Start each bullet with an action verb and end with a measurable result."],
+  ["skills", "Skills", "Technical Skills", "List the tools you have actually used. Match the wording the job description uses."],
+  ["projects", "Projects", "Projects", "Show what you built, the stack you used, and what changed because of it."],
+  ["education", "Education", "Education", "Degree, institution, dates and anything that strengthens this application."],
+];
+
+const FONT_LABELS = { Helvetica: "Helvetica (Sans)", "Times-Roman": "Times (Serif)", Courier: "Courier (Mono)" };
+const WORKSPACE_TABS = [
+  ["editor", "Resume Editor"],
+  ["preview", "Preview & Test"],
+  ["ats", "ATS Insights"],
 ];
 
 const SETTINGS_KEY = "cafy.resumePdfSettings";
@@ -241,7 +245,7 @@ function BulletList({ section, entryIndex, bullets, isRewriting, focusKey, setFo
   );
 }
 
-function EntryList({ section, entries, fields, titleOf, addLabel, hasBullets, hasDescription, isRewriting, focusKey, setFocusKey, edit, onImprove, pendingFocus }) {
+function EntryList({ section, entries, fields, titleOf, addLabel, hasBullets, hasDescription, improveDescription, isRewriting, focusKey, setFocusKey, edit, onImprove, pendingFocus }) {
   return (
     <>
       <SortableList count={entries.length} onMove={(from, to) => edit.moveEntry(section, from, to)}>
@@ -255,7 +259,7 @@ function EntryList({ section, entries, fields, titleOf, addLabel, hasBullets, ha
                     <strong>{titleOf(entry) || "Untitled"}</strong>
                   </span>
                   <span className="editor-entry-actions" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    {hasBullets && (
+                    {(hasBullets || improveDescription) && (
                       <button
                         type="button"
                         className="btn-improve-ai-sm"
@@ -293,7 +297,7 @@ function EntryList({ section, entries, fields, titleOf, addLabel, hasBullets, ha
                 {hasDescription && (
                   <textarea
                     className="editor-input re-entry-description"
-                    placeholder="Description or publication details"
+                    placeholder={section === "education" ? "Describe the knowledge and focus developed through this degree." : "Description or publication details"}
                     value={entry.description || ""}
                     onChange={(e) => edit.updateEntryField(section, idx, "description", e.target.value)}
                     aria-label={`${section} description ${idx + 1}`}
@@ -408,8 +412,12 @@ export default function ResumeEditor({
   recommendedSkills = [],
   fallbackPreview = null,
   onPdfReady,
+  workspaceTab = "editor",
+  onWorkspaceTab,
+  onApply,
 }) {
   const [section, setSection] = useState("summary");
+  const [dismissedTip, setDismissedTip] = useState(null);
   const [focusKey, setFocusKey] = useState(null);
   const [settings, setSettings] = useState(loadSettings);
   const [render, setRender] = useState({ pages: null, blob: null, size: null, density: null });
@@ -538,7 +546,7 @@ export default function ResumeEditor({
         setList(section, (list) => {
           list.push(
             section === "education"
-              ? { degree: "", institution: "", dates: "", location: "", bullets: [] }
+              ? { degree: "", institution: "", dates: "", location: "", description: "", bullets: [] }
               : section === "certifications"
               ? { name: "", issuer: "", dates: "" }
               : section === "publications"
@@ -597,11 +605,13 @@ export default function ResumeEditor({
   const idx = EDITOR_SECTIONS.findIndex(([k]) => k === section);
   const prevSection = EDITOR_SECTIONS[idx - 1];
   const nextSection = EDITOR_SECTIONS[idx + 1];
+  const current = EDITOR_SECTIONS[idx] || EDITOR_SECTIONS[1];
   const info = resume.personal_info || {};
-
-  const status = isSaving ? "Saving…" : dirty ? "Unsaved changes" : "All changes saved";
-  const past = history.current.past.length;
-  const future = history.current.future.length;
+  const summaryText = resume.professional_summary || "";
+  const summaryWords = summaryText.trim() ? summaryText.trim().split(/\s+/).length : 0;
+  const tip = scoring?.analysis?.suggestions?.[0];
+  const tipText = tip ? (typeof tip === "string" ? tip : tip.text) : "";
+  const h = history.current;
 
   const fileBase = [info.name, job?.company].filter(Boolean).join(" - ").replace(/[^\w\- ]+/g, "").trim() || "resume";
   const downloadPdf = () => saveBlob(render.blob, `${fileBase}.pdf`);
@@ -614,24 +624,44 @@ export default function ResumeEditor({
 
   return (
     <div className="re-shell" ref={rootRef} onKeyDown={onKeyDown}>
-      <div className="re-form">
-        <div className="re-topbar">
-          <span className={`re-status ${dirty || isSaving ? "pending" : "saved"}`} role="status" aria-live="polite">
-            {dirty || isSaving ? <AlertCircle size={13} aria-hidden="true" /> : <Check size={13} aria-hidden="true" />} {status}
-          </span>
-          <span className="re-topbar-actions">
-            <button type="button" className="btn-icon-action" onClick={undo} disabled={!past} title="Undo (Ctrl/Cmd+Z)" aria-label="Undo">
-              <Undo2 size={15} aria-hidden="true" />
+      <header className="re-contextbar">
+        <span className={`re-autosaved ${dirty || isSaving ? "pending" : ""}`} role="status" aria-live="polite">
+          <span className="re-autosaved-dot" aria-hidden="true" />
+          {isSaving ? "Saving…" : dirty ? "Unsaved changes" : "All changes saved"}
+        </span>
+        <div className="re-view-tabs" role="tablist" aria-label="Resume workspace view">
+          {WORKSPACE_TABS.map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={workspaceTab === key}
+              className={workspaceTab === key ? "active" : ""}
+              disabled={!onWorkspaceTab && key !== "editor"}
+              onClick={() => onWorkspaceTab?.(key)}
+            >
+              {label}
+              {key === "ats" && <span className="re-tab-dot" aria-hidden="true" />}
             </button>
-            <button type="button" className="btn-icon-action" onClick={redo} disabled={!future} title="Redo (Ctrl/Cmd+Shift+Z)" aria-label="Redo">
-              <Redo2 size={15} aria-hidden="true" />
-            </button>
-            <button type="button" className="pipeline-btn-primary re-save" onClick={saveNow} disabled={isSaving || !dirty} title="Save now (Ctrl/Cmd+S)">
-              {isSaving ? "Saving…" : "Save"}
-            </button>
-          </span>
+          ))}
         </div>
+        <span className="re-target" title={job?.title || "Not set"}>
+          <small>Target Role:</small>
+          <strong>{job?.title || "Not set"}</strong>
+        </span>
+        <div className="re-context-actions">
+          {generatedOutput?.docx_url && (
+            <a className="re-context-action" href={`${apiBase}${generatedOutput.docx_url}`} download>
+              <FileText size={13} aria-hidden="true" /> DOCX
+            </a>
+          )}
+          <button type="button" className="re-context-action primary" onClick={downloadPdf} disabled={!render.blob}>
+            <Download size={13} aria-hidden="true" /> Export PDF
+          </button>
+        </div>
+      </header>
 
+      <div className="re-form">
         <nav className="re-nav" aria-label="Structured editor sections">
           {EDITOR_SECTIONS.map(([key, label]) => (
             <button
@@ -641,15 +671,28 @@ export default function ResumeEditor({
               aria-current={section === key ? "true" : undefined}
               onClick={() => setSection(key)}
             >
+              {key !== "personal" && sections[key] ? (
+                <SectionScoreBadge section={sections[key]} variant="dot" />
+              ) : (
+                <span className="re-nav-dot" aria-hidden="true" />
+              )}
               <span>{label}</span>
-              {key !== "personal" && <SectionScoreBadge section={sections[key]} />}
             </button>
           ))}
         </nav>
 
-        <EditorMatchScore {...scoring} />
+        <EditorMatchScore
+          {...scoring}
+          targetRole={job?.title}
+          onInspect={onWorkspaceTab ? () => onWorkspaceTab("ats") : undefined}
+        />
 
         <div className="re-section">
+          <div className="re-section-heading">
+            <h2>{current[2]}</h2>
+            <span>Step {Math.max(1, idx + 1)} of {EDITOR_SECTIONS.length}</span>
+          </div>
+          <p className="re-section-hint">{current[3]}</p>
           {section === "personal" && (
             <div className="re-field-grid">
               <input type="text" className="editor-input re-span" placeholder="Full Name" value={info.name || ""} onChange={(e) => edit.personal("name", e.target.value)} aria-label="Full name" />
@@ -664,21 +707,49 @@ export default function ResumeEditor({
 
           {section === "summary" && (
             <>
-              <AutoTextarea
-                className="re-summary"
-                value={resume.professional_summary || ""}
-                onChange={(e) => edit.summary(e.target.value)}
-                aria-label="Professional summary"
-                placeholder="Two or three sentences: who you are, what you do best, what you want next."
-              />
-              <div className="re-row-between">
-                <button type="button" className="btn-improve-ai" onClick={() => onImprove("professional_summary")} disabled={isRewriting}>
-                  <Sparkles size={14} aria-hidden="true" /> {isRewriting ? "Improving with AI…" : "Improve with AI"}
-                </button>
-                <span className={`re-muted ${(resume.professional_summary || "").length > 500 ? "over" : ""}`}>
-                  {(resume.professional_summary || "").length}/500
-                </span>
+              <div className="re-composer">
+                <div className="re-composer-bar">
+                  <span className="re-composer-meta">
+                    {summaryWords} words{job?.title ? <> · Tone: <b>Targeted to {job.title}</b></> : null}
+                  </span>
+                  <span className={`re-composer-count ${summaryText.length > 500 ? "over" : ""}`}>
+                    {summaryText.length} / 500 chars
+                  </span>
+                </div>
+                <AutoTextarea
+                  className="re-summary"
+                  value={summaryText}
+                  onChange={(e) => edit.summary(e.target.value)}
+                  aria-label="Professional summary"
+                  placeholder="Two or three sentences: who you are, what you do best, what you want next."
+                />
+                <div className="re-composer-foot">
+                  <button type="button" className="btn-improve-ai re-ai-primary" onClick={() => onImprove("professional_summary")} disabled={isRewriting}>
+                    <Sparkles size={14} aria-hidden="true" /> {isRewriting ? "Improving with AI…" : "AI Enhance & Optimize"}
+                  </button>
+                  <span className="re-composer-history">
+                    <button type="button" className="re-icon-btn" onClick={undo} disabled={!h.past.length} title="Undo (Ctrl+Z)" aria-label="Undo">
+                      <Undo2 size={15} aria-hidden="true" />
+                    </button>
+                    <button type="button" className="re-icon-btn" onClick={redo} disabled={!h.future.length} title="Redo (Ctrl+Y)" aria-label="Redo">
+                      <Redo2 size={15} aria-hidden="true" />
+                    </button>
+                  </span>
+                </div>
               </div>
+              {tipText && dismissedTip !== tipText && (
+                <div className="re-recommendation">
+                  <div className="re-recommendation-head">
+                    <strong><span className="re-rec-dot" aria-hidden="true" /> AI Executive Review Recommendation</strong>
+                    {tip.confidence && <code>Confidence: {tip.confidence}</code>}
+                  </div>
+                  <p>{tipText}</p>
+                  <div className="re-recommendation-actions">
+                    <button type="button" className="btn-improve-ai re-ai-primary" onClick={() => onImprove("professional_summary")} disabled={isRewriting}>Apply Recommendation</button>
+                    <button type="button" className="re-dismiss" onClick={() => setDismissedTip(tipText)}>Dismiss</button>
+                  </div>
+                </div>
+              )}
             </>
           )}
 
@@ -757,6 +828,8 @@ export default function ResumeEditor({
               {...common}
               section="education"
               entries={resume.education || []}
+              hasDescription
+              improveDescription
               titleOf={(e) => [e.degree || e.title, e.institution || e.organization].filter(Boolean).join(" — ")}
               addLabel="+ Add Education Entry"
               fields={[
@@ -807,6 +880,11 @@ export default function ResumeEditor({
             {nextSection ? nextSection[1] : "Next"} <ArrowRight size={14} aria-hidden="true" />
           </button>
         </div>
+        {onApply && (
+          <button type="button" className="re-apply-button" onClick={onApply}>
+            Apply now <ExternalLink size={15} aria-hidden="true" />
+          </button>
+        )}
       </div>
 
       <aside className="re-preview" aria-label="Resume preview">
@@ -814,7 +892,7 @@ export default function ResumeEditor({
           <label>
             Font
             <select value={settings.font} onChange={(e) => setSettings((s) => ({ ...s, font: e.target.value }))}>
-              {PDF_FONTS.map((f) => <option key={f} value={f}>{f.replace("-Roman", "")}</option>)}
+              {PDF_FONTS.map((f) => <option key={f} value={f}>{FONT_LABELS[f] || f}</option>)}
             </select>
           </label>
           <label>
@@ -827,11 +905,12 @@ export default function ResumeEditor({
             Spacing
             <select value={settings.density} onChange={(e) => setSettings((s) => ({ ...s, density: e.target.value }))}>
               <option value="compact">Compact</option>
-              <option value="normal">Normal</option>
+              <option value="normal">Standard</option>
               <option value="relaxed">Relaxed</option>
             </select>
           </label>
           <span className="re-swatches" role="group" aria-label="Accent colour">
+            <span className="re-swatch-label">Theme</span>
             {PDF_ACCENTS.map((c) => (
               <button
                 key={c}
@@ -844,26 +923,15 @@ export default function ResumeEditor({
               />
             ))}
           </span>
-          <label className="re-check">
-            <input type="checkbox" checked={settings.autoFit} onChange={(e) => setSettings((s) => ({ ...s, autoFit: e.target.checked }))} />
-            Auto-fit to 1 page
-          </label>
-        </div>
-
-        <div className="re-preview-head">
-          <span className={`re-pages ${render.pages > 1 ? "over" : render.pages === 1 ? "ok" : ""}`}>
-            {render.pages == null ? "Rendering…" : render.pages === 1 ? "1 page · A4" : `${render.pages} pages · over one page`}
-            {render.pages === 1 && settings.autoFit && render.size && render.size < settings.fontSize ? ` · shrunk to ${render.size} pt` : ""}
-          </span>
-          <span className="re-preview-actions">
-            <button type="button" className="pipeline-btn-primary" onClick={downloadPdf} disabled={!render.blob}>
-              <Download size={14} aria-hidden="true" /> Save PDF
-            </button>
-            {generatedOutput?.docx_url && (
-              <a className="pipeline-btn-secondary re-link" href={`${apiBase}${generatedOutput.docx_url}`} download>
-                <FileText size={14} aria-hidden="true" /> DOCX
-              </a>
-            )}
+          <span className="re-toolbar-end">
+            <span className={`re-pages ${render.pages > 1 ? "over" : render.pages === 1 ? "ok" : ""}`}>
+              {render.pages == null ? "Rendering…" : render.pages === 1 ? "1 page · A4" : `${render.pages} pages · over one page`}
+              {render.pages === 1 && settings.autoFit && render.size && render.size < settings.fontSize ? ` · ${render.size} pt` : ""}
+            </span>
+            <label className="re-check">
+              <input type="checkbox" checked={settings.autoFit} onChange={(e) => setSettings((s) => ({ ...s, autoFit: e.target.checked }))} />
+              Auto-fit to 1 page
+            </label>
           </span>
         </div>
 
