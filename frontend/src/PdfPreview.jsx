@@ -50,9 +50,6 @@ export default function PdfPreview({ resume, settings, onRendered }) {
 
   useEffect(() => () => urls.current.forEach((u) => URL.revokeObjectURL(u)), []);
 
-  // Throwing hands off to the error boundary, which shows the HTML preview instead.
-  if (error) throw error;
-
   const swap = (url) => {
     setShown(url);
     setPending((p) => (p === url ? null : p));
@@ -64,6 +61,15 @@ export default function PdfPreview({ resume, settings, onRendered }) {
     });
   };
   const src = (u) => `${u}#toolbar=0&navpanes=0&view=FitH`;
+
+  if (error) {
+    return (
+      <div className="re-preview-error" role="alert">
+        <strong>Could not render the PDF preview.</strong>
+        <span>{error.message || "An unexpected PDF rendering error occurred."}</span>
+      </div>
+    );
+  }
 
   return (
     <div className="re-pdf">

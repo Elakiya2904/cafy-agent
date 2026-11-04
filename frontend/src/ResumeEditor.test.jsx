@@ -13,7 +13,7 @@ const base = () => ({
   projects: [], education: [], certifications: [], skills: ["Python"],
 });
 
-function Harness({ onSave = vi.fn(), initial = base(), recommended = [] }) {
+function Harness({ onSave = vi.fn(), initial = base(), recommended = [], scoring = {}, onImprove = vi.fn() }) {
   const [resume, setResume] = useState(initial);
   const [snapshot, setSnapshot] = useState(initial);
   const [saving, setSaving] = useState(false);
@@ -21,7 +21,7 @@ function Harness({ onSave = vi.fn(), initial = base(), recommended = [] }) {
     <ResumeEditor
       resume={resume}
       setResume={setResume}
-      job={{ company: "Acme" }}
+      job={{ id: "job-1", company: "Acme", title: "Software Engineer" }}
       savedSnapshot={snapshot}
       isSaving={saving}
       onSave={async () => {
@@ -31,8 +31,8 @@ function Harness({ onSave = vi.fn(), initial = base(), recommended = [] }) {
         setSaving(false);
       }}
       isRewriting={false}
-      onImprove={() => {}}
-      scoring={{}}
+      onImprove={onImprove}
+      scoring={scoring}
       recommendedSkills={recommended}
     />
   );
@@ -52,6 +52,7 @@ describe("ResumeEditor", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
@@ -78,6 +79,48 @@ describe("ResumeEditor", () => {
     expect(box()).toHaveValue("Engineer.");
     fireEvent.keyDown(box(), { key: "y", ctrlKey: true });
     expect(box()).toHaveValue("Changed.");
+  });
+
+  it("opens the generated PDF preview inside the editor workspace", async () => {
+    vi.useRealTimers();
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("tab", { name: "Preview & Test" }));
+    expect(await screen.findByTestId("pdf-preview")).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Structured editor sections" })).not.toBeInTheDocument();
+  });
+
+  it("shows prioritized ATS recommendations, match score, filtering, and learning sources", async () => {
+    vi.useRealTimers();
+    const onImprove = vi.fn();
+    render(<Harness
+      recommended={["Unrelated extracted term"]}
+      onImprove={onImprove}
+      scoring={{ analysis: { job_match_score: 28, missing_skills: ["Databricks", "Customs", "Python", "Docker", "React", "AWS"], sections: {} } }}
+    />);
+    fireEvent.click(screen.getByRole("tab", { name: "ATS Insights" }));
+
+    expect(await screen.findByRole("region", { name: "ATS insights and recommendations" })).toBeInTheDocument();
+    expect(screen.getByText("28% match")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Actionable Recommendations" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Role keyword coverage" })).toBeInTheDocument();
+    expect(screen.queryByText("Unrelated extracted term")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Databricks Academy/ })).toHaveAttribute("href", "https://www.databricks.com/learn/training/home");
+    expect(screen.getByRole("link", { name: /UK import and export guidance/ })).toHaveAttribute("href", "https://www.gov.uk/topic/business-tax/import-export");
+    expect(screen.queryByRole("link", { name: /AWS Skill Builder/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Evidence technical languages" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Evidence technical languages" }).parentElement).toHaveTextContent("Back up Python");
+    fireEvent.click(screen.getByRole("button", { name: "Improve with AI" }));
+    expect(onImprove).toHaveBeenCalledWith("professional_summary");
+    fireEvent.click(screen.getByRole("button", { name: "View examples" }));
+    expect(screen.getByText(/reduced processing time by 20%/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Filter" }));
+    expect(screen.queryByRole("heading", { name: "Role keyword coverage" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show all" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Show all" }));
+    fireEvent.click(screen.getByRole("button", { name: /Review skills/ }));
+    expect(screen.getByRole("navigation", { name: "Structured editor sections" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Technical Skills" })).toBeInTheDocument();
+    expect(screen.queryByText("Unrelated extracted term")).not.toBeInTheDocument();
   });
 
   it("adds a bullet on Enter, removes an empty one on Backspace, and splits pasted lists", () => {

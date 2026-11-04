@@ -19,6 +19,7 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   ArrowLeft,
   ArrowRight,
+  BookOpen,
   Check,
   Download,
   ExternalLink,
@@ -26,12 +27,13 @@ import {
   GripVertical,
   Lightbulb,
   Redo2,
+  SlidersHorizontal,
   Sparkles,
   Undo2,
   X,
 } from "lucide-react";
 import { EditorMatchScore, SectionScoreBadge } from "./JobMatchScore.jsx";
-import { DEFAULT_PDF_SETTINGS, PDF_ACCENTS, PDF_FONTS } from "./pdfSettings.js";
+import { loadPdfSettings, PDF_ACCENTS, PDF_FONTS } from "./pdfSettings.js";
 import "./resumeEditor.css";
 
 // The PDF renderer is large, so it loads only when the editor opens.
@@ -54,7 +56,6 @@ const WORKSPACE_TABS = [
   ["ats", "ATS Insights"],
 ];
 
-const SETTINGS_KEY = "cafy.resumePdfSettings";
 const AUTOSAVE_MS = 2000;
 const HISTORY_COALESCE_MS = 900;
 
@@ -65,14 +66,6 @@ const ACTION_VERBS = new Set(
     "resolved secured scaled trained coordinated spearheaded achieved generated accelerated refactored " +
     "maintained produced presented negotiated supported engineered configured monitored tested").split(" ")
 );
-
-function loadSettings() {
-  try {
-    return { ...DEFAULT_PDF_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
-  } catch {
-    return DEFAULT_PDF_SETTINGS;
-  }
-}
 
 // Quick, local quality checks for one bullet. These only point things out; they never rewrite.
 export function bulletHints(text) {
@@ -417,9 +410,10 @@ export default function ResumeEditor({
   onApply,
 }) {
   const [section, setSection] = useState("summary");
+  const [localWorkspaceTab, setLocalWorkspaceTab] = useState(workspaceTab);
   const [dismissedTip, setDismissedTip] = useState(null);
   const [focusKey, setFocusKey] = useState(null);
-  const [settings, setSettings] = useState(loadSettings);
+  const [settings, setSettings] = useState(loadPdfSettings);
   const [render, setRender] = useState({ pages: null, blob: null, size: null, density: null });
   const [, force] = useReducer((n) => n + 1, 0);
   const rootRef = useRef(null);
@@ -428,10 +422,15 @@ export default function ResumeEditor({
   const attempted = useRef(null);
   const onSaveRef = useRef(onSave);
   onSaveRef.current = onSave;
+  const activeWorkspaceTab = onWorkspaceTab ? workspaceTab : localWorkspaceTab;
+  const changeWorkspaceTab = (tab) => {
+    setLocalWorkspaceTab(tab);
+    onWorkspaceTab?.(tab);
+  };
 
   useEffect(() => {
     try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+      localStorage.setItem("cafy.resumePdfSettings", JSON.stringify(settings));
     } catch {
       /* private mode: settings just won't persist */
     }
@@ -635,10 +634,9 @@ export default function ResumeEditor({
               key={key}
               type="button"
               role="tab"
-              aria-selected={workspaceTab === key}
-              className={workspaceTab === key ? "active" : ""}
-              disabled={!onWorkspaceTab && key !== "editor"}
-              onClick={() => onWorkspaceTab?.(key)}
+              aria-selected={activeWorkspaceTab === key}
+              className={activeWorkspaceTab === key ? "active" : ""}
+              onClick={() => changeWorkspaceTab(key)}
             >
               {label}
               {key === "ats" && <span className="re-tab-dot" aria-hidden="true" />}
@@ -661,6 +659,7 @@ export default function ResumeEditor({
         </div>
       </header>
 
+      {activeWorkspaceTab === "editor" && <>
       <div className="re-form">
         <nav className="re-nav" aria-label="Structured editor sections">
           {EDITOR_SECTIONS.map(([key, label]) => (
@@ -684,7 +683,7 @@ export default function ResumeEditor({
         <EditorMatchScore
           {...scoring}
           targetRole={job?.title}
-          onInspect={onWorkspaceTab ? () => onWorkspaceTab("ats") : undefined}
+          onInspect={() => changeWorkspaceTab("ats")}
         />
 
         <div className="re-section">
@@ -943,8 +942,219 @@ export default function ResumeEditor({
           </PreviewBoundary>
         </div>
       </aside>
+      </>}
+      {activeWorkspaceTab === "preview" && (
+        <section className="re-full-view" aria-label="Preview and test resume">
+          <div className="re-toolbar re-full-toolbar">
+            <label>
+              Font
+              <select value={settings.font} onChange={(e) => setSettings((s) => ({ ...s, font: e.target.value }))}>
+                {PDF_FONTS.map((font) => <option key={font} value={font}>{FONT_LABELS[font] || font}</option>)}
+              </select>
+            </label>
+            <label>
+              Size
+              <select value={settings.fontSize} onChange={(e) => setSettings((s) => ({ ...s, fontSize: Number(e.target.value) }))}>
+                {[8.5, 9, 9.5, 10, 10.5, 11, 11.5].map((size) => <option key={size} value={size}>{size} pt</option>)}
+              </select>
+            </label>
+            <label>
+              Spacing
+              <select value={settings.density} onChange={(e) => setSettings((s) => ({ ...s, density: e.target.value }))}>
+                <option value="compact">Compact</option>
+                <option value="normal">Standard</option>
+                <option value="relaxed">Relaxed</option>
+              </select>
+            </label>
+            <span className={`re-pages ${render.pages > 1 ? "over" : render.pages === 1 ? "ok" : ""}`}>
+              {render.pages == null ? "Rendering…" : render.pages === 1 ? "1 page · A4" : `${render.pages} pages`}
+            </span>
+          </div>
+          <div className="re-full-preview-frame">
+            <PreviewBoundary>
+              <Suspense fallback={<div className="re-loading">Loading PDF preview…</div>}>
+                <PdfPreview resume={resume} settings={settings} onRendered={setRender} />
+              </Suspense>
+            </PreviewBoundary>
+          </div>
+        </section>
+      )}
+      {activeWorkspaceTab === "ats" && (
+        <AtsInsights
+          resume={resume}
+          job={job}
+          scoring={scoring}
+          isRewriting={isRewriting}
+          onImprove={onImprove}
+          onNavigateToSection={(nextSection) => {
+            setSection(nextSection);
+            changeWorkspaceTab("editor");
+          }}
+        />
+      )}
     </div>
   );
+}
+
+function AtsInsights({ resume, job, scoring, isRewriting, onImprove, onNavigateToSection }) {
+  const [priorityOnly, setPriorityOnly] = useState(false);
+  const [showMetricExamples, setShowMetricExamples] = useState(false);
+  const analysis = scoring?.analysis;
+  const missingSkills = Array.from(new Set(analysis?.missing_skills || []))
+    .filter((skill) => String(skill).trim())
+    .slice(0, 5);
+  const suggestions = (analysis?.suggestions || [])
+    .map((item) => typeof item === "string" ? item : item?.text)
+    .filter(Boolean);
+  const summary = String(resume.professional_summary || "").trim();
+  const bullets = [
+    ...(resume.experience || []),
+    ...(resume.internships || []),
+    ...(resume.projects || []),
+  ].flatMap((entry) => entry.bullets || []);
+  const quantifiedBullets = bullets.filter((bullet) => /\d/.test(bullet)).length;
+  const languagePatterns = /\b(c\+\+|c#|java|python|javascript|typescript|go|rust|sql|kotlin|swift|ruby|php)\b/i;
+  const verifiedLanguages = Array.from(new Set((resume.skills || []).filter((skill) => languagePatterns.test(skill)))).slice(0, 6);
+  const roleTitle = job?.title || "your target role";
+  const matchScore = Number.isFinite(analysis?.job_match_score) ? analysis.job_match_score : null;
+  const recommendationCount = 4 + (suggestions.length > 0 ? 1 : 0);
+
+  return (
+    <section className="re-full-view re-ats-view" aria-label="ATS insights and recommendations">
+      <header className="re-ats-header">
+        <div>
+          <div className="re-ats-title-row">
+            <h2>ATS Insights</h2>
+            <span className="re-ats-live"><span /> Live evaluation</span>
+          </div>
+          <p>Practical, role-specific ways to strengthen this résumé for <strong>{roleTitle}</strong>.</p>
+        </div>
+        <div className="re-ats-score-box" aria-label={matchScore == null ? "Match score updating" : `${matchScore}% overall match`}>
+          <div><span>Overall match</span><strong>{matchScore == null ? "—" : `${matchScore}% match`}</strong></div>
+          <span className="re-ats-score-ring" style={{ "--match-progress": `${matchScore ?? 0}%` }}>{matchScore == null ? "…" : `${matchScore}%`}</span>
+        </div>
+      </header>
+      {scoring?.isAnalyzing && <p className="re-ats-status" role="status">Updating your match analysis…</p>}
+      {scoring?.error && <p className="re-ats-status" role="alert">{scoring.error}</p>}
+
+      <section className="re-ats-actions" aria-label="Actionable recommendations">
+        <header className="re-ats-actions-header">
+          <div>
+            <div className="re-ats-actions-title">
+              <h3>Actionable Recommendations</h3>
+              <span>{priorityOnly ? "2 prioritized fixes" : `${recommendationCount} recommendations`}</span>
+            </div>
+            <p>High-impact changes to strengthen your résumé for this role.</p>
+          </div>
+          <button
+            type="button"
+            className={`re-ats-filter ${priorityOnly ? "active" : ""}`}
+            aria-pressed={priorityOnly}
+            onClick={() => setPriorityOnly((value) => !value)}
+          >
+            <SlidersHorizontal size={15} aria-hidden="true" /> {priorityOnly ? "Show all" : "Filter"}
+          </button>
+        </header>
+
+        <div className="re-ats-recommendation-grid">
+          <article className="re-ats-recommendation re-ats-summary-recommendation">
+            <span className="re-ats-dot priority" aria-hidden="true" />
+            <div className="re-ats-recommendation-main">
+              <div className="re-ats-recommendation-title">
+                <h4>Strengthen your opening summary</h4>
+                <span>High leverage</span>
+                <button type="button" onClick={() => onImprove?.("professional_summary")} disabled={isRewriting || !onImprove}>
+                  <Sparkles size={14} aria-hidden="true" /> {isRewriting ? "Improving…" : "Improve with AI"}
+                </button>
+              </div>
+              <p>{summary ? `${summary.split(/\s+/).length} words. Focus on strengths and impact relevant to ${roleTitle}.` : "Add a concise summary focused on your relevant strengths and target role."}</p>
+            </div>
+          </article>
+
+          <article className="re-ats-recommendation">
+            <span className="re-ats-dot" aria-hidden="true" />
+            <div className="re-ats-recommendation-main">
+              <h4>Use measurable evidence</h4>
+              <p>{quantifiedBullets} of {bullets.length} experience and project bullets include a number. Add truthful scope or outcomes where possible.</p>
+              <footer><span>Target: quantify key outcomes</span><button type="button" onClick={() => setShowMetricExamples((value) => !value)}>{showMetricExamples ? "Hide examples" : "View examples"}</button></footer>
+              {showMetricExamples && <p className="re-ats-example">Examples: “reduced processing time by 20%”, “supported 12 clients”, or “automated 4 weekly reports” — use only figures you can verify.</p>}
+            </div>
+          </article>
+
+          {!priorityOnly && (
+            <article className="re-ats-recommendation">
+              <span className="re-ats-dot" aria-hidden="true" />
+              <div className="re-ats-recommendation-main">
+                <h4>Role keyword coverage</h4>
+                <p>{missingSkills.length ? <>The role lists <strong>{missingSkills.join(", ")}</strong>. Add a term only if you genuinely have the experience.</> : "Your résumé currently covers the identified role skills."}</p>
+                <footer><span>{missingSkills.length} missing target keywords</span><button type="button" onClick={() => onNavigateToSection?.("skills")}>Review skills <ArrowRight size={13} aria-hidden="true" /></button></footer>
+              </div>
+            </article>
+          )}
+
+          {!priorityOnly && (
+            <article className="re-ats-recommendation">
+              <span className="re-ats-dot" aria-hidden="true" />
+              <div className="re-ats-recommendation-main">
+                <h4>Evidence technical languages</h4>
+                <p>{verifiedLanguages.length
+                  ? <>Back up <strong>{verifiedLanguages.join(", ")}</strong> with a project or experience bullet showing where you used them.</>
+                  : "If you list programming languages, add a project or experience bullet showing how you used each one."}</p>
+                <footer><span>Core language verification</span><button type="button" onClick={() => onNavigateToSection?.("projects")}>Map to project <ArrowRight size={13} aria-hidden="true" /></button></footer>
+              </div>
+            </article>
+          )}
+
+          {!priorityOnly && suggestions.slice(0, 1).map((suggestion) => (
+            <article className="re-ats-recommendation" key={suggestion}>
+              <span className="re-ats-dot" aria-hidden="true" />
+              <div className="re-ats-recommendation-main"><h4>Match insight</h4><p>{suggestion}</p></div>
+            </article>
+          ))}
+        </div>
+
+        {!priorityOnly && missingSkills.length > 0 && (
+          <div className="re-ats-learning-links">
+            <strong><BookOpen size={15} aria-hidden="true" /> Learning resources</strong>
+            <div>{missingSkills.map((skill) => {
+              const resource = learningResource(skill);
+              return <a key={skill} href={resource.href} target="_blank" rel="noopener noreferrer">{skill}: {resource.label}<ExternalLink size={12} aria-hidden="true" /></a>;
+            })}</div>
+          </div>
+        )}
+        <p className="re-ats-note">Use recommendations as guidance; only include claims you can support with real experience or study.</p>
+      </section>
+    </section>
+  );
+}
+
+const LEARNING_RESOURCES = [
+  { pattern: /customer service/i, label: "Customer service skills", href: "https://www.skillsyouneed.com/ips/customer-service.html", description: "Communication, active listening, and handling customer needs." },
+  { pattern: /customs|import|export/i, label: "UK import and export guidance", href: "https://www.gov.uk/topic/business-tax/import-export", description: "Official guidance on customs processes and trade requirements." },
+  { pattern: /databricks/i, label: "Databricks Academy", href: "https://www.databricks.com/learn/training/home", description: "Training paths and learning materials from Databricks." },
+  { pattern: /looker/i, label: "Looker learning resources", href: "https://cloud.google.com/looker/docs/learning-resources", description: "Documentation and training resources from Google Cloud." },
+  { pattern: /machin(?:e|ing)|cnc/i, label: "Machining courses", href: "https://www.coursera.org/search?query=machining", description: "Browse structured courses related to machining and manufacturing." },
+  { pattern: /mentor/i, label: "CIPD mentoring guidance", href: "https://www.cipd.org/en/knowledge/factsheets/coaching-mentoring-factsheet/", description: "Guidance on coaching and mentoring at work." },
+  { pattern: /onboarding/i, label: "CIPD induction guidance", href: "https://www.cipd.org/en/knowledge/factsheets/induction-factsheet/", description: "Practical guidance for welcoming and supporting new starters." },
+  { pattern: /recruit|hiring/i, label: "CIPD recruitment guidance", href: "https://www.cipd.org/en/knowledge/factsheets/recruitment-factsheet/", description: "Guidance on fair and effective recruitment practices." },
+  { pattern: /react/i, label: "React Learn", href: "https://react.dev/learn", description: "Official interactive introduction to React." },
+  { pattern: /javascript|js\b/i, label: "MDN JavaScript Guide", href: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide", description: "A comprehensive guide to the JavaScript language." },
+  { pattern: /typescript/i, label: "TypeScript Handbook", href: "https://www.typescriptlang.org/docs/handbook/intro.html", description: "Official guide to TypeScript concepts and usage." },
+  { pattern: /python/i, label: "Python Tutorial", href: "https://docs.python.org/3/tutorial/", description: "Official Python language tutorial." },
+  { pattern: /aws|amazon web services/i, label: "AWS Skill Builder", href: "https://skillbuilder.aws/", description: "Digital courses and learning plans from AWS." },
+  { pattern: /docker|container/i, label: "Docker Get Started", href: "https://docs.docker.com/get-started/", description: "Official hands-on introduction to Docker." },
+  { pattern: /kubernetes|k8s/i, label: "Kubernetes Tutorials", href: "https://kubernetes.io/docs/tutorials/", description: "Official tutorials for learning Kubernetes." },
+  { pattern: /sql|postgres|database/i, label: "SQLBolt Lessons", href: "https://sqlbolt.com/", description: "Interactive lessons for learning SQL." },
+  { pattern: /git|github/i, label: "GitHub Skills", href: "https://skills.github.com/", description: "Interactive courses for GitHub workflows." },
+];
+
+function learningResource(skill) {
+  return LEARNING_RESOURCES.find(({ pattern }) => pattern.test(skill))
+    || {
+      label: `Explore ${skill} courses`,
+      href: `https://www.coursera.org/search?query=${encodeURIComponent(skill)}`,
+      description: `Browse courses related to ${skill} and compare their level and prerequisites.`,
+    };
 }
 
 class PreviewBoundary extends React.Component {

@@ -4,6 +4,7 @@
 
 import { withToken } from "./auth.js";
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import logo from "./logo.png";
 import {
   tailoredResumeToProfile,
   useJobMatchAnalysis,
@@ -1234,10 +1235,7 @@ function Sidebar({ activeTab, setActiveTab, totalJobsCount, hasResume, highMatch
     <aside className="sidebar">
       <div className="sidebar-brand">
         <div className="brand-logo-icon">
-          <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
-            <path d="M4 14.5L28 4L18 28L13 19L4 14.5Z" fill="#2563EB" stroke="#1D4ED8" strokeWidth="2" strokeLinejoin="round" />
-            <path d="M28 4L13 19" stroke="#93C5FD" strokeWidth="2" strokeLinecap="round" />
-          </svg>
+          <img src={logo} alt="" />
         </div>
         <span className="brand-title">Cafy Agent</span>
       </div>
@@ -2394,78 +2392,6 @@ function ResumeDocumentPreview({ resume, job, resumeReady, isGeneratingResume })
   );
 }
 
-function SuggestionsPanel({ job, resume, tailoredResume, onRewriteSummary, isRewriting }) {
-  const missingSkills = Array.isArray(job.missing_skills) ? job.missing_skills : [];
-  const targetRole = job.title || "this role";
-  const company = job.company || "the employer";
-
-  return (
-    <div className="suggestions-wrap">
-      <div className="suggestion-box">
-        <div className="suggestion-box-header">
-          <strong>1. Professional Summary Alignment</strong>
-          <button
-            type="button"
-            className="ai-action"
-            onClick={onRewriteSummary}
-            disabled={isRewriting}
-            title="Rewrite summary with AI"
-          >
-            {isRewriting ? "Rewriting with AI…" : "Improve with AI"}
-          </button>
-        </div>
-        <p>
-          Tailor your opening statement to directly emphasize how your background solves key engineering challenges for{" "}
-          <strong>{company}</strong> as a <strong>{targetRole}</strong>.
-        </p>
-      </div>
-
-      <div className="suggestion-box">
-        <div className="suggestion-box-header">
-          <strong>2. Project & Experience Prioritization</strong>
-        </div>
-        <p>
-          Lead each work experience entry with technical accomplishments that demonstrate overlapping stack
-          capabilities. Place projects directly related to {targetRole} near the top of your document.
-        </p>
-      </div>
-
-      <div className="suggestion-box">
-        <div className="suggestion-box-header">
-          <strong>3. Bullet-Point Clarity & Measurable Outcomes</strong>
-        </div>
-        <p>
-          Use strong action verbs followed by scope and measurable business impact (e.g., "Engineered FastAPI
-          microservices reducing API latency by 35%"). Review bullets in the editor to ensure each claim is supported
-          by your source background.
-        </p>
-      </div>
-
-      {missingSkills.length > 0 && (
-        <div className="suggestion-box">
-          <div className="suggestion-box-header">
-            <strong>4. Genuine Keyword Coverage</strong>
-          </div>
-          <p>
-            The role highlights <strong>{missingSkills.slice(0, 3).join(", ")}</strong>. If you have touched these tools
-            in academic or personal projects, add those specific bullet points in the Editor tab.
-          </p>
-        </div>
-      )}
-
-      <div className="suggestion-box">
-        <div className="suggestion-box-header">
-          <strong>5. ATS-Friendly Layout</strong>
-        </div>
-        <p>
-          The template uses a single column, standard section headings and no graphics or tables, which
-          applicant tracking systems generally parse well. Keep the resume to one or two pages.
-        </p>
-      </div>
-    </div>
-  );
-}
-
 function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline, inPipeline, fullPage = false, resumeOnly = false }) {
   const [activeTab, setActiveTab] = useState("application");
   const [workspaceTab, setWorkspaceTab] = useState("editor");
@@ -2501,7 +2427,7 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
   // (debounced) on every change, including AI rewrites, so section scores stay current.
   const editorProfile = useMemo(() => tailoredResumeToProfile(tailoredResume, resume), [tailoredResume, resume]);
   const editorScoring = useJobMatchAnalysis(
-    resumeReady && workspaceTab === "editor" ? job.id : null,
+    resumeReady && workspaceTab !== "scenarios" ? job.id : null,
     editorProfile,
     600
   );
@@ -3511,43 +3437,10 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
               {/* After generation: Resume Editor / Preview / ATS workspace */}
               {showWorkspace && (
                 <div>
-                  {/* Workspace tabs. The editor draws these in its own top bar, so hide them there. */}
-                  {workspaceTab !== "editor" && <div className="workspace-tabs-bar" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
-                    <div className="workspace-tabs" role="tablist" aria-label="Resume workspace tabs" style={{ margin: 0 }}>
-                      <button
-                        type="button"
-                        className={workspaceTab === "editor" ? "active" : ""}
-                        onClick={() => setWorkspaceTab("editor")}
-                        role="tab"
-                        aria-selected={workspaceTab === "editor"}
-                      >
-                        Resume Editor
-                      </button>
-                      <button
-                        type="button"
-                        className={workspaceTab === "preview" ? "active" : ""}
-                        onClick={() => setWorkspaceTab("preview")}
-                        role="tab"
-                        aria-selected={workspaceTab === "preview"}
-                      >
-                        Preview & Test
-                      </button>
-                      <button
-                        type="button"
-                        className={workspaceTab === "ats" ? "active" : ""}
-                        onClick={() => setWorkspaceTab("ats")}
-                        role="tab"
-                        aria-selected={workspaceTab === "ats"}
-                      >
-                        ATS Insights
-                      </button>
-                    </div>
-                  </div>}
-
                   {resumeError && <div className="pipeline-error" style={{ marginBottom: 12 }}>{resumeError}</div>}
 
-                  {/* SUBTAB: RESUME EDITOR (Desktop Split: Editor on Left, Live Preview on Right) */}
-                  {workspaceTab === "editor" && (
+                  {/* The editor owns its workspace tabs so switching views preserves the live draft. */}
+                  {workspaceTab !== "scenarios" && (
                     <ResumeEditor
                       resume={tailoredResume}
                       setResume={setTailoredResume}
@@ -3565,40 +3458,7 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
                       onApply={job.url || job.apply_url || job.application_url ? handleOpenCareerPortal : undefined}
                       scoring={editorScoring}
                       recommendedSkills={recommendedSkills}
-                      fallbackPreview={
-                        <ResumeDocumentPreview
-                          resume={tailoredResume}
-                          job={job}
-                          resumeReady={resumeReady}
-                          isGeneratingResume={isGeneratingResume}
-                        />
-                      }
                     />
-                  )}
-
-                  {/* SUBTAB: LIVE PREVIEW (Full width standalone) */}
-                  {workspaceTab === "preview" && (
-                    <div className="workspace-single-panel">
-                      <ResumeDocumentPreview
-                        resume={tailoredResume}
-                        job={job}
-                        resumeReady={resumeReady}
-                        isGeneratingResume={isGeneratingResume}
-                      />
-                    </div>
-                  )}
-
-                  {/* SUBTAB: SUGGESTIONS */}
-                  {workspaceTab === "ats" && (
-                    <div className="workspace-single-panel">
-                      <SuggestionsPanel
-                        job={job}
-                        resume={resume}
-                        tailoredResume={tailoredResume}
-                        onRewriteSummary={() => handleRewriteSection("professional_summary")}
-                        isRewriting={isRewriting}
-                      />
-                    </div>
                   )}
 
                   {/* SUBTAB: CONTINUE TO APPLICATION */}
@@ -4070,54 +3930,127 @@ function DirectoryView({
   );
 }
 
-function CompaniesView({ platforms, onOpenAdd, onScrapePlatform }) {
+export function CompaniesView({ platforms, onOpenAdd, onScrapePlatform }) {
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLowerCase();
+  const visiblePlatforms = platforms.filter((platform) =>
+    [platform.name, platform.id, ...(platform.companies || [])]
+      .some((value) => String(value || "").toLowerCase().includes(normalizedQuery))
+  );
+  const companyCount = platforms.reduce(
+    (total, platform) => total + (platform.companies_count ?? platform.companies?.length ?? 0),
+    0
+  );
+  const storedJobsCount = platforms.reduce((total, platform) => total + (platform.stored_jobs_count ?? 0), 0);
+
   return (
-    <div className="content-container">
+    <div className="content-container companies-page">
       <div className="section-page-header">
-        <div>
+        <div className="companies-page-heading">
           <span className="hero-tag">ATS CONNECTOR CATALOG</span>
-          <h1 className="page-title">Supported ATS Platforms & Companies</h1>
-          <p className="page-subtitle">Public job-board APIs for the {platforms.length} configured applicant tracking systems.</p>
+          <h1 className="page-title">Companies & platforms</h1>
+          <p className="page-subtitle">Manage the career sites we scan and see the jobs collected from each source.</p>
         </div>
-        <button type="button" className="btn-choose-resume" onClick={onOpenAdd}>
+        <button type="button" className="btn-choose-resume companies-add-button" onClick={onOpenAdd}>
           <span>+ Add Company to Scrape</span>
         </button>
       </div>
 
-      <div className="platforms-grid">
-        {platforms.map((p) => (
-          <div key={p.id} className="platform-card">
-            <div className="platform-card-header">
-              <span className="platform-title" style={{ color: p.color }}>
-                {p.name}
-              </span>
-              <span className="badge-pill">{p.stored_jobs_count || 0} Jobs Stored</span>
-            </div>
-            <p className="platform-desc">
-              Configured company career boards: {p.companies_count || 0}
-            </p>
-            <div className="platform-companies-list">
-              {(p.companies || []).map((c, i) => (
-                <span key={i} className="company-pill">
-                  {c}
-                </span>
-              ))}
-            </div>
-            <div className="platform-footer">
-              <span style={{ fontSize: "0.76rem", color: "#64748B" }}>
-                Status: {!p.status || p.status === "never_run" ? "Never run" : String(p.status).replace(/_/g, " ")}
-              </span>
-              <button
-                type="button"
-                className="btn-scrape-platform"
-                onClick={() => onScrapePlatform(p.id)}
-              >
-                Scrape {p.name}
-              </button>
-            </div>
-          </div>
-        ))}
+      <div className="companies-metrics" aria-label="Company scraping totals">
+        <article className="companies-metric-card">
+          <span className="companies-metric-icon"><Building2 size={18} aria-hidden="true" /></span>
+          <div><strong>{platforms.length}</strong><span>ATS platforms</span></div>
+        </article>
+        <article className="companies-metric-card">
+          <span className="companies-metric-icon"><Globe size={18} aria-hidden="true" /></span>
+          <div><strong>{companyCount.toLocaleString()}</strong><span>Configured companies</span></div>
+        </article>
+        <article className="companies-metric-card">
+          <span className="companies-metric-icon"><Briefcase size={18} aria-hidden="true" /></span>
+          <div><strong>{storedJobsCount.toLocaleString()}</strong><span>Active jobs stored</span></div>
+        </article>
       </div>
+
+      <label className="companies-search">
+        <Search size={17} aria-hidden="true" />
+        <span className="sr-only">Search companies and platforms</span>
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search companies or ATS platforms"
+          aria-label="Search companies and platforms"
+        />
+        {query && <button type="button" onClick={() => setQuery("")} aria-label="Clear company search"><X size={15} /></button>}
+      </label>
+
+      {visiblePlatforms.length ? (
+        <div className="platforms-grid">
+          {visiblePlatforms.map((p) => {
+            const companies = p.companies || [];
+            const companiesCount = p.companies_count ?? companies.length;
+            const status = !p.status || p.status === "never_run" ? "Never run" : String(p.status).replace(/_/g, " ");
+            return (
+              <article key={p.id} className="platform-card">
+                <div className="platform-card-header">
+                  <div className="platform-brand">
+                    <span className="platform-brand-mark" style={{ "--platform-color": p.color || "var(--primary-blue)" }}>
+                      <Building2 size={19} aria-hidden="true" />
+                    </span>
+                    <div>
+                      <span className="platform-title">{p.name}</span>
+                      <span className="platform-id">{p.id}</span>
+                    </div>
+                  </div>
+                  <span className={`platform-status ${p.status === "success" ? "is-success" : ""}`}>
+                    <span aria-hidden="true" />{status}
+                  </span>
+                </div>
+
+                <div className="platform-stats">
+                  <div><strong>{companiesCount.toLocaleString()}</strong><span>Companies</span></div>
+                  <div><strong>{(p.stored_jobs_count ?? 0).toLocaleString()}</strong><span>Active jobs</span></div>
+                </div>
+
+                <div className="platform-companies">
+                  <div className="platform-companies-heading">
+                    <strong>Configured companies</strong>
+                    <span>{companiesCount.toLocaleString()}</span>
+                  </div>
+                  {companies.length ? (
+                    <ul className="platform-companies-list">
+                      {companies.map((company, index) => (
+                        <li key={`${p.id}-${company}-${index}`} className="company-pill">{company}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="platform-companies-empty">No companies configured yet.</p>
+                  )}
+                </div>
+
+                <div className="platform-footer">
+                  <span className="platform-last-run">
+                    {p.last_run ? `Last run ${new Date(p.last_run).toLocaleString()}` : "No scrape run recorded"}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn-scrape-platform"
+                    onClick={() => onScrapePlatform(p.id)}
+                  >
+                    <RefreshCw size={14} aria-hidden="true" /> Scrape {p.name}
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="companies-empty-state">
+          <Building2 size={24} aria-hidden="true" />
+          <strong>{normalizedQuery ? "No matching companies or platforms" : "No ATS platforms configured"}</strong>
+          <span>{normalizedQuery ? "Try a different search term." : "Add a company to start collecting jobs."}</span>
+        </div>
+      )}
     </div>
   );
 }

@@ -2,9 +2,9 @@ import React from 'react';
 import { cleanup, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-// The PDF engine needs a real browser; the editor falls back to its HTML preview when it fails.
-vi.mock('./PdfPreview.jsx', () => ({ default: () => null }));
-import App, { ApplicationTrackingView, DirectoryView, JobDetailModal, normalizeClientResume } from './App.jsx';
+// Keep PDF rendering deterministic in jsdom while verifying which preview surface is used.
+vi.mock('./PdfPreview.jsx', () => ({ default: () => <div data-testid="pdf-preview-renderer" /> }));
+import App, { ApplicationTrackingView, CompaniesView, DirectoryView, JobDetailModal, normalizeClientResume } from './App.jsx';
 
 const job = {
   id: 'job-1',
@@ -96,6 +96,56 @@ describe('Find Jobs resume removal', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Remove résumé/i }));
     expect(onRemoveResume).toHaveBeenCalledOnce();
+  });
+});
+
+describe('Companies directory', () => {
+  const platforms = [
+    {
+      id: 'greenhouse',
+      name: 'Greenhouse',
+      color: '#16a34a',
+      companies: ['Databricks', 'Figma'],
+      companies_count: 2,
+      stored_jobs_count: 1443,
+      status: 'success',
+      last_run: '2026-11-04T08:00:00Z',
+    },
+    {
+      id: 'lever',
+      name: 'Lever',
+      color: '#2563eb',
+      companies: ['Stripe'],
+      companies_count: 1,
+      stored_jobs_count: 27,
+      status: 'never_run',
+      last_run: null,
+    },
+  ];
+
+  it('redesigns platform cards while preserving backend company names and counts', () => {
+    render(<CompaniesView platforms={platforms} onOpenAdd={() => {}} onScrapePlatform={() => {}} />);
+
+    expect(screen.getByRole('heading', { name: 'Companies & platforms' })).toBeInTheDocument();
+    expect(screen.getByText('3', { selector: '.companies-metric-card strong' })).toBeInTheDocument();
+    expect(screen.getByText('1,470', { selector: '.companies-metric-card strong' })).toBeInTheDocument();
+    expect(screen.getByText('Databricks')).toBeInTheDocument();
+    expect(screen.getByText('Figma')).toBeInTheDocument();
+    expect(screen.getByText('Stripe')).toBeInTheDocument();
+    expect(screen.getByText('1,443')).toBeInTheDocument();
+    expect(screen.getByText('27')).toBeInTheDocument();
+  });
+
+  it('filters platforms and their original company names', () => {
+    render(<CompaniesView platforms={platforms} onOpenAdd={() => {}} onScrapePlatform={() => {}} />);
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search companies and platforms' }), {
+      target: { value: 'Figma' },
+    });
+
+    expect(screen.getByText('Greenhouse')).toBeInTheDocument();
+    expect(screen.queryByText('Lever')).not.toBeInTheDocument();
+    expect(screen.getByText('Figma')).toBeInTheDocument();
   });
 });
 
@@ -397,6 +447,25 @@ describe('Cafy Agent job application drawer', () => {
     await screen.findByRole('navigation', { name: 'Structured editor sections' }, { timeout: 3000 });
     expect(screen.queryByRole('button', { name: /Download Resume/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Continue to Application/i })).not.toBeInTheDocument();
+  });
+
+  it('uses the PDF renderer in the full-width Preview & Test tab', async () => {
+    render(
+      <JobDetailModal
+        job={job}
+        resume={resume}
+        onClose={() => {}}
+        onTogglePipeline={() => {}}
+        inPipeline={false}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Generate Tailored Resume/i }));
+    await screen.findByRole('navigation', { name: 'Structured editor sections' }, { timeout: 3000 });
+    fireEvent.click(screen.getByRole('tab', { name: 'Preview & Test' }));
+
+    expect(await screen.findByTestId('pdf-preview-renderer')).toBeInTheDocument();
+    expect(document.querySelector('.resume-paper-doc')).not.toBeInTheDocument();
   });
 
   it('shows live section scores in the Resume Editor and updates them after Improve with AI', async () => {

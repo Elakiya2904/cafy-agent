@@ -18,6 +18,13 @@ const SOURCE_TYPE = { job_posting: "Job posting", official_page: "Official compa
 const SCOPE = { role_specific: "This role", company_wide: "Company-wide (may differ by role)", role_family: "Similar roles", unconfirmed_role: "Role not confirmed", unknown: "" };
 const fmtDate = (s) => (s ? new Date(s).toLocaleDateString(undefined, { dateStyle: "medium" }) : null);
 
+export async function fetchJobIntelligence(jobId, refresh = false) {
+  const res = await fetch(`${API_BASE}/api/job-intelligence/${encodeURIComponent(jobId)}${refresh ? "?refresh=true" : ""}`);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(typeof body.detail === "string" ? body.detail : "Could not load job intelligence.");
+  return body;
+}
+
 function Badge({ status }) {
   return <span className={`ji-badge ${STATUS_CLASS[status] || ""}`}>{STATUS_LABEL[status] || status}</span>;
 }
@@ -82,10 +89,7 @@ export default function JobIntelligence({ job }) {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`${API_BASE}/api/job-intelligence/${encodeURIComponent(job.id)}${refresh ? "?refresh=true" : ""}`);
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(typeof body.detail === "string" ? body.detail : "Could not load job intelligence.");
-      setData(body);
+      setData(await fetchJobIntelligence(job.id, refresh));
     } catch (e) {
       setError(e.message);
     } finally {
