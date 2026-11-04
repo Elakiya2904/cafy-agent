@@ -103,6 +103,26 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+### Local PostgreSQL development
+Docker is not required for local development. Install PostgreSQL for Windows,
+create a database named `cafy_agent`, and set the local URL in `.env`:
+
+```ini
+DATABASE_URL=postgresql+psycopg://postgres:<PASSWORD>@localhost:5432/cafy_agent
+```
+
+The SQLAlchemy/Alembic migration foundation is now present. Once PostgreSQL is
+running, verify connectivity and apply migrations with:
+
+```powershell
+.\.venv\Scripts\python.exe -c "from dotenv import load_dotenv; load_dotenv(); from sqlalchemy import text; from backend.sqlalchemy_db import build_engine; e=build_engine(); print(e.connect().execute(text('SELECT 1')).scalar())"
+.\.venv\Scripts\python.exe -m alembic upgrade head
+```
+
+The existing runtime database adapter remains active until application tables
+are mapped and the PostgreSQL migration has been validated. Do not delete the
+existing database or Supabase project during this transition.
+
 ### 3. Environment Configuration
 Copy `.env.example` to `.env` in the project root:
 ```bash
