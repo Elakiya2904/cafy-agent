@@ -1,3 +1,5 @@
+# Vercel Python entry point that exposes the FastAPI application.
+# Adds the repository root to Python's import path before loading backend.main.
 import os
 import sys
 from pathlib import Path

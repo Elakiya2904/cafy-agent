@@ -1,3 +1,8 @@
+"""Test role-title matching precision in candidate job recommendations.
+
+Checks that similar but unrelated job titles do not receive unsupported
+relevance from title matching.
+"""
 import sys
 sys.path.insert(0, ".")
 from backend.database import JobDatabase

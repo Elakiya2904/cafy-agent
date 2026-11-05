@@ -1,3 +1,8 @@
+"""Generate, tailor, validate, and export candidate resumes and resume versions.
+
+Combines AI rewrite prompts with factual safeguards and renders tailored
+documents in supported formats for download.
+"""
 import ast
 import json
 import logging

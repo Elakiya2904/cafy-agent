@@ -1,3 +1,5 @@
+# ATS platform definitions and source-specific settings used by ScraperManager.
+# Each entry configures a provider's board URL pattern and scraper behavior.
 platforms:
   greenhouse:
     name: Greenhouse

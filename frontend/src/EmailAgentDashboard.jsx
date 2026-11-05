@@ -1,3 +1,7 @@
+/**
+ * Dashboard for connected inboxes, recruiter messages, interviews, and drafts.
+ * Provides synchronization controls and review/approval actions for email drafts.
+ */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Loader2, Mail, RefreshCw, Send, X } from "lucide-react";
 import "./emailAgent.css";

@@ -1,3 +1,8 @@
+"""Test parsing of representative ATS responses into normalized job records.
+
+Covers common provider payload shapes and checks their normalized title,
+company, description, and location fields.
+"""
 import unittest
 from unittest.mock import patch, MagicMock
 import sys

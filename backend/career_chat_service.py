@@ -1,3 +1,8 @@
+"""Build evidence-based career chat context and request answers from Groq.
+
+Contains intent detection, job-card selection, prompt construction, and provider
+response validation for the Career Analyst endpoint.
+"""
 import json
 import logging
 import os

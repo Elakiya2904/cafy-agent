@@ -1,3 +1,7 @@
+/**
+ * Pre-generation resume analysis and job-match insights for a selected vacancy.
+ * Renders score breakdowns and evidence-based recommendations before tailoring.
+ */
 import React, { useState } from "react";
 import {
   AlertCircle,

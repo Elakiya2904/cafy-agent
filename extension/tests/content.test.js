@@ -1,3 +1,5 @@
+// Tests for extension content-script form detection and safe profile autofill.
+// Uses sample forms to verify field matching and prevent sensitive auto-answers.
 import { describe, it, expect, beforeEach } from "vitest";
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);

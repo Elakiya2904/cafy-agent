@@ -1,3 +1,7 @@
+/**
+ * Tests resume editor input, autosave, keyboard actions, and ATS insights.
+ * Covers editable sections, save timing, score recommendations, and preview behavior.
+ */
 import React, { useState } from "react";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";

@@ -1,3 +1,8 @@
+"""Load and match official sponsor-register records to job employers.
+
+Indexes licensed UK sponsors and annotates vacancy companies with evidence
+from the supplied Home Office register data.
+"""
 import csv
 import re
 from collections import defaultdict

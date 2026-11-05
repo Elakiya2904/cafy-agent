@@ -1,3 +1,7 @@
+/**
+ * Job-specific resume tailoring workflow and generation screen.
+ * Collects instructions, requests a tailored draft, and presents the result.
+ */
 import React, { useState, useEffect } from "react";
 import { Sparkles, FileText, CheckCircle2, Loader2, ChevronRight, Zap, Target, Shield } from "lucide-react";
 

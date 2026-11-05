@@ -1,3 +1,8 @@
+"""Test resume recommendations across multiple career domains.
+
+Checks that relevant roles and skills are surfaced for profiles outside a
+single software-engineering taxonomy.
+"""
 import unittest
 
 from backend.recommendation_service import RecommendationService

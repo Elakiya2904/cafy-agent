@@ -2,7 +2,8 @@
 
 Nothing is invented: a field is only pre-filled from data the candidate actually
 has. Eligibility/sensitive questions are never auto-answered, and open questions
-are routed to the AI generator for mandatory candidate review.
+are routed to the AI generator for mandatory candidate review. Field aliases,
+normalization, and match confidence are returned for the application review UI.
 """
 import re
 from typing import Any, Dict, List, Optional

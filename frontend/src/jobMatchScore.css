@@ -1,4 +1,7 @@
-/* Live job-match score in the Resume Editor (JobMatchScore.jsx) */
+/*
+ * Live job-match score styles used by JobMatchScore.jsx in the Resume Editor.
+ * Covers score rings, section indicators, tiers, and compact responsive layout.
+ */
 .tone-strong { --jms-tone: #059669; --jms-tone-bg: #ECFDF5; }
 .tone-partial { --jms-tone: #D97706; --jms-tone-bg: #FFFBEB; }
 .tone-weak { --jms-tone: #DC2626; --jms-tone-bg: #FEF2F2; }

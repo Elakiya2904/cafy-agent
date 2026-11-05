@@ -1,4 +1,8 @@
-"""Optional AI interpretation of a role (Groq). Always labelled as interpretation by the caller."""
+"""Optional AI interpretation of a role (Groq).
+
+Constructs a bounded interpretation request and returns clearly attributed AI
+guidance, separate from sourced company or job facts.
+"""
 import json
 import os
 import re

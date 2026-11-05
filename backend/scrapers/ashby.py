@@ -1,3 +1,8 @@
+"""Fetch and normalize job listings from Ashby-hosted career pages.
+
+Implements the Ashby board API adapter and converts its response into common
+Cafy job records.
+"""
 import logging
 from typing import List, Dict, Any
 from .base_scraper import BaseScraper

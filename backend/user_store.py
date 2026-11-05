@@ -1,4 +1,8 @@
-"""Per-user persistence for the parsed résumé and the original uploaded file (Postgres/SQLite via JobDatabase)."""
+"""Per-user persistence for parsed resumes and original uploaded files.
+
+Stores and retrieves candidate-scoped profile data through JobDatabase's
+SQLite/PostgreSQL adapter while keeping records isolated by user identity.
+"""
 import json
 import logging
 import threading

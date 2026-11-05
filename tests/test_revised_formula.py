@@ -1,3 +1,7 @@
+"""Test the current revised job-match score formula against known examples.
+
+Checks expected weighting and score changes for specific profile/job evidence.
+"""
 import sys
 sys.path.insert(0, ".")
 from backend.database import JobDatabase

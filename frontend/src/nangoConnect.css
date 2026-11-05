@@ -1,7 +1,8 @@
-/* ============================================================
-   NangoConnectPanel — Google integrations UI
-   Matches the existing Cafy Agent design system (emailAgent.css)
-   ============================================================ */
+/*
+ * Google account connection styles for NangoConnectPanel.jsx.
+ * Matches the existing Cafy Agent design system and formats connection,
+ * loading, error, and integration-card states.
+ */
 
 .nango-panel {
   margin-bottom: 20px;

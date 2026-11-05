@@ -1,4 +1,7 @@
-/* Resume Editor workspace: top bar, structured form on the left, live PDF preview on the right. */
+/*
+ * Resume Editor workspace: top bar, structured form, and live PDF preview.
+ * Defines field cards, editable entry sections, score surfaces, and responsive behavior.
+ */
 .re-shell {
   --re-ink: #0f172a;
   --re-text: #334155;

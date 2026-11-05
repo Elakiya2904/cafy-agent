@@ -1,3 +1,8 @@
+"""Test job normalization, field cleanup, and location handling.
+
+Covers source-field aliases, sanitized descriptions, and standardized vacancy
+locations.
+"""
 import unittest
 import sys
 import os

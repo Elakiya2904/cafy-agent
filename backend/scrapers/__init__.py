@@ -1,3 +1,8 @@
+"""Scraper package exports for ATS adapters, normalization, and orchestration.
+
+Re-exports shared scraper interfaces and normalization utilities used by
+individual ATS connectors and the scraper manager.
+"""
 from .base_scraper import BaseScraper
 from .job_normalizer import JobNormalizer
 from .greenhouse import GreenhouseScraper

@@ -1,3 +1,8 @@
+"""Fetch and normalize job listings from Oracle Cloud career sites.
+
+Queries configured Oracle career sites and converts their postings into
+normalized job records.
+"""
 import logging
 from typing import List, Dict, Any
 from .base_scraper import BaseScraper

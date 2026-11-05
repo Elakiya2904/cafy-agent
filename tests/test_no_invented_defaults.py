@@ -1,4 +1,8 @@
-"""Guards against invented/placeholder data creeping back into parsed or scraped records."""
+"""Guard against invented or placeholder data in parsed and scraped records.
+
+Asserts missing facts stay missing instead of being silently filled with
+unsupported default values.
+"""
 import os
 import sys
 import unittest

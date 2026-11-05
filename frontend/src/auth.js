@@ -1,3 +1,7 @@
+/**
+ * Client-side account/guest sessions and authorization headers for API requests.
+ * Persists session tokens, acquires temporary guest access, and wraps fetch.
+ */
 export const authEnabled = true;
 export const guestModeEnabled = authEnabled && import.meta.env.VITE_ENABLE_GUEST_MODE !== "false";
 

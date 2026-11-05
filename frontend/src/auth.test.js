@@ -1,3 +1,7 @@
+/**
+ * Test guest-token acquisition and authenticated requests to protected APIs.
+ * Verifies the token endpoint is called once and its bearer token is attached.
+ */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 describe("guest API authentication", () => {

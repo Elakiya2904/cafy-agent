@@ -1,3 +1,8 @@
+"""Test scraper configuration loading, source orchestration, and aggregation.
+
+Uses fake scraper adapters to verify source selection and combined result
+handling without live network requests.
+"""
 import unittest
 from unittest.mock import Mock
 

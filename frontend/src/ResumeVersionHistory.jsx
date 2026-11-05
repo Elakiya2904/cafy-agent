@@ -1,3 +1,7 @@
+/**
+ * Browse, compare, preview, restore, and download saved resume versions.
+ * Uses authenticated API requests to load version data and document artifacts.
+ */
 import { withToken } from "./auth.js";
 import React, { useEffect, useMemo, useState } from "react";
 import { ArrowRight, Download, Eye, FileText, FileUp, GitCompare, Loader2, Minus, Plus, X } from "lucide-react";

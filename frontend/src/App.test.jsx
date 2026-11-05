@@ -1,3 +1,7 @@
+/**
+ * Integration tests for the main job-search and resume application UI.
+ * Covers navigation, search/filter workflows, resume operations, and API-backed interactions.
+ */
 import React from 'react';
 import { cleanup, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';

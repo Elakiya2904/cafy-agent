@@ -1,3 +1,7 @@
+/**
+ * Structured resume editor with autosave, AI improvements, scores, and preview.
+ * Manages editable profile sections and communicates changes to resume services.
+ */
 import React, { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   DndContext,

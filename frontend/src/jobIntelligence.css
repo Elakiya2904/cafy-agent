@@ -1,3 +1,7 @@
+/*
+ * Layout and visual styles for the job intelligence research panel.
+ * Covers evidence sections, loading states, and responsive result cards.
+ */
 .ji-root { display: flex; flex-direction: column; gap: 18px; }
 .ji-section { border: 1px solid var(--slate-200); border-radius: 14px; padding: 14px 16px; background: var(--bg-card); }
 .ji-section h4 { margin: 0 0 8px; font-size: 1rem; color: var(--slate-900); }

@@ -1,5 +1,8 @@
-"""Gmail/Calendar verification: the real GmailProvider against mocked Google HTTP,
-OAuth scope enforcement, token refresh, and follow-up calendar reminders."""
+"""Test Gmail and calendar integration behavior with mocked Google HTTP.
+
+Exercises the real GmailProvider, OAuth scope enforcement, token refresh, and
+follow-up calendar reminders without contacting Google services.
+"""
 import base64
 import json
 import os

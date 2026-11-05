@@ -1,3 +1,8 @@
+"""Rank job listings against candidate profiles using skill, role, and location evidence.
+
+Provides candidate-to-vacancy matching and returns ordered recommendations with
+the evidence used to calculate each match.
+"""
 from __future__ import annotations
 
 import re

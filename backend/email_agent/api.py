@@ -1,4 +1,8 @@
-"""FastAPI routes for Pipeline 3 (mounted under /api/email-agent)."""
+"""FastAPI routes for Pipeline 3 (mounted under /api/email-agent).
+
+Defines authenticated endpoints for inbox connections, message synchronization,
+interview scheduling, drafts, and user-approved email actions.
+"""
 import os
 from typing import Any, Dict, List, Optional
 

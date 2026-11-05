@@ -1,3 +1,7 @@
+/**
+ * Search and filtering controls for the job directory.
+ * Exposes role, location, employment, remote, and posted-date filter inputs.
+ */
 import React from "react";
 import { MapPin, Search, SlidersHorizontal, X } from "lucide-react";
 

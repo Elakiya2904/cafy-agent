@@ -1,3 +1,7 @@
+"""Generate showcase UI images for the documented Cafy Agent feature set.
+
+Creates illustrative screenshots and diagrams for project feature documentation.
+"""
 import os
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
@@ -431,4 +435,3 @@ if __name__ == "__main__":
     print("[4/4] Generating UK Sponsor Registry UI...")
     f4 = build_ui_sponsor_registry()
     print("All feature UI mockups generated successfully!")
-

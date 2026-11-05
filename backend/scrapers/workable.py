@@ -1,3 +1,8 @@
+"""Fetch and normalize job listings from Workable career sites.
+
+Reads public Workable postings and maps source-specific fields into Cafy's
+shared vacancy schema.
+"""
 import logging
 from typing import List, Dict, Any
 from .base_scraper import BaseScraper

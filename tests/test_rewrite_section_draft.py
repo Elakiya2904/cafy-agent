@@ -1,3 +1,8 @@
+"""Test section-level resume rewriting, model compatibility, and error handling.
+
+Mocks AI provider calls to verify request parameters, validation, and surfaced
+provider failures.
+"""
 import os
 import unittest
 from pathlib import Path

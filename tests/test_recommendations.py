@@ -1,3 +1,8 @@
+"""Test job recommendation ranking, filtering, and match evidence.
+
+Uses representative profiles and vacancies to validate ordering and reported
+skill, role, and location signals.
+"""
 import copy
 import sys
 import unittest

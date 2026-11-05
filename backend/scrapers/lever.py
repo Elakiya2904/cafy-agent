@@ -1,3 +1,8 @@
+"""Fetch and normalize job listings from Lever-hosted boards.
+
+Implements Lever's public postings API and maps returned vacancies to the
+shared job representation.
+"""
 import logging
 from typing import List, Dict, Any
 from .base_scraper import BaseScraper

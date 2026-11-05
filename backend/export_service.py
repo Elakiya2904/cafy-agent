@@ -1,4 +1,8 @@
-"""Builds the "Export Your Data" ZIP archive for Cafy Agent."""
+"""Builds the "Export Your Data" ZIP archive for Cafy Agent.
+
+Collects a candidate's stored profile and related records into downloadable
+files while preserving the application's export format.
+"""
 
 from __future__ import annotations
 

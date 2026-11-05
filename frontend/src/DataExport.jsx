@@ -1,3 +1,7 @@
+/**
+ * UI for downloading a candidate's Cafy data export archive.
+ * Handles export requests, loading state, and user-visible download errors.
+ */
 import React, { useState } from "react";
 import { Check, Download, Loader2 } from "lucide-react";
 import "./documents.css";

@@ -1,3 +1,5 @@
+## Template used by Alembic to generate versioned database migration scripts.
+## New migrations inherit revision metadata and upgrade/downgrade function stubs.
 """${message}
 
 Revision ID: ${up_revision}

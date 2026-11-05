@@ -1,3 +1,7 @@
+"""Test database schema initialization and job/profile persistence behavior.
+
+Covers common CRUD operations, schema setup, and database adapter behavior.
+"""
 import unittest
 import sys
 import os

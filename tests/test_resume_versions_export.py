@@ -1,3 +1,8 @@
+"""Test resume-version persistence, ownership, downloads, and export behavior.
+
+Verifies candidate isolation, saved snapshots, artifact downloads, and data
+export endpoints.
+"""
 import io
 import json
 import os

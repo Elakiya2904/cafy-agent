@@ -1,6 +1,7 @@
-/* ==========================================================================
-   CAFY AGENT • DESIGN SYSTEM & STYLES (Matching Uploaded Screenshot)
-   ========================================================================== */
+/*
+ * Main Cafy Agent design system and application-wide stylesheet.
+ * Defines shared colors, typography, layout, navigation, job directory, and page components.
+ */
 
 :root {
   --font-size-base: 12px;

@@ -1,3 +1,7 @@
+/**
+ * Live job-match scoring hook and compact score components for resume tailoring.
+ * Requests analysis as the working profile changes and exposes score status.
+ */
 import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import "./jobMatchScore.css";

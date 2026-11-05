@@ -1,3 +1,8 @@
+"""Load configured ATS sources, run their scrapers, and combine job results.
+
+Coordinates platform adapters, schedules or triggers scraping, and consolidates
+source results for database updates.
+"""
 import os
 import yaml
 import time

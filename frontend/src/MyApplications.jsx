@@ -1,3 +1,7 @@
+/**
+ * Candidate application tracker with status updates and related actions.
+ * Loads per-user applications and supports reviewing progress and next steps.
+ */
 import React, { useCallback, useEffect, useState } from "react";
 import { Check, ExternalLink, Loader2, RefreshCw, X } from "lucide-react";
 import "./emailAgent.css";

@@ -1,3 +1,8 @@
+"""Test application preparation, form mapping, review, and submission verification.
+
+Uses test forms and a temporary database to validate candidate-controlled
+application actions and result tracking.
+"""
 import os
 import sys
 import tempfile

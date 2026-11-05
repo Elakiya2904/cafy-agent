@@ -1,3 +1,8 @@
+"""Schedule recurring job-board scraping and expose manual run controls.
+
+Runs configured scraper tasks at the selected local time and reports status to
+the database and API.
+"""
 import time
 import logging
 import threading

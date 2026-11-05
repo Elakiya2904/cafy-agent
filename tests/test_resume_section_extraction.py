@@ -1,3 +1,8 @@
+"""Test extraction and classification of sections from uploaded resumes.
+
+Checks parsed profile sections and upload persistence for sample PDF/DOCX-style
+resume text.
+"""
 import asyncio
 import io
 import os

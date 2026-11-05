@@ -1,4 +1,7 @@
-/* Application tab: pre-generation analysis (ApplicationAnalysis.jsx) */
+/*
+ * Application tab styles for pre-generation analysis in ApplicationAnalysis.jsx.
+ * Defines match-summary, recommendations, and evidence layouts across screen sizes.
+ */
 .aa-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);

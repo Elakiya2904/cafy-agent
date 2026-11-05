@@ -1,3 +1,8 @@
+"""Fetch and normalize job listings from Breezy HR career pages.
+
+Implements Breezy HR source discovery and maps the provider's listing fields
+into the common job schema.
+"""
 import logging
 from typing import List, Dict, Any
 from .base_scraper import BaseScraper

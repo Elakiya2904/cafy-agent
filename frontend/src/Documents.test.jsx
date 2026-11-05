@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+// Tests document library and resume-version history interactions.
+// Covers listing, comparison, preview, export, and user-facing document actions.
 import React from 'react';
 import { cleanup, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';

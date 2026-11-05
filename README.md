@@ -258,7 +258,6 @@ cafy/
 │   └── css/                     # Enterprise design system & responsive styling
 ├── extension/                   # Chrome extension for automated ATS form filling
 ├── doc_assets/                  # High-resolution UI screenshots & architectural diagrams
-├── cafy-agent-up-to-date-features-and-pipelines.pdf # Compiled 7-page client documentation
 ├── run.py                       # Application bootstrap script
 └── requirements.txt             # Python dependencies
 ```
@@ -380,7 +379,6 @@ cafy/
 │   └── css/                     # Enterprise design system & responsive styling
 ├── extension/                   # Chrome extension for automated ATS form filling
 ├── doc_assets/                  # High-resolution UI screenshots & architectural diagrams
-├── cafy-agent-up-to-date-features-and-pipelines.pdf # Compiled 7-page client documentation
 ├── run.py                       # Application bootstrap script
 └── requirements.txt             # Python dependencies
 ```
@@ -389,11 +387,10 @@ cafy/
 
 ## 📄 Client Documentation & Architecture Reports
 
-Comprehensive, publication-grade documentation artifacts are maintained in the repository:
+Comprehensive documentation artifacts are maintained in the repository:
 - **[Complete Backend Logic & Systems Manual](file:///C:/Users/vlela/.gemini/antigravity/brain/75d067f9-1e31-4512-b557-ebd599b1d95c/complete-backend-logic-manual.md)**: Conceptual walkthrough of every decision tree, formula, and state machine with Mermaid diagrams.
 - **[Features, Pipelines & UI Specification](file:///C:/Users/vlela/.gemini/antigravity/brain/75d067f9-1e31-4512-b557-ebd599b1d95c/cafy-agent-features-and-pipelines-specification.md)**: Complete client specification with embedded live UI screens for all 6 features.
 - **[UK Job Scraping & Geographic Containment Architecture](file:///C:/Users/vlela/.gemini/antigravity/brain/75d067f9-1e31-4512-b557-ebd599b1d95c/uk-ireland-scraping-architecture.md)**: 4-tier defensive isolation model guaranteeing strict UK-only vacancy containment.
-- **Compiled 7-Page Client Presentation PDF**: [`cafy-agent-up-to-date-features-and-pipelines.pdf`](file:///c:/Users/vlela/OneDrive/Documents/cafy/scrap/cafy-agent-up-to-date-features-and-pipelines.pdf).
 
 ---
 

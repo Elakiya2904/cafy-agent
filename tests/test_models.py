@@ -1,3 +1,8 @@
+"""Test SQLAlchemy model table names, fields, and constraints.
+
+Confirms the PostgreSQL authentication and user-data mappings expose the
+expected schema metadata.
+"""
 from backend.models import RefreshToken, User, UserIntegration, UserProfile, UserResumeFile
 
 

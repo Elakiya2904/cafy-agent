@@ -1,4 +1,8 @@
-"""FastAPI routes for Pipeline 4 (mounted under /api/job-intelligence)."""
+"""FastAPI routes for Pipeline 4 (mounted under /api/job-intelligence).
+
+Validates role-research requests and returns company, hiring-process, and
+candidate-preparation insights.
+"""
 from typing import Any, Callable, Dict, Optional
 
 from fastapi import APIRouter, Header, HTTPException

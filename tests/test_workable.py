@@ -1,3 +1,8 @@
+"""Test Workable career-site job parsing and scraper behavior.
+
+Uses representative source payloads to verify conversion into normalized
+vacancy records.
+"""
 import unittest
 from unittest.mock import MagicMock, patch
 

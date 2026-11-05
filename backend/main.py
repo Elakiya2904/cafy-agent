@@ -1,3 +1,8 @@
+"""FastAPI application: API routes, service wiring, middleware, and frontend serving.
+
+This module constructs application services, mounts feature routers, exposes
+resume/job endpoints, and serves the built React application.
+"""
 import json
 import os
 import re

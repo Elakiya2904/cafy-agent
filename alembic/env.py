@@ -1,3 +1,5 @@
+# Loads the project models and database URL so Alembic can run migrations.
+# Online migrations use the configured PostgreSQL connection; offline mode emits SQL.
 from logging.config import fileConfig
 import os
 from pathlib import Path

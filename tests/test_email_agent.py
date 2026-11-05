@@ -1,3 +1,8 @@
+"""Test email-agent classification, application matching, and review workflows.
+
+Exercises service behavior with fake providers and isolated persistence,
+including drafts that require candidate approval.
+"""
 import os
 import sys
 import tempfile

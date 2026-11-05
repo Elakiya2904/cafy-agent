@@ -1,3 +1,7 @@
+"""Test the transparent CV content-quality checks and their score output.
+
+Verifies evidence-based checks, scoring, and feedback for profile content.
+"""
 import unittest
 
 from backend.cv_quality_service import evaluate_cv_quality

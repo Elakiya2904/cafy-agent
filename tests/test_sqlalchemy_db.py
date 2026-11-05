@@ -1,3 +1,7 @@
+"""Test PostgreSQL SQLAlchemy URL validation and engine configuration.
+
+Checks driver normalization and rejection of unsupported database schemes.
+"""
 import pytest
 
 from backend.sqlalchemy_db import build_engine

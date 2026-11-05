@@ -1,4 +1,8 @@
-"""PostgreSQL-backed account authentication."""
+"""PostgreSQL-backed account authentication.
+
+Defines registration, login, refresh, logout, and temporary guest-token routes,
+including password hashing and signed access-token creation and validation.
+"""
 from __future__ import annotations
 
 import hashlib

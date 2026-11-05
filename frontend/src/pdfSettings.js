@@ -1,4 +1,6 @@
-// Kept apart from ResumePdf.jsx so the editor can read these without loading the PDF renderer.
+// Shared PDF layout defaults for font, margins, and page configuration.
+// Kept separate so the editor can read settings without loading the PDF renderer.
+// ResumePdf and the editor use these values to keep preview/export settings aligned.
 export const DEFAULT_PDF_SETTINGS = {
   font: "Helvetica",
   fontSize: 10,

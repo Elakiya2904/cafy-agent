@@ -1,4 +1,6 @@
 // @vitest-environment node
+// Tests resume PDF document structure and rendered content.
+// Checks page output and important profile fields without a browser environment.
 import React from "react";
 import { describe, expect, it } from "vitest";
 import { pdf } from "@react-pdf/renderer";

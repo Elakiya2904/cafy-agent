@@ -1,4 +1,8 @@
-"""FastAPI routes for Pipeline 2 (mounted under /api/job-applications)."""
+"""FastAPI routes for Pipeline 2 (mounted under /api/job-applications).
+
+Exposes application preparation, form analysis, review, submission, and
+verification endpoints to the frontend.
+"""
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query

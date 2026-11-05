@@ -1,3 +1,7 @@
+"""Ensure empty scraper results remain empty and no synthetic jobs are introduced.
+
+Mocks source failures and empty responses to protect the real-data-only contract.
+"""
 import unittest
 from unittest.mock import patch, MagicMock
 import requests

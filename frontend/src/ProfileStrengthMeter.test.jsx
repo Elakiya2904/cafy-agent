@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+// Tests profile completeness scores, readiness labels, and progress display.
+// Exercises the score tiers and accessible progress indicators.
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';

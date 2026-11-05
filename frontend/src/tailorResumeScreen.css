@@ -1,6 +1,7 @@
-/* ============================================================
-   TailorResumeScreen — split-pane generate UI
-   ============================================================ */
+/*
+ * Split-pane layout and visual states for the TailorResumeScreen workflow.
+ * Styles job context, resume generation controls, progress, and responsive layout.
+ */
 
 .trs-root {
   display: grid;

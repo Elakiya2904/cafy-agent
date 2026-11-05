@@ -1,3 +1,8 @@
+"""Normalize and sanitize scraped job records and descriptions.
+
+Standardizes locations, compensation, HTML descriptions, and common source
+fields before records are stored or scored.
+"""
 import re
 from bs4 import BeautifulSoup
 from typing import Dict, Any, Optional, List

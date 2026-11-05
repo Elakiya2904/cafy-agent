@@ -1,3 +1,8 @@
+"""Test AI resume tailoring, factual validation, and document export.
+
+Covers generated content, invented-fact guards, education descriptions, and
+downloadable resume formats.
+"""
 import json
 import re
 import tempfile

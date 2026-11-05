@@ -1,5 +1,6 @@
 {
   "name": "cafy-agent-frontend",
+  "description": "React user interface for job search, resume tailoring, and career tools.",
   "private": true,
   "version": "1.0.0",
   "type": "module",

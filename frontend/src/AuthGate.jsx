@@ -1,3 +1,7 @@
+/**
+ * Account sign-in, registration, and guest-mode gate for the application.
+ * Tracks session changes and decides whether to render auth forms or app content.
+ */
 import React, { useEffect, useState } from "react";
 import { Eye, EyeOff, LockKeyhole, Mail, UserRound } from "lucide-react";
 import { auth, authEnabled, getAccessToken, guestModeEnabled, installAuthFetch, setGuestMode, trackSession } from "./auth.js";

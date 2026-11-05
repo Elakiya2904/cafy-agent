@@ -1,5 +1,6 @@
-// Service worker: all calls to the Cafy backend go through here so the content
-// script (which runs inside the employer's page) never holds the settings.
+// Service worker for the Cafy extension's privileged backend communication.
+// Holds synced settings and forwards page requests so content scripts do not
+// access credentials or make unrestricted backend calls directly.
 const DEFAULTS = { backendUrl: "http://127.0.0.1:8000", candidateId: "local", accessToken: "" };
 
 async function settings() {

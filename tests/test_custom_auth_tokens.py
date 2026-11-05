@@ -1,4 +1,8 @@
-"""Verify signed application tokens used by PostgreSQL-backed accounts."""
+"""Verify signed application tokens used by PostgreSQL-backed accounts.
+
+Covers valid tokens and rejection of altered signatures, expiry, issuer,
+audience, and unsigned-token inputs.
+"""
 import os
 import sys
 import time

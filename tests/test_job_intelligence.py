@@ -1,3 +1,8 @@
+"""Test role analysis, company research, and candidate preparation guidance.
+
+Covers evidence collection, guarded page fetching, analysis output, and API
+responses using deterministic fixtures.
+"""
 import os
 import sys
 import tempfile

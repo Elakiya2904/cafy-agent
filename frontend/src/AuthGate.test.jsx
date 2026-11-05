@@ -1,3 +1,7 @@
+/**
+ * Tests account form switching, session changes, and guest-mode navigation.
+ * Uses mocked auth services to verify the gate's visible states and callbacks.
+ */
 import React from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";

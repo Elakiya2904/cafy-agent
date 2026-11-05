@@ -1,3 +1,8 @@
+"""Check score calibration behavior against representative resume and job data.
+
+Provides manual/diagnostic comparisons for score changes across sample profiles
+and vacancies.
+"""
 import json
 import sys
 sys.path.insert(0, ".")

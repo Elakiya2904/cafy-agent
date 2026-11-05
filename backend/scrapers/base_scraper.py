@@ -1,3 +1,8 @@
+"""Shared HTTP, parsing, and job-result helpers for ATS scraper implementations.
+
+Defines common request behavior, retry/error handling, and the base contract
+implemented by each ATS-specific scraper.
+"""
 import time
 import logging
 from typing import Dict, Any, List, Optional

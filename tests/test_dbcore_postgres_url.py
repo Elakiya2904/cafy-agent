@@ -1,3 +1,8 @@
+"""Test PostgreSQL URL detection and normalization for the database adapter.
+
+Ensures absent URLs do not activate PostgreSQL and supported driver URLs are
+converted for the legacy connection layer.
+"""
 from backend.dbcore import _dsn, database_url
 
 

@@ -1,3 +1,8 @@
+"""Fetch and normalize job listings from Greenhouse-hosted boards.
+
+Requests public board data and returns each vacancy in the normalized Cafy job
+format.
+"""
 import logging
 from typing import List, Dict, Any
 from .base_scraper import BaseScraper

@@ -1,3 +1,7 @@
+/**
+ * Main React application for Cafy Agent's job, resume, and career workflows.
+ * Composes page navigation, job search, application tracking, and career tools.
+ */
 // ==========================================================================
 // CAFY AGENT • REACT APPLICATION
 // ==========================================================================

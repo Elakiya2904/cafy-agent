@@ -1,3 +1,7 @@
+/**
+ * Render and preview a resume PDF in the browser.
+ * Manages asynchronous document rendering, zoom, and preview error states.
+ */
 import React, { useEffect, useRef, useState } from "react";
 import { pdf } from "@react-pdf/renderer";
 import ResumePdf from "./ResumePdf.jsx";

@@ -1,4 +1,8 @@
-"""Grounded AI answers for open-ended application questions (Groq)."""
+"""Grounded AI answers for open-ended application questions (Groq).
+
+Builds responses from the candidate's actual profile and validates provider
+results so unsupported personal claims are not introduced.
+"""
 import json
 import os
 from typing import Any, Dict, Optional

@@ -1,3 +1,8 @@
+"""Curated company profile data used to enrich job listings and recommendations.
+
+Provides normalized company attributes that are attached to matching listings
+before they are shown in career and job-intelligence workflows.
+"""
 from typing import Any, Dict, Iterable, List
 
 

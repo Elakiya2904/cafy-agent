@@ -1,4 +1,8 @@
-"""Per-user résumé job-alert preferences, matches, notifications, and daily delivery."""
+"""Per-user résumé job-alert preferences, matches, notifications, and daily delivery.
+
+Stores alert settings, finds matching vacancies, and creates or sends alert
+notifications for each candidate.
+"""
 import json
 import logging
 import re

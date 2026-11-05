@@ -1,3 +1,8 @@
+"""Test skill taxonomy lookups, synonyms, and tolerant text matching.
+
+Checks domain catalogs and phrase matching across spelling and word-form
+variations.
+"""
 import unittest
 
 from backend.skill_catalog import DOMAINS, SYNONYMS

@@ -1,4 +1,7 @@
-/* Résumé version history (ResumeVersionHistory.jsx) and data export (DataExport.jsx) */
+/*
+ * Resume version history and data export styles for ResumeVersionHistory.jsx
+ * and DataExport.jsx, including comparison and download presentation.
+ */
 .doc-card {
   background: var(--bg-card);
   border: 1px solid var(--slate-200);

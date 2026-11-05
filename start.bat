@@ -1,3 +1,5 @@
+@rem Windows launcher that starts the Cafy Agent development server.
+@rem Sets the repository working directory, frees the local API port, and starts the backend.
 @echo off
 title Cafy Agent Launcher
 cd /d "%~dp0"

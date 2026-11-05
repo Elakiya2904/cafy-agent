@@ -1,3 +1,8 @@
+"""Test job-specific resume match scoring and its section-level evidence.
+
+Checks score components, requirements coverage, and explanations for supplied
+candidate profiles and job descriptions.
+"""
 import copy
 import sys
 import unittest

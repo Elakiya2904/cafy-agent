@@ -1,3 +1,5 @@
+// Read and save backend connection settings for the Cafy browser extension.
+// Persists the API URL and access token through Chrome's synced extension storage.
 const $ = (id) => document.getElementById(id);
 chrome.storage.sync.get({ backendUrl: "http://127.0.0.1:8000", candidateId: "local", accessToken: "" }).then((s) => {
   $("url").value = s.backendUrl;

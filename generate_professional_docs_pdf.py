@@ -1,3 +1,7 @@
+"""Create a PDF overview of Cafy Agent architecture, features, and user interfaces.
+
+Assembles project diagrams and explanatory sections into a shareable PDF report.
+"""
 import os
 import sys
 from pathlib import Path

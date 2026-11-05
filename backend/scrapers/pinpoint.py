@@ -1,3 +1,8 @@
+"""Fetch and normalize job listings from Pinpoint career sites.
+
+Handles Pinpoint board requests and normalizes the results for search and
+recommendation features.
+"""
 import logging
 from typing import List, Dict, Any
 from .base_scraper import BaseScraper

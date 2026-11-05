@@ -1,3 +1,8 @@
+"""Test career-chat evidence construction, Groq responses, and error handling.
+
+Uses mocked provider responses to verify prompts remain grounded in supplied
+candidate and vacancy evidence.
+"""
 import os
 import unittest
 from unittest.mock import MagicMock, patch

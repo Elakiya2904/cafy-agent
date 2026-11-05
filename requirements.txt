@@ -1,3 +1,6 @@
+# Python runtime and tooling dependencies for the Cafy Agent backend.
+# Includes API, persistence, scraping, document processing, authentication,
+# database migration, and external-service client packages.
 fastapi>=0.100.0
 uvicorn>=0.22.0
 pydantic>=2.0.0

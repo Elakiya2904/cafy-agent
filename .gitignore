@@ -1,3 +1,5 @@
+# Files and generated artifacts that should stay out of version control.
+# Includes local secrets, environments, caches, and user-uploaded resume data.
 # Environment variables & secrets
 .env
 .env.*

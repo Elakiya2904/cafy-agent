@@ -1,4 +1,8 @@
-"""Auth + multi-user isolation, using application JWTs and the real database."""
+"""Test authentication middleware, guest access, and multi-user isolation.
+
+Exercises API access with signed tokens and isolated database fixtures,
+including production configuration and authorization boundaries.
+"""
 import os
 import sys
 import tempfile

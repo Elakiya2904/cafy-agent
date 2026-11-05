@@ -1,4 +1,8 @@
-"""SQLAlchemy models for the PostgreSQL migration foundation."""
+"""SQLAlchemy models for the PostgreSQL migration foundation.
+
+Declares account, token, profile, resume-file, and integration table mappings
+used by authentication and future SQLAlchemy-backed features.
+"""
 from __future__ import annotations
 
 from datetime import datetime

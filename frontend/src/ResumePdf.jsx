@@ -1,3 +1,7 @@
+/**
+ * Build the printable PDF document layout for a candidate resume.
+ * Defines typography, sections, and formatting shared by in-app PDF previews.
+ */
 import React from "react";
 import { Document, Page, Text, View, Link, StyleSheet } from "@react-pdf/renderer";
 import { DEFAULT_PDF_SETTINGS } from "./pdfSettings.js";

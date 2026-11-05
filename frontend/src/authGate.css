@@ -1,3 +1,7 @@
+/*
+ * Sign-in, registration, and guest-mode gate layout and visual states.
+ * Styles form controls, account panels, loading states, and guest banners.
+ */
 .ag-wrap,
 .ag-wrap * {
   box-sizing: border-box;

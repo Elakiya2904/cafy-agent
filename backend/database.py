@@ -1,3 +1,8 @@
+"""JobDatabase persistence for job listings, resumes, applications, and related records.
+
+Initializes runtime schemas and provides the shared SQLite/PostgreSQL adapter
+used by feature services to read and update candidate and job data.
+"""
 import sqlite3
 import json
 import os

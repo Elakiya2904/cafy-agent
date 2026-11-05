@@ -1,3 +1,7 @@
+"""Start the FastAPI application with Uvicorn for local development.
+
+Sets the working directory and console encoding before serving on port 8000.
+"""
 import uvicorn
 import os
 import sys

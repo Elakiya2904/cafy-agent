@@ -1,3 +1,7 @@
+/**
+ * UI for researching a job's role requirements and interview process.
+ * Displays sourced company insights, preparation steps, and candidate fit.
+ */
 import React, { useCallback, useEffect, useState } from "react";
 import { ExternalLink, Flag, Loader2, RefreshCw } from "lucide-react";
 import "./jobIntelligence.css";

@@ -1,3 +1,8 @@
+"""Fetch and normalize job listings from Workday career sites.
+
+Queries configured Workday tenants, applies supported location filters, and
+normalizes returned postings.
+"""
 import logging
 from typing import List, Dict, Any
 from .base_scraper import BaseScraper

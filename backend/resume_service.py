@@ -1,3 +1,8 @@
+"""Parse uploaded resumes and extract structured candidate profile information.
+
+Handles PDF/DOCX text extraction, section classification, skill normalization,
+and conversion to the profile shape used by matching and editing features.
+"""
 import os
 import re
 import io

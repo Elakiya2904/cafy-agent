@@ -1,3 +1,8 @@
+"""Test profile completeness scoring and its improvement suggestions.
+
+Exercises required profile sections, score tiers, and actionable missing-field
+feedback.
+"""
 import sys
 import unittest
 sys.path.insert(0, ".")

@@ -1,4 +1,8 @@
-"""Request-scoped identity: who is calling, set once by the auth middleware."""
+"""Request-scoped identity: who is calling, set once by the auth middleware.
+
+Stores and retrieves the current candidate ID with a ContextVar so concurrent
+requests do not share user identity accidentally.
+"""
 from contextvars import ContextVar
 from typing import Optional
 

@@ -1,5 +1,7 @@
 // pdfkit (used by @react-pdf/renderer) writes the page tree uncompressed, so the page count can be
 // read straight from the bytes without bundling a PDF parser.
+// Exposes byte-level helpers used by PDF preview and export code, including
+// page counting without adding a separate PDF parsing dependency.
 export function countPdfPagesFromBytes(bytes) {
   let text = "";
   for (let i = 0; i < bytes.length; i += 8192) {

@@ -1,3 +1,8 @@
+"""Test sponsor-register loading and employer matching rules.
+
+Verifies normalized company-name matching and sponsorship annotations against
+small fixture datasets.
+"""
 import csv
 import tempfile
 import unittest
