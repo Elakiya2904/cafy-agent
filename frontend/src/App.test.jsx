@@ -175,8 +175,40 @@ describe('Find Jobs country location filters', () => {
   });
 });
 
+describe('Find Jobs posted date filter', () => {
+  it('filters to jobs with a posting date in the selected window', () => {
+    const now = Date.now();
+    const jobs = [
+      { ...job, id: 'recent', title: 'Recent Engineer', posted_at: new Date(now - 2 * 86400000).toISOString() },
+      { ...job, id: 'older', title: 'Older Engineer', posted_at: new Date(now - 10 * 86400000).toISOString() },
+      { ...job, id: 'unknown-date', title: 'Undated Engineer', posted_at: null },
+    ];
+    render(
+      <DirectoryView
+        jobs={jobs}
+        matchedJobs={[]}
+        resume={null}
+        platforms={[]}
+        pipelineJobIds={new Set()}
+        onTogglePipeline={() => {}}
+        onAddAllToPipeline={() => {}}
+        onSelectJob={() => {}}
+        onRefresh={() => {}}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText('Posted within'), { target: { value: '7' } });
+
+    expect(screen.getByRole('heading', { name: '1 active job' })).toBeInTheDocument();
+    expect(screen.getAllByText('Recent Engineer').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Older Engineer')).not.toBeInTheDocument();
+    expect(screen.queryByText('Undated Engineer')).not.toBeInTheDocument();
+    expect(screen.getByText('1 active')).toBeInTheDocument();
+  });
+});
+
 describe('Find Jobs browse layout', () => {
-  it('shows the job list and About-first detail panel without opening the advanced filters', () => {
+  it('shows the redesigned filters and About-first job detail panel', () => {
     render(
       <DirectoryView
         jobs={[{
@@ -199,13 +231,16 @@ describe('Find Jobs browse layout', () => {
 
     expect(screen.getByRole('searchbox', { name: 'Job role' })).toBeInTheDocument();
     expect(screen.getByRole('searchbox', { name: 'Company or location' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Posted within')).toHaveValue('0');
+    expect(screen.getByRole('group', { name: 'Experience level' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '1 active job' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Company details' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('tab', { name: 'Job info' })).toHaveAttribute('aria-selected', 'false');
     expect(screen.getByRole('tab', { name: 'Job Intelligence' })).toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: 'Why This Job?' })).not.toBeInTheDocument();
     expect(screen.getByText('LICENSED UK VISA SPONSOR')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Apply with autofill/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Resume Tailoring' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Apply with autofill/i })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Apply now/i })).toHaveAttribute('target', '_blank');
 
   });
@@ -254,6 +289,13 @@ beforeEach(() => {
             certifications: section("Certifications", 80),
           },
           profile_completeness: { overall_score: 64, strength_tier: "Competitive", sections: {} },
+          cv_quality: {
+            score: 80,
+            passed_checks: 8,
+            total_checks: 10,
+            scope: "Checks parsed CV content only, not document layout, ATS parsing, or hiring outcomes.",
+            checks: [{ key: "contact_details", label: "Name and email are present", passed: true, advice: "" }],
+          },
         }),
       });
     }
@@ -404,12 +446,12 @@ describe('Cafy Agent job application drawer', () => {
     expect(await screen.findAllByText('92% Job Match')).not.toHaveLength(0);
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Apply with autofill/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Resume Tailoring' })).toBeInTheDocument();
     });
 
-    // "Apply now" opens the employer posting; "Apply with autofill" opens the tailoring workflow.
+    // "Apply now" opens the employer posting; Resume Tailoring opens the tailoring workflow.
     expect(screen.getByRole('link', { name: /Apply now/i })).toHaveAttribute('target', '_blank');
-    fireEvent.click(screen.getByRole('button', { name: /Apply with autofill/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Resume Tailoring' }));
 
     // The selected job and its description come first; nothing is generated until the user asks.
     expect(await screen.findByText('Selected job')).toBeInTheDocument();
@@ -477,14 +519,15 @@ describe('Cafy Agent job application drawer', () => {
     fireEvent.click(screen.getByRole('button', { name: /Generate Tailored Resume/i }));
 
     const scoreBar = await screen.findByTestId('editor-match-score', {}, { timeout: 3000 });
-    expect(scoreBar).toHaveTextContent(/72%ATS MATCH READINESS\s*Good Match\s*Optimized for:/);
+    expect(scoreBar).toHaveTextContent(/72%JOB MATCH SCORE\s*Good Match\s*Optimized for:/);
+    expect(scoreBar).toHaveTextContent(/CV content\s*80%/);
     expect(scoreBar).toHaveTextContent('Summary60%');
     expect(screen.getAllByTitle('Professional Summary: 60% match for this job').length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getAllByRole('button', { name: /AI Enhance & Optimize/i })[0]);
 
     await waitFor(() => {
-      expect(screen.getByTestId('editor-match-score')).toHaveTextContent(/80%ATS MATCH READINESS\s*Strong Match\s*Optimized for:/);
+      expect(screen.getByTestId('editor-match-score')).toHaveTextContent(/80%JOB MATCH SCORE\s*Strong Match\s*Optimized for:/);
     }, { timeout: 3000 });
     expect(screen.getByTestId('editor-match-score')).toHaveTextContent('+8 since last change');
     expect(screen.getAllByTitle('Professional Summary: 95% match for this job').length).toBeGreaterThan(0);
@@ -499,7 +542,9 @@ describe('Cafy Agent job application drawer', () => {
     expect(panel).toHaveTextContent('Profile Completeness');
     expect(panel).toHaveTextContent('64%');
     expect(panel).toHaveTextContent('72%');
-    expect(panel).toHaveTextContent('Job Requirement Fit by Section');
+    expect(panel).toHaveTextContent('CV Content Score');
+    expect(panel).toHaveTextContent('CV Content Checks');
+    expect(panel).toHaveTextContent('Job Requirement Match by Section');
     expect(screen.getByRole('tab', { name: 'All (2)' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('tab', { name: 'Missing Qualification (1)' }));

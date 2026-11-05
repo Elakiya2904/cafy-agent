@@ -51,6 +51,21 @@ class ResumeGenerationService:
         )
         self.environment.filters["texescape"] = self._texescape
 
+    @staticmethod
+    def _provider_error_message(response, api_key: str) -> str:
+        try:
+            body = response.json()
+        except (TypeError, ValueError):
+            return ""
+        error = body.get("error") if isinstance(body, dict) else None
+        if isinstance(error, dict):
+            message = str(error.get("message") or error.get("code") or "")
+        elif isinstance(error, str):
+            message = error
+        else:
+            message = ""
+        return message.replace(api_key, "[redacted]")[:300]
+
     def generate(
         self, resume: Dict[str, Any], job: Dict[str, Any], skill_extractor=None, instructions: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -59,17 +74,11 @@ class ResumeGenerationService:
         if not job:
             raise ResumeGenerationError("The selected job could not be found.")
 
-        # Build the résumé from the stored structured data (no LLM call), then let the model
-        # rewrite only the summary and bullets for this job. Contact details, employers, dates,
-        # education and skills come straight from the profile.
+        # Build from verified profile data, then tailor the writable text using only those facts.
         structured = self._validate_and_normalize({}, resume, job)
         structured["skills"] = self._rank_skills(structured["skills"], job)
         if skill_extractor is not None:
-            try:
-                structured = self.rewrite_full(structured, job, skill_extractor, instructions)["resume"]
-            except ResumeGenerationError as error:
-                logger.warning("Tailoring rewrite skipped, using profile text as-is: %s", error)
-        structured = self._ensure_education_descriptions(structured)
+            structured = self.rewrite_full(structured, job, skill_extractor, instructions)["resume"]
         resume_id = uuid.uuid4().hex
 
         # Render LaTeX
@@ -129,7 +138,12 @@ class ResumeGenerationService:
         }
 
     def rewrite_section(
-        self, section: str, content: str, job: Dict[str, Any], resume_data: Dict[str, Any]
+        self,
+        section: str,
+        content: str,
+        job: Dict[str, Any],
+        resume_data: Dict[str, Any],
+        improvement_goals: Optional[List[str]] = None,
     ) -> str:
         """AI-powered section rewrite preserving factual accuracy and tailoring to the role."""
         api_key = os.getenv("groq_api_key") or os.getenv("GROQ_API_KEY")
@@ -156,21 +170,40 @@ class ResumeGenerationService:
             "Keep it concise, high-impact, professional, and ATS-friendly. "
             + ("Return a single outcome-oriented bullet starting with a strong action verb, without leading bullet characters or quotes. " if is_bullet else "")
             + ("There is no existing text: write a 2-3 sentence professional summary using ONLY the facts provided. " if drafting else "")
-            + "CRITICAL: Do NOT invent employers, dates, achievements, credentials, or technologies not present in the original text. "
+            + ("For a professional summary, target 250-500 characters when the verified facts allow; naturally include the target role and relevant job keywords only when supported by the resume. Preserve any existing years or measurable results. " if "summary" in section.lower() else "")
+            + "Preserve all relevant factual details, job-related skill terms, and existing numbers from the original text. "
+            "CRITICAL: Do NOT invent employers, dates, achievements, credentials, or technologies not present in the original text. "
+            "Apply the improvement goals only when supported by the supplied resume facts; never claim an unverified skill or qualification. "
             "Preserve factual truth while enhancing active phrasing and clarity. Return plain text only."
         )
+        goals = [
+            str(goal).strip()[:300]
+            for goal in (improvement_goals or [])
+            if str(goal).strip()
+        ][:8]
+        job_skills = job.get("extracted_skills") or job.get("matched_skills") or []
+        job_context = {
+            "title": target_role,
+            "description": str(job.get("description") or "")[:1800],
+            "skills_from_job_listing": [str(skill) for skill in job_skills[:20]],
+            "verified_resume_facts": self._summary_facts(resume_data)[:5000],
+            "score_improvement_goals": goals,
+            "original_text_to_improve": content,
+        }
+        model = os.getenv("GROQ_MODEL") or DEFAULT_GROQ_MODEL
         try:
             response = requests.post(
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                 json={
-                    "model": os.getenv("GROQ_MODEL") or DEFAULT_GROQ_MODEL,
+                    "model": model,
                     "messages": [
                         {"role": "system", "content": system},
-                        {"role": "user", "content": f"Original text to improve:\n{content}"},
+                        {"role": "user", "content": json.dumps(job_context, ensure_ascii=True)},
                     ],
-                    "temperature": 0.2,
-                    "max_tokens": 1000,
+                    # Groq's GPT-OSS models only accept temperature=1.
+                    "temperature": 1 if model.startswith("openai/gpt-oss") else 0.2,
+                    "max_completion_tokens": 1000,
                 },
                 timeout=(5, 20),
             )
@@ -178,8 +211,14 @@ class ResumeGenerationService:
             raise ResumeGenerationError("AI rewriting service is temporarily unavailable.") from err
 
         if response.status_code != 200:
-            logger.warning("Groq section rewrite returned HTTP %s: %s", response.status_code, response.text[:500])
-            raise ResumeGenerationError(f"AI rewriting failed with status {response.status_code}.")
+            provider_error = self._provider_error_message(response, api_key)
+            logger.warning(
+                "Groq section rewrite returned HTTP %s: %s",
+                response.status_code,
+                provider_error or "No provider error detail",
+            )
+            detail = f" {provider_error}" if provider_error else ""
+            raise ResumeGenerationError(f"AI rewriting failed with status {response.status_code}.{detail}")
 
         try:
             rewritten = response.json()["choices"][0]["message"]["content"].strip()
@@ -254,33 +293,21 @@ class ResumeGenerationService:
             },
             "resume": {
                 "professional_summary": tailored.get("professional_summary") or "",
+                "verified_summary_facts": self._summary_facts(tailored),
                 "experience": entry_payload(tailored.get("experience")),
                 "projects": entry_payload(tailored.get("projects")),
-                "education": [
-                    {
-                        "index": i,
-                        "degree": e.get("degree") or e.get("title") or "",
-                        "institution": e.get("institution") or e.get("organization") or "",
-                        "dates": e.get("dates") or "",
-                        "location": e.get("location") or "",
-                        "bullets": list(e.get("bullets") or []),
-                    }
-                    for i, e in enumerate(tailored.get("education") or [])
-                    if isinstance(e, dict) and not e.get("description")
-                ],
             },
         }
         system = (
-            "You are an expert resume writer. Rewrite the candidate's professional_summary and every experience and "
+            "You are an expert resume writer. Write or rewrite the candidate's professional_summary and every experience and "
             "project description and bullet so they are concise, outcome-focused, start with strong action verbs and "
             "align with the job. STRICT RULES: use ONLY facts already present in the resume. Never add numbers, metrics, "
             "percentages, dates, employers, tools, technologies, skills or achievements that are not already in the resume. "
-            "For supplied education entries, write a concise description relevant to the stated degree, using only "
-            "their supplied degree, institution, dates, location and bullets. Do not invent modules, grades, awards "
-            "or other facts. "
+            "If professional_summary is empty, draft 2-3 concise sentences using only verified_summary_facts; do not "
+            "leave it empty when those facts provide enough information. "
             "Never add new bullets beyond the original count for an entry. Keep each entry's index. "
             "Return JSON only: {\"professional_summary\": str, \"experience\": [{\"index\": int, \"description\": str, "
-            "\"bullets\": [str]}], \"projects\": [same shape], \"education\": [{\"index\": int, \"description\": str}]}."
+            "\"bullets\": [str]}], \"projects\": [same shape]}."
         )
         steer = re.sub(r"\s+", " ", str(instructions or "")).strip()[:500]
         if steer:
@@ -288,18 +315,20 @@ class ResumeGenerationService:
                 " The candidate also asked: \"" + steer + "\". Use this only to choose which existing facts to "
                 "emphasise and how to phrase them; it never permits adding facts that are not in the resume."
             )
+        model = os.getenv("GROQ_MODEL") or DEFAULT_GROQ_MODEL
         try:
             response = requests.post(
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                 json={
-                    "model": os.getenv("GROQ_MODEL") or DEFAULT_GROQ_MODEL,
+                    "model": model,
                     "messages": [
                         {"role": "system", "content": system},
                         {"role": "user", "content": json.dumps(payload, ensure_ascii=True)},
                     ],
-                    "temperature": 0.2,
-                    "max_tokens": 1500,
+                    # Groq's GPT-OSS models only accept temperature=1.
+                    "temperature": 1 if model.startswith("openai/gpt-oss") else 0.2,
+                    "max_completion_tokens": 1500,
                     "response_format": {"type": "json_object"},
                 },
                 timeout=(5, 45),
@@ -307,13 +336,29 @@ class ResumeGenerationService:
         except requests.RequestException as err:
             raise ResumeGenerationError("AI rewriting service is temporarily unavailable.") from err
         if response.status_code != 200:
-            raise ResumeGenerationError(f"AI rewriting failed with status {response.status_code}.")
+            provider_error = self._provider_error_message(response, api_key)
+            logger.warning(
+                "Groq full resume rewrite returned HTTP %s: %s",
+                response.status_code,
+                provider_error or "No provider error detail",
+            )
+            detail = f" {provider_error}" if provider_error else ""
+            raise ResumeGenerationError(
+                f"AI rewriting failed with status {response.status_code}.{detail}"
+            )
         try:
             rewritten = json.loads(response.json()["choices"][0]["message"]["content"])
         except (KeyError, IndexError, TypeError, ValueError) as err:
             raise ResumeGenerationError("AI rewriting returned an invalid structure.") from err
 
-        return self.merge_rewrite(tailored, rewritten, skill_extractor)
+        result = self.merge_rewrite(tailored, rewritten, skill_extractor)
+        if (
+            not str(tailored.get("professional_summary") or "").strip()
+            and self._summary_facts(tailored)
+            and not str(result["resume"].get("professional_summary") or "").strip()
+        ):
+            raise ResumeGenerationError("AI could not draft a summary from the supplied resume facts. Please retry.")
+        return result
 
     @classmethod
     def merge_rewrite(cls, tailored: Dict[str, Any], rewritten: Dict[str, Any], skill_extractor) -> Dict[str, Any]:
@@ -361,14 +406,6 @@ class ResumeGenerationService:
                     accept(new_bullets[j] if j < len(new_bullets) else "", old)
                     for j, old in enumerate(old_bullets)
                 ]
-        education_by_index = {
-            item.get("index"): item for item in (rewritten.get("education") or [])
-            if isinstance(item, dict) and isinstance(item.get("index"), int)
-        }
-        for i, entry in enumerate(result.get("education") or []):
-            new = education_by_index.get(i)
-            if isinstance(entry, dict) and not entry.get("description") and new:
-                entry["description"] = accept(new.get("description"), "")
         return {"resume": result, "rejected_lines": rejected}
 
     def _tailor_with_groq(self, resume: Dict[str, Any], job: Dict[str, Any], source_text: str) -> Dict[str, Any]:
@@ -701,36 +738,6 @@ class ResumeGenerationService:
 
         return data
 
-    @classmethod
-    def _ensure_education_descriptions(cls, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Fill missing education descriptions with degree-relevant factual context."""
-        result = json.loads(json.dumps(data))
-        for item in result.get("education") or []:
-            if not isinstance(item, dict) or cls._clean_text(item.get("description")):
-                continue
-            degree = cls._clean_text(item.get("degree") or item.get("title"))
-            institution = cls._clean_text(item.get("institution") or item.get("organization"))
-            degree_lower = degree.casefold()
-            if any(term in degree_lower for term in ("information technology", "it ", "it-", "software")):
-                focus = "software development, databases, networking, systems analysis, and information technology applications"
-            elif any(term in degree_lower for term in ("computer science", "computing", "informatics")):
-                focus = "algorithms, programming, data structures, databases, software engineering, and computing systems"
-            elif any(term in degree_lower for term in ("data science", "analytics", "artificial intelligence", "machine learning")):
-                focus = "data analysis, statistical methods, programming, machine learning, and practical data-driven problem solving"
-            elif any(term in degree_lower for term in ("business", "management", "commerce", "mba")):
-                focus = "business principles, analytical decision-making, organisational practice, and commercial problem solving"
-            elif any(term in degree_lower for term in ("engineering", "technology")):
-                focus = "engineering principles, technical analysis, design methods, and practical problem solving"
-            else:
-                focus = "the core theory, practical application, analytical thinking, and subject-specific problem solving of the discipline"
-            label = degree or "the qualification"
-            description = f"Studied {focus} through the {label}"
-            if institution:
-                description += f" at {institution}"
-            description += "."
-            item["description"] = description
-        return result
-
     def _export_docx(self, structured: Dict[str, Any], docx_path: Path) -> Path:
         """Exports ATS-friendly clean single-column DOCX format."""
         structured = {
@@ -910,6 +917,13 @@ class ResumeGenerationService:
                     r_d.font.name = "Calibri"
                     r_d.font.size = Pt(9.5)
                     r_d.font.italic = True
+
+                if item.get("description"):
+                    p_desc = doc.add_paragraph(item["description"])
+                    p_desc.paragraph_format.space_after = Pt(2)
+                    for r in p_desc.runs:
+                        r.font.size = Pt(9.5)
+                        r.font.name = "Calibri"
 
                 for bullet in item.get("bullets") or []:
                     p_b = doc.add_paragraph(bullet, style="List Bullet")

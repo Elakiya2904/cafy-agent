@@ -7,7 +7,7 @@ from unittest import mock
 
 import docx
 
-from backend.resume_generation_service import ResumeGenerationService
+from backend.resume_generation_service import ResumeGenerationError, ResumeGenerationService
 from backend.database import JobDatabase
 
 
@@ -114,7 +114,7 @@ class TestResumeGeneration(unittest.TestCase):
         self.assertIn("Project Two", latex)
         self.assertNotIn("Private Certification", latex)
 
-    def test_missing_education_description_is_written_from_supplied_facts(self):
+    def test_education_description_is_not_generated_from_degree_alone(self):
         class SkillExtractor:
             @staticmethod
             def extract_skills(text):
@@ -131,46 +131,114 @@ class TestResumeGeneration(unittest.TestCase):
             "projects": [],
         }
         rewritten = {
-            "professional_summary": "",
+            "professional_summary": "Computer science graduate from the University of Leeds.",
             "experience": [],
             "projects": [],
-            "education": [{
-                "index": 0,
-                "description": "Completed a BSc Computer Science at the University of Leeds in Leeds.",
+        }
+        response = mock.Mock(status_code=200)
+        response.json.return_value = {"choices": [{"message": {"content": json.dumps(rewritten)}}]}
+
+        with mock.patch.dict("os.environ", {"GROQ_API_KEY": "test-key", "GROQ_MODEL": "openai/gpt-oss-20b"}), \
+             mock.patch("backend.resume_generation_service.requests.post", return_value=response) as post:
+            result = self.service.rewrite_full(tailored, {"title": "Engineer"}, SkillExtractor())
+
+        sent = post.call_args.kwargs["json"]["messages"][1]["content"]
+        self.assertEqual(post.call_args.kwargs["json"]["temperature"], 1)
+        self.assertNotIn('"degree": "BSc Computer Science"', sent)
+        self.assertEqual(result["resume"]["education"][0]["description"], "")
+        self.assertEqual(result["resume"]["education"][1]["description"], "Existing description.")
+
+    def test_rewrite_full_surfaces_provider_error_for_bad_request(self):
+        class SkillExtractor:
+            @staticmethod
+            def extract_skills(text):
+                return []
+
+        response = mock.Mock(status_code=400)
+        response.json.return_value = {
+            "error": {"message": "temperature must be 1 for this model"}
+        }
+
+        with mock.patch.dict("os.environ", {"GROQ_API_KEY": "test-key"}), \
+             mock.patch("backend.resume_generation_service.requests.post", return_value=response):
+            with self.assertRaisesRegex(
+                ResumeGenerationError,
+                "status 400.*temperature must be 1",
+            ):
+                self.service.rewrite_full(
+                    {"professional_summary": "Experienced engineer", "experience": [], "projects": []},
+                    {"title": "Engineer"},
+                    SkillExtractor(),
+                )
+
+    def test_rewrite_full_drafts_a_missing_summary_from_verified_profile_facts(self):
+        class SkillExtractor:
+            @staticmethod
+            def extract_skills(text):
+                return ["Python"] if "python" in text.lower() else []
+
+        tailored = {
+            "professional_summary": "",
+            "skills": ["Python"],
+            "experience": [{
+                "title": "Engineer",
+                "organization": "Example Ltd",
+                "dates": "2022-Present",
+                "description": "Built internal tools with Python.",
+                "bullets": ["Built internal tools with Python."],
             }],
+            "projects": [],
+            "education": [],
+        }
+        rewritten = {
+            "professional_summary": "Engineer experienced in Python, now targeting a software engineer role.",
+            "experience": [{"index": 0, "description": "Built internal tools with Python.", "bullets": ["Built internal tools with Python."]}],
+            "projects": [],
+            "education": [],
         }
         response = mock.Mock(status_code=200)
         response.json.return_value = {"choices": [{"message": {"content": json.dumps(rewritten)}}]}
 
         with mock.patch.dict("os.environ", {"GROQ_API_KEY": "test-key"}), \
              mock.patch("backend.resume_generation_service.requests.post", return_value=response) as post:
-            result = self.service.rewrite_full(tailored, {"title": "Engineer"}, SkillExtractor())
+            result = self.service.rewrite_full(tailored, {"title": "Software Engineer"}, SkillExtractor())
 
-        sent = post.call_args.kwargs["json"]["messages"][1]["content"]
-        self.assertIn('"degree": "BSc Computer Science"', sent)
-        self.assertEqual(
-            result["resume"]["education"][0]["description"],
-            rewritten["education"][0]["description"],
+        prompt = post.call_args.kwargs["json"]["messages"][1]["content"]
+        self.assertIn('"verified_summary_facts"', prompt)
+        self.assertIn("Built internal tools with Python.", prompt)
+        self.assertEqual(result["resume"]["professional_summary"], rewritten["professional_summary"])
+
+    def test_generation_surfaces_tailoring_failures_instead_of_returning_untailored_resume(self):
+        with mock.patch.object(
+            self.service, "rewrite_full", side_effect=ResumeGenerationError("AI rewriting is unavailable.")
+        ):
+            with self.assertRaisesRegex(ResumeGenerationError, "AI rewriting is unavailable"):
+                self.service.generate(
+                    {"summary": "Engineer", "experience": [{"title": "Engineer", "company": "Example"}]},
+                    {"title": "Software Engineer"},
+                    skill_extractor=object(),
+                )
+
+    def test_generated_education_does_not_invent_coursework(self):
+        normalized = self.service._validate_and_normalize(
+            {},
+            {"education": [{"degree": "BSc Computer Science", "institution": "Example University"}]},
+            {},
         )
-        self.assertEqual(result["resume"]["education"][1]["description"], "Existing description.")
-
-    def test_generation_fills_missing_education_description_from_degree(self):
-        data = self.service._ensure_education_descriptions({
-            "education": [
-                {"degree": "B.Tech Information Technology", "institution": "Example University", "description": ""},
-                {"degree": "BSc Computer Science", "institution": "Example College"},
-                {"degree": "BSc Information Technology", "description": "Provided description."},
-            ]
-        })
-        self.assertIn("software development", data["education"][0]["description"])
-        self.assertIn("algorithms", data["education"][1]["description"])
-        self.assertEqual(data["education"][2]["description"], "Provided description.")
+        education = normalized["education"][0]
+        self.assertEqual(education["degree"], "BSc Computer Science")
+        self.assertEqual(education["institution"], "Example University")
+        self.assertEqual(education["description"], "")
 
     def test_docx_includes_projects_and_excludes_certifications(self):
         data = {
             "personal_info": {"name": "Test Candidate"},
             "professional_summary": "Experienced engineer.",
-            "education": [{"degree": "BSc Computer Science", "institution": "Leeds"}],
+            "education": [{
+                "degree": "BSc Computer Science",
+                "institution": "Leeds",
+                "description": "Focused on software engineering and distributed systems.",
+            }],
             "experience": [{"title": "Engineer", "company": "Example Ltd"}],
             "skills": ["Python"],
             "projects": [{"title": "Included Project"}],
@@ -186,6 +254,7 @@ class TestResumeGeneration(unittest.TestCase):
 
         text = "\n".join(paragraphs)
         self.assertIn("ABOUT ME", text)
+        self.assertIn("Focused on software engineering and distributed systems.", text)
         self.assertIn("Included Project", text)
         self.assertNotIn("Included Certification", text)
         for excluded in ("Hidden Internship", "Hidden Publication", "Hidden Award"):

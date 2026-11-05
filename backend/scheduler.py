@@ -1,7 +1,8 @@
 import time
 import logging
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import Optional
 
 from .scrapers.scraper_manager import ScraperManager
@@ -16,10 +17,23 @@ class ScrapingScheduler:
     Decoupled from user résumé uploads.
     """
 
-    def __init__(self, scraper_manager: ScraperManager, database: JobDatabase, interval_hours: float = 6.0):
+    def __init__(
+        self,
+        scraper_manager: ScraperManager,
+        database: JobDatabase,
+        schedule_hour: int = 8,
+        schedule_minute: int = 0,
+        schedule_timezone: str = "Europe/London",
+    ):
         self.scraper_manager = scraper_manager
         self.database = database
-        self.interval_seconds = int(interval_hours * 3600)
+        if not 0 <= schedule_hour <= 23:
+            raise ValueError("schedule_hour must be between 0 and 23")
+        if not 0 <= schedule_minute <= 59:
+            raise ValueError("schedule_minute must be between 0 and 59")
+        self.schedule_hour = schedule_hour
+        self.schedule_minute = schedule_minute
+        self.schedule_timezone = ZoneInfo(schedule_timezone)
         self.is_running = False
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
@@ -33,7 +47,12 @@ class ScrapingScheduler:
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run_loop, daemon=True, name="ScrapingSchedulerThread")
         self._thread.start()
-        logger.info(f"[Scheduler] Background worker started with interval: {self.interval_seconds // 3600}h")
+        logger.info(
+            "[Scheduler] Background worker started for %02d:%02d %s daily",
+            self.schedule_hour,
+            self.schedule_minute,
+            self.schedule_timezone.key,
+        )
 
     def stop(self):
         if not self.is_running:
@@ -91,8 +110,19 @@ class ScrapingScheduler:
                 logger.error(f"[Scheduler] Initial indexing error: {e}")
 
         while not self._stop_event.is_set():
-            # Wait for next interval
-            interrupted = self._stop_event.wait(self.interval_seconds)
+            now = datetime.now(timezone.utc)
+            local_now = now.astimezone(self.schedule_timezone)
+            next_run = local_now.replace(
+                hour=self.schedule_hour,
+                minute=self.schedule_minute,
+                second=0,
+                microsecond=0,
+            )
+            if next_run <= local_now:
+                next_run += timedelta(days=1)
+            wait_seconds = max(1, (next_run.astimezone(timezone.utc) - now).total_seconds())
+            logger.info("[Scheduler] Next daily scrape at %s", next_run.isoformat())
+            interrupted = self._stop_event.wait(wait_seconds)
             if interrupted:
                 break
 

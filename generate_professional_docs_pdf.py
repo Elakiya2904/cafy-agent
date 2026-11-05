@@ -89,7 +89,7 @@ def create_diag_overview():
     draw_arrow(draw, (640, 120), (720, 120))
 
     draw_card(draw, (200, 270, 800, 440), "FastAPI Unified Application Gateway (backend/main.py)", [
-        "• Persistence: Dual SQLite (local dev) / PostgreSQL (serverless Supabase)",
+        "• Persistence: Dual SQLite (local development) / PostgreSQL",
         "• Inference: Groq LLM API with automated fallback (openai/gpt-oss-20b)",
         "• Document Engines: XeLaTeX (PDF) and python-docx (DOCX) rendering",
         "• Context Isolation: Multi-user thread-safe candidate session state"

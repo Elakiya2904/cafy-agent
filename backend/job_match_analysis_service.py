@@ -27,6 +27,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 from .profile_strength_service import METRIC_PATTERN, evaluate_profile_strength
 from .recommendation_service import _job_experience_requirement
 from .resume_service import ResumeService, SKILL_ALIASES
+from .cv_quality_service import evaluate_cv_quality
 
 SECTION_WEIGHTS = {
     "skills": 35,
@@ -562,11 +563,13 @@ def analyze_profile_for_job(
     suggestions.sort(key=lambda s: (priority_rank.get(s["priority"], 3), -SECTION_WEIGHTS.get(s["section"], 0)))
 
     completeness = evaluate_profile_strength(profile or None)
+    cv_quality = evaluate_cv_quality(profile)
 
     return {
         "job": {"id": job.get("id"), "title": job_title, "company": job.get("company")},
         "job_match_score": job_match_score,
         "match_tier": _match_tier(job_match_score),
+        "cv_quality": cv_quality,
         "sections": sections,
         "matched_skills": matched_skills,
         "missing_skills": missing_skills,

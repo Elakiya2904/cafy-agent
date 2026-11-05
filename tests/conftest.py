@@ -17,4 +17,7 @@ if url and host not in ("localhost", "127.0.0.1", "::1", None) and os.getenv("CA
 
 _tmp = tempfile.mkdtemp(prefix="cafy-tests-")
 os.environ["CAFY_DB_PATH"] = os.path.join(_tmp, "app-under-test.db")
+# Keep the application from loading a developer's local PostgreSQL URL during
+# tests; dbcore treats the whitespace value as unset and uses SQLite.
+os.environ["DATABASE_URL"] = " "
 os.environ.pop("APP_ENV", None)

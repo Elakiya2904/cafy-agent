@@ -87,6 +87,18 @@
 .jms-score-head em { font-size: .66rem; font-style: normal; font-weight: 700; }
 .jms-score-head em.up { color: #059669; }
 .jms-score-head em.down { color: #DC2626; }
+.jms-cv-quality {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  color: #64748b;
+  font-size: .68rem;
+  white-space: nowrap;
+}
+.jms-cv-quality strong { color: #334155; font-size: .74rem; }
 .jms-inspect {
   margin-left: auto;
   flex: 0 0 auto;
@@ -135,6 +147,12 @@
   color: #475569;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: .64rem;
+}
+.jms-score-note {
+  margin: 0;
+  color: #64748b;
+  font-size: .68rem;
+  line-height: 1.45;
 }
 .jms-score-dot {
   display: inline-block;

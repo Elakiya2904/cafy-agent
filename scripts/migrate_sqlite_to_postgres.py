@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""One-off, idempotent copy of backend/cafy_jobs.db into the Postgres database in DATABASE_URL (Supabase).
+"""One-off, idempotent copy of backend/cafy_jobs.db into the PostgreSQL database in DATABASE_URL.
 
-    python scripts/migrate_sqlite_to_postgres.py --owner <supabase-user-uuid> [--sqlite PATH] [--dry-run]
+    python scripts/migrate_sqlite_to_postgres.py --owner <account-id> [--sqlite PATH] [--dry-run]
 
 * Rows stored under the old single-user id ("local") are re-assigned to --owner, so you see your data after signing in.
 * Plain-text email tokens are encrypted on the way in.
@@ -29,12 +29,12 @@ TOKEN_COLUMNS = {"connected_email_accounts": ("access_token", "refresh_token")}
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--sqlite", default=str(ROOT / "backend" / "cafy_jobs.db"))
-    ap.add_argument("--owner", help="Supabase user id that should own rows created before accounts existed")
+    ap.add_argument("--owner", help="Account id that should own rows created before accounts existed")
     ap.add_argument("--dry-run", action="store_true", help="read and report only; write nothing")
     args = ap.parse_args()
 
     if not os.getenv("DATABASE_URL"):
-        print("DATABASE_URL is not set (put the Supabase connection string in .env).")
+        print("DATABASE_URL is not set (put the PostgreSQL connection string in .env).")
         return 2
     if not Path(args.sqlite).is_file():
         print(f"SQLite file not found: {args.sqlite}")

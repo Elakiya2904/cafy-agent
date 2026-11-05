@@ -1,16 +1,91 @@
-import { createClient } from "@supabase/supabase-js";
-
-// Public values by design (the anon key only works together with Row Level Security / the backend's own checks).
-const url = import.meta.env.VITE_SUPABASE_URL || "https://tgeuiemybetiiwblhdbr.supabase.co";
-const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_PlCIZydM_pmkafPXKCWliA_RegTigST";
-
-export const authEnabled = Boolean(url && anonKey);
+export const authEnabled = true;
 export const guestModeEnabled = authEnabled && import.meta.env.VITE_ENABLE_GUEST_MODE !== "false";
-export const supabase = authEnabled ? createClient(url, anonKey) : null;
 
 let accessToken = null;
+let refreshToken = null;
+const listeners = new Set();
 let guestModeActive = typeof window !== 'undefined' && window.sessionStorage?.getItem('cafy_guest_mode') === 'true';
 export const getAccessToken = () => accessToken;
+
+const customStorageKey = "cafy_custom_session";
+
+function readCustomSession() {
+  if (typeof window === "undefined") return null;
+  try {
+    return JSON.parse(window.localStorage?.getItem(customStorageKey) || "null");
+  } catch {
+    return null;
+  }
+}
+
+function saveCustomSession(session) {
+  accessToken = session?.access_token || null;
+  refreshToken = session?.refresh_token || null;
+  if (typeof window !== "undefined") {
+    if (session) window.localStorage?.setItem(customStorageKey, JSON.stringify(session));
+    else window.localStorage?.removeItem(customStorageKey);
+  }
+}
+
+async function customRequest(path, body) {
+  const response = await window.fetch(`/api/auth/${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) return { data: null, error: { message: data.detail || "Authentication request failed." } };
+  return { data, error: null };
+}
+
+function customUser(session) {
+  return session?.user || null;
+}
+
+export const auth = {
+  async getSession() {
+    const session = readCustomSession();
+    saveCustomSession(session);
+    return { data: { session } };
+  },
+  async getUser() {
+    return { data: { user: customUser(readCustomSession()) } };
+  },
+  async signUp({ email, password, options }) {
+    const result = await customRequest("register", {
+      email,
+      password,
+      full_name: options?.data?.full_name || "",
+    });
+    if (result.error) return result;
+    saveCustomSession(result.data);
+    listeners.forEach((listener) => listener("SIGNED_IN", result.data));
+    return { data: { session: result.data, user: result.data.user }, error: null };
+  },
+  async signInWithPassword({ email, password }) {
+    const result = await customRequest("login", { email, password });
+    if (result.error) return result;
+    saveCustomSession(result.data);
+    listeners.forEach((listener) => listener("SIGNED_IN", result.data));
+    return { data: { session: result.data, user: result.data.user }, error: null };
+  },
+  async resetPasswordForEmail() {
+    return { error: { message: "Password reset is not configured on this server yet." } };
+  },
+  async signOut() {
+    if (refreshToken) await customRequest("logout", { refresh_token: refreshToken });
+    saveCustomSession(null);
+    listeners.forEach((listener) => listener("SIGNED_OUT", null));
+  },
+  onAuthStateChange(listener) {
+    listeners.add(listener);
+    return { data: { subscription: { unsubscribe: () => listeners.delete(listener) } } };
+  },
+};
+
+export function getCurrentUser() {
+  return customUser(readCustomSession());
+}
 
 export function setGuestMode(enabled) {
   guestModeActive = guestModeEnabled && enabled;
@@ -30,13 +105,12 @@ export function withToken(path) {
 }
 
 export function trackSession(onChange) {
-  if (!supabase) return () => {};
-  supabase.auth.getSession().then(({ data }) => {
-    accessToken = data.session?.access_token || null;
+  auth.getSession().then(({ data }) => {
+    saveCustomSession(data.session);
     onChange(data.session);
   });
-  const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-    accessToken = session?.access_token || null;
+  const { data } = auth.onAuthStateChange((_event, session) => {
+    saveCustomSession(session);
     onChange(session);
   });
   return () => data.subscription.unsubscribe();
@@ -59,7 +133,7 @@ export function installAuthFetch() {
       return original(input, init);
     }
     const response = await original(input, { ...init, headers });
-    if (response.status === 401 && supabase) supabase.auth.signOut();  // expired or revoked session
+    if (response.status === 401 && accessToken) auth.signOut();  // expired or revoked session
     return response;
   };
 }

@@ -67,10 +67,10 @@ An enterprise-grade ATS automation and career intelligence platform engineered s
 | :--- | :--- | :--- |
 | **Backend Framework** | **FastAPI** (Python 3.13) | Asynchronous, high-throughput REST API with Pydantic validation |
 | **Frontend Framework** | **React 18** + **Vite 5** | Responsive single-page application with modern UI styling |
-| **Database** | **PostgreSQL** (Supabase) / **SQLite** | Multi-user relational persistence with fallback to SQLite for local development |
+| **Database** | **PostgreSQL** / **SQLite** | Multi-user relational persistence with fallback to SQLite for local development |
 | **Inference Engine** | **Groq API** | Ultra-fast inference with fallback cascade (`gpt-oss-20b`, `llama-3.3-70b`) |
 | **Document Rendering** | **XeLaTeX** & **python-docx** | Publication-grade single-page PDFs and editable DOCX files |
-| **Authentication** | **Supabase Auth** / JWT | Secure token-based access with Row-Level Security (RLS) & Guest Mode |
+| **Authentication** | **PostgreSQL-backed JWT** | Argon2id password hashing, rotating refresh tokens, and per-user API isolation |
 | **Testing** | **pytest** & **vitest** | Comprehensive unit, integration, and UI test coverage |
 
 ---
@@ -120,8 +120,17 @@ running, verify connectivity and apply migrations with:
 ```
 
 The existing runtime database adapter remains active until application tables
-are mapped and the PostgreSQL migration has been validated. Do not delete the
-existing database or Supabase project during this transition.
+are mapped and the PostgreSQL migration has been validated. Keep the existing
+database backup until migration verification is complete.
+
+PostgreSQL-backed authentication is enabled by setting a random
+`JWT_SECRET_KEY` (at least 32 characters) in `.env` for the
+`/api/auth/register`, `/api/auth/login`, `/api/auth/refresh`, and
+`/api/auth/logout` endpoints.
+
+The background scraper runs once daily at 08:00 UK time by default
+(`Europe/London`, including daylight-saving changes). Configure
+`SCRAPE_HOUR`, `SCRAPE_MINUTE`, and `SCRAPE_TIMEZONE` to change it.
 
 ### 3. Environment Configuration
 Copy `.env.example` to `.env` in the project root:
@@ -142,10 +151,9 @@ CORS_ORIGINS=http://127.0.0.1:8000,http://localhost:5173
 DATABASE_URL=postgresql://user:pass@host:5432/dbname
 
 # Authentication & Guest Mode
+JWT_SECRET_KEY=replace-with-a-long-random-secret
 ENABLE_GUEST_MODE=true
 VITE_ENABLE_GUEST_MODE=true
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
 
 ### 4. Frontend Setup
@@ -176,7 +184,7 @@ npm --prefix frontend run dev
 
 ## 🔒 Authentication & Guest Mode
 
-- **Production Mode**: Uses Supabase Email/Password authentication with JWT tokens. Every request to `/api` is scoped to the authenticated user's ID via Row-Level Security.
+- **Production Mode**: The frontend uses PostgreSQL-backed Argon2id passwords and rotating refresh tokens. API requests are scoped to the authenticated user's ID by the application middleware.
 - **Guest Mode**: Opt-in testing mode enabled via `ENABLE_GUEST_MODE=true` and `VITE_ENABLE_GUEST_MODE=true`. Provides a clean, centered **Continue as Guest** button on the auth screen. Guest sessions start with a clean slate (no pre-loaded resumes) and persist across page refreshes via `sessionStorage`.
 
 ---
@@ -265,10 +273,9 @@ CORS_ORIGINS=http://127.0.0.1:8000,http://localhost:5173
 DATABASE_URL=postgresql://user:pass@host:5432/dbname
 
 # Authentication & Guest Mode
+JWT_SECRET_KEY=replace-with-a-long-random-secret
 ENABLE_GUEST_MODE=true
 VITE_ENABLE_GUEST_MODE=true
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
 
 ### 4. Frontend Setup
@@ -299,7 +306,7 @@ npm --prefix frontend run dev
 
 ## 🔒 Authentication & Guest Mode
 
-- **Production Mode**: Uses Supabase Email/Password authentication with JWT tokens. Every request to `/api` is scoped to the authenticated user's ID via Row-Level Security.
+- **Production Mode**: Uses PostgreSQL-backed email/password authentication with JWT tokens. Every request to `/api` is scoped to the authenticated user's ID by the application middleware.
 - **Guest Mode**: Opt-in testing mode enabled via `ENABLE_GUEST_MODE=true` and `VITE_ENABLE_GUEST_MODE=true`. Provides a clean, centered **Continue as Guest** button on the auth screen. Guest sessions start with a clean slate (no pre-loaded resumes) and persist across page refreshes via `sessionStorage`.
 
 ---

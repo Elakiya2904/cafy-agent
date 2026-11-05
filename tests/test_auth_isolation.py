@@ -1,4 +1,4 @@
-"""Auth + multi-user isolation, using really signed Supabase-style JWTs and the real database."""
+"""Auth + multi-user isolation, using application JWTs and the real database."""
 import os
 import sys
 import tempfile
@@ -20,8 +20,16 @@ from backend.user_store import UserSession, UserStore
 SECRET = "test-jwt-secret-that-is-long-enough-for-hs256-ok"
 
 
-def token(sub, exp=3600, aud="authenticated", secret=SECRET, alg="HS256"):
-    return jwt.encode({"sub": sub, "aud": aud, "exp": int(time.time()) + exp, "email": f"{sub}@example.com"}, secret, algorithm=alg)
+def token(sub, exp=3600, aud="cafy-agent-web", secret=SECRET, alg="HS256"):
+    now = int(time.time())
+    return jwt.encode({
+        "sub": sub,
+        "aud": aud,
+        "iss": "cafy-agent",
+        "iat": now,
+        "exp": now + exp,
+        "email": f"{sub}@example.com",
+    }, secret, algorithm=alg)
 
 
 def bearer(sub, **kw):
@@ -35,7 +43,7 @@ class AuthTests(unittest.TestCase):
         store = UserStore(self.db)
         self.patches = [
             mock.patch.dict(os.environ, {
-                "SUPABASE_JWT_SECRET": SECRET,
+                "JWT_SECRET_KEY": SECRET,
                 "APP_ENV": "development",
                 "ENABLE_GUEST_MODE": "false",
             }),
@@ -46,7 +54,6 @@ class AuthTests(unittest.TestCase):
         ]
         for p in self.patches:
             p.start()
-        os.environ.pop("SUPABASE_URL", None)
         self.client = TestClient(main.app)
 
     def tearDown(self):
@@ -84,7 +91,7 @@ class AuthTests(unittest.TestCase):
 
     def test_bad_tokens_rejected(self):
         cases = {
-            "expired": bearer("u1", exp=-(auth.JWT_LEEWAY_SECONDS + 5)),
+            "expired": bearer("u1", exp=-5),
             "wrong audience": bearer("u1", aud="anon"),
             "wrong secret": bearer("u1", secret="another-secret-another-secret-another-secret"),
             "garbage": {"Authorization": "Bearer not.a.jwt"},
@@ -111,13 +118,13 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(self.client.get(f"/api/resume/current?access_token={t}").status_code, 401)
 
     def test_production_without_auth_config_fails_closed(self):
-        os.environ.pop("SUPABASE_JWT_SECRET", None)
+        os.environ.pop("JWT_SECRET_KEY", None)
         os.environ["APP_ENV"] = "production"
         self.assertEqual(self.client.get("/api/resume/current").status_code, 503)
         self.assertEqual(self.client.get("/api/health").status_code, 200)
 
     def test_dev_mode_without_config_uses_local_user(self):
-        os.environ.pop("SUPABASE_JWT_SECRET", None)
+        os.environ.pop("JWT_SECRET_KEY", None)
         self.assertEqual(self.client.get("/api/resume/current").status_code, 200)
 
     # ---- who sees what
@@ -216,7 +223,7 @@ class AuthTests(unittest.TestCase):
             with self.assertRaises(RuntimeError) as cm:
                 validate_production_config()
         self.assertIn("DATABASE_URL", str(cm.exception))
-        full = {**env, "DATABASE_URL": "postgresql://x", "SUPABASE_JWT_SECRET": SECRET, "EMAIL_AGENT_SECRET": "s"}
+        full = {**env, "DATABASE_URL": "postgresql://x", "JWT_SECRET_KEY": SECRET, "EMAIL_AGENT_SECRET": "s"}
         with mock.patch.dict(os.environ, full, clear=True):
             validate_production_config()  # complete -> no error
 

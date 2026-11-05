@@ -601,7 +601,11 @@
 .re-ats-title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
 .re-ats-live { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border: 1px solid #bfdbfe; border-radius: 999px; background: #eff6ff; color: #1d4ed8; font-size: .72rem; font-weight: 700; }
 .re-ats-live span { width: 6px; height: 6px; border-radius: 50%; background: #3b82f6; box-shadow: 0 0 0 3px #dbeafe; }
+.re-ats-score-group { display: flex; flex-wrap: wrap; gap: 8px; flex: 0 0 auto; }
 .re-ats-score-box { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; padding: 9px 11px 9px 15px; border: 1px solid #dbeafe; border-radius: 11px; background: #eff6ff; }
+.re-cv-quality-box { background: #f8fafc; border-color: #e2e8f0; }
+.re-cv-quality-box > div strong { color: #334155 !important; }
+.re-cv-quality-box > div small { color: #64748b; font-size: .68rem; }
 .re-ats-score-box > div { display: grid; gap: 2px; }
 .re-ats-score-box > div span { color: #64748b; font-size: .68rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .re-ats-score-box > div strong { color: #1d4ed8; font-size: 1.1rem; }
@@ -666,7 +670,8 @@
 
 @media (max-width: 720px) {
   .re-ats-header { align-items: flex-start; flex-direction: column; padding: 18px; }
-  .re-ats-score-box { align-self: stretch; justify-content: space-between; }
+  .re-ats-score-group { width: 100%; }
+  .re-ats-score-box { align-self: stretch; justify-content: space-between; flex: 1 1 180px; }
   .re-ats-actions { padding: 16px; }
   .re-ats-actions-header { align-items: flex-start; flex-direction: column; }
   .re-ats-filter { align-self: flex-end; }

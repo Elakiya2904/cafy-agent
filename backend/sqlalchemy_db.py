@@ -45,7 +45,7 @@ def build_engine(url: str | None = None) -> Engine:
     )
 
 
-engine = build_engine() if os.getenv("DATABASE_URL") else None
+engine = build_engine() if os.getenv("DATABASE_URL", "").strip() else None
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False) if engine else None
 
 

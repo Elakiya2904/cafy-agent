@@ -127,6 +127,7 @@ export default function ApplicationAnalysis({ job, resume, onResumeUpdated, onIm
   };
   const visibleGaps = gapFilter === "all" ? gaps : gaps.filter((g) => g.type === gapFilter);
   const completeness = analysis.profile_completeness || { overall_score: 0 };
+  const cvQuality = analysis.cv_quality;
 
   return (
     <div className="aa-grid" data-testid="application-analysis">
@@ -142,14 +143,39 @@ export default function ApplicationAnalysis({ job, resume, onResumeUpdated, onIm
           <ScoreCard
             title="Job Match Score"
             score={analysis.job_match_score}
-            caption="Based on this job's requirements"
+            caption="Cafy estimate based on this job's requirements"
             actionLabel="View details"
             onAction={onViewDetails}
           />
+          {cvQuality && (
+            <ScoreCard
+              title="CV Content Score"
+              score={cvQuality.score}
+              caption={`${cvQuality.passed_checks}/${cvQuality.total_checks} content checks passed`}
+            />
+          )}
         </div>
 
+        {cvQuality && (
+          <div className="aa-card">
+            <h4>CV Content Checks</h4>
+            <p className="aa-quality-scope">{cvQuality.scope}</p>
+            <ul className="aa-quality-checks">
+              {cvQuality.checks.map((check) => (
+                <li key={check.key} className={check.passed ? "passed" : "needs-work"}>
+                  <span aria-hidden="true">{check.passed ? "✓" : "!"}</span>
+                  <div>
+                    <strong>{check.label}</strong>
+                    {!check.passed && <small>{check.advice}</small>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         <div className="aa-card">
-          <h4>Job Requirement Fit by Section</h4>
+          <h4>Job Requirement Match by Section</h4>
           <ul className="aa-section-scores">
             {SECTION_ROWS.map(({ key, label, icon: Icon }) => {
               // null = the job does not ask for this section, so it has no score.

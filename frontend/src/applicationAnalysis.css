@@ -56,7 +56,7 @@
 
 .aa-score-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
 }
 
@@ -92,6 +92,46 @@
   font-size: 0.75rem;
   color: var(--slate-500);
 }
+
+.aa-quality-scope {
+  margin: -4px 0 12px;
+  color: var(--slate-500);
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.aa-quality-checks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.aa-quality-checks li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.78rem;
+}
+
+.aa-quality-checks li > span {
+  display: grid;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.aa-quality-checks li.passed > span { background: #d1fae5; color: #047857; }
+.aa-quality-checks li.needs-work > span { background: #fef3c7; color: #b45309; }
+.aa-quality-checks li div { display: grid; gap: 3px; }
+.aa-quality-checks li strong { color: var(--slate-700); font-weight: 650; }
+.aa-quality-checks li small { color: var(--slate-500); line-height: 1.4; }
 
 .aa-btn-outline {
   font: inherit;

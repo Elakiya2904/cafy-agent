@@ -8,6 +8,7 @@ export const EMPTY_JOB_FILTERS = {
   salaryMin: "",
   salaryMax: "",
   currency: "GBP",
+  postedWithin: "0",
   equityOnly: false,
   tech: [],
   excludeTech: [],
@@ -47,6 +48,14 @@ export default function JobFilterPanel({
   const set = (key, value) => onChange((current) => ({ ...current, [key]: value }));
   const setText = (key, value) => set(key, terms(value));
   const rolesValue = filters.roles.join(", ");
+  const activeFilterCount = [
+    filters.levels.length > 0,
+    Boolean(filters.salaryMin || filters.salaryMax),
+    filters.postedWithin !== "0",
+    filters.equityOnly,
+    filters.tech.length > 0,
+    filters.excludeTech.length > 0,
+  ].filter(Boolean).length;
 
   return (
     <div className="jd-filter-panel">
@@ -86,8 +95,12 @@ export default function JobFilterPanel({
         </button>
       </div>
 
-      <details className="jd-advanced-filters">
-        <summary><SlidersHorizontal size={14} aria-hidden="true" /> Advanced filters</summary>
+      <details className="jd-advanced-filters" open>
+        <summary>
+          <SlidersHorizontal size={16} aria-hidden="true" />
+          <span>Filters</span>
+          {activeFilterCount > 0 && <span className="jd-filter-count">{activeFilterCount} active</span>}
+        </summary>
         <div className="job-discovery-form">
           <div className="discovery-row">
             <fieldset className="discovery-choice-group">
@@ -142,6 +155,20 @@ export default function JobFilterPanel({
                 <span className="discovery-hint">{salaryStats.values.length} jobs include salary data.</span>
               )}
             </fieldset>
+            <label className="discovery-field posted-within-field">
+              <span>Posted within</span>
+              <select
+                aria-label="Posted within"
+                value={filters.postedWithin}
+                onChange={(event) => set("postedWithin", event.target.value)}
+              >
+                <option value="0">Any time</option>
+                <option value="1">Past 24 hours</option>
+                <option value="7">Past week</option>
+                <option value="14">Past 2 weeks</option>
+                <option value="30">Past month</option>
+              </select>
+            </label>
           </div>
           <div className="discovery-row">
             <label className="discovery-checkbox">

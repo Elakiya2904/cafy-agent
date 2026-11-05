@@ -152,6 +152,18 @@ class JobDatabase:
 
             conn.executescript(USER_SCHEMA)
 
+            # Ensure user table columns exist (tables may have been created with an older schema).
+            conn.add_column_if_missing("user_profiles", "candidate_id", "TEXT")
+            conn.add_column_if_missing("user_profiles", "resume_json", "TEXT")
+            conn.add_column_if_missing("user_profiles", "updated_at", "TEXT NOT NULL DEFAULT ''")
+            conn.add_column_if_missing("user_resume_files", "candidate_id", "TEXT")
+            conn.add_column_if_missing("user_resume_files", "filename", "TEXT NOT NULL DEFAULT ''")
+            conn.add_column_if_missing("user_resume_files", "content_type", "TEXT NOT NULL DEFAULT ''")
+            conn.add_column_if_missing("user_resume_files", "size_bytes", "INTEGER NOT NULL DEFAULT 0")
+            conn.add_column_if_missing("user_resume_files", "content", "BYTEA")
+            conn.add_column_if_missing("user_resume_files", "parsed_resume", "TEXT")
+            conn.add_column_if_missing("user_resume_files", "uploaded_at", "TEXT NOT NULL DEFAULT ''")
+
             # 5. Pipeline 3 – Email Agent & Interview Management
             from .email_agent.schema import EMAIL_AGENT_SCHEMA
             conn.executescript(EMAIL_AGENT_SCHEMA)
@@ -189,6 +201,35 @@ class JobDatabase:
                 "CREATE INDEX IF NOT EXISTS idx_user_integrations_user_provider "
                 "ON user_integrations(user_id, provider)"
             )
+
+            legacy_versions = cursor.execute(
+                """
+                SELECT tr.resume_id, tr.job_id, tr.structured_data, tr.created_at, tr.updated_at, tr.candidate_id
+                FROM tailored_resumes tr
+                LEFT JOIN tailored_resume_versions trv
+                    ON trv.resume_id = tr.resume_id AND trv.candidate_id = tr.candidate_id
+                WHERE trv.resume_id IS NULL
+                """
+            ).fetchall()
+            for legacy in legacy_versions:
+                import uuid
+                cursor.execute(
+                    """
+                    INSERT INTO tailored_resume_versions
+                        (id, resume_id, job_id, structured_data, created_at, updated_at, kind, candidate_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        uuid.uuid4().hex,
+                        legacy["resume_id"],
+                        legacy["job_id"],
+                        legacy["structured_data"],
+                        legacy["created_at"],
+                        legacy["updated_at"],
+                        "generated",
+                        legacy["candidate_id"],
+                    ),
+                )
 
             # Keep listings outside the UK out of the active feed.
             legacy_rows = cursor.execute(

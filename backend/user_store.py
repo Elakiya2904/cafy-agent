@@ -22,17 +22,25 @@ class UserStore:
     def __init__(self, database):
         self.db = database
 
+    @property
+    def _owner_column(self) -> str:
+        return "user_id" if self.db.backend == "postgres" else "candidate_id"
+
     # ------------------------------------------------------------ parsed résumé
     def get_resume(self, candidate: str) -> Optional[Dict[str, Any]]:
         with self.db._get_connection() as conn:
-            row = conn.execute("SELECT resume_json FROM user_profiles WHERE candidate_id = ?", (candidate,)).fetchone()
+            row = conn.execute(
+                f"SELECT resume_json FROM user_profiles WHERE {self._owner_column} = ?",
+                (candidate,),
+            ).fetchone()
         return json.loads(row["resume_json"]) if row and row["resume_json"] else None
 
     def set_resume(self, candidate: str, resume: Optional[Dict[str, Any]]) -> None:
         with self.db._get_connection() as conn:
             conn.execute(
-                "INSERT INTO user_profiles (candidate_id, resume_json, updated_at) VALUES (?,?,?) "
-                "ON CONFLICT(candidate_id) DO UPDATE SET resume_json=excluded.resume_json, updated_at=excluded.updated_at",
+                f"INSERT INTO user_profiles ({self._owner_column}, resume_json, updated_at) VALUES (?,?,?) "
+                f"ON CONFLICT({self._owner_column}) DO UPDATE SET "
+                "resume_json=excluded.resume_json, updated_at=excluded.updated_at",
                 (candidate, json.dumps(resume, ensure_ascii=False) if resume is not None else None, _now()))
             conn.commit()
 
@@ -43,8 +51,8 @@ class UserStore:
             raise ValueError("Résumé file is larger than 10 MB.")
         with self.db._get_connection() as conn:
             conn.execute(
-                "INSERT INTO user_resume_files (candidate_id, filename, content_type, size_bytes, content, parsed_resume, uploaded_at) "
-                "VALUES (?,?,?,?,?,?,?) ON CONFLICT(candidate_id) DO UPDATE SET filename=excluded.filename, "
+                f"INSERT INTO user_resume_files ({self._owner_column}, filename, content_type, size_bytes, content, parsed_resume, uploaded_at) "
+                f"VALUES (?,?,?,?,?,?,?) ON CONFLICT({self._owner_column}) DO UPDATE SET filename=excluded.filename, "
                 "content_type=excluded.content_type, size_bytes=excluded.size_bytes, content=excluded.content, "
                 "parsed_resume=excluded.parsed_resume, uploaded_at=excluded.uploaded_at",
                 (candidate, filename or "resume", content_type or "application/octet-stream", len(content), content,
@@ -53,8 +61,11 @@ class UserStore:
 
     def file_meta(self, candidate: str) -> Optional[Dict[str, Any]]:
         with self.db._get_connection() as conn:
-            row = conn.execute("SELECT filename, content_type, size_bytes, parsed_resume, uploaded_at FROM user_resume_files "
-                               "WHERE candidate_id = ?", (candidate,)).fetchone()
+            row = conn.execute(
+                "SELECT filename, content_type, size_bytes, parsed_resume, uploaded_at "
+                f"FROM user_resume_files WHERE {self._owner_column} = ?",
+                (candidate,),
+            ).fetchone()
         if not row:
             return None
         meta = dict(row)
@@ -63,12 +74,19 @@ class UserStore:
 
     def clear_file(self, candidate: str) -> None:
         with self.db._get_connection() as conn:
-            conn.execute("DELETE FROM user_resume_files WHERE candidate_id = ?", (candidate,))
+            conn.execute(
+                f"DELETE FROM user_resume_files WHERE {self._owner_column} = ?",
+                (candidate,),
+            )
             conn.commit()
 
     def file_content(self, candidate: str) -> Optional[Dict[str, Any]]:
         with self.db._get_connection() as conn:
-            row = conn.execute("SELECT filename, content_type, content FROM user_resume_files WHERE candidate_id = ?", (candidate,)).fetchone()
+            row = conn.execute(
+                "SELECT filename, content_type, content "
+                f"FROM user_resume_files WHERE {self._owner_column} = ?",
+                (candidate,),
+            ).fetchone()
         if not row:
             return None
         return {"filename": row["filename"], "content_type": row["content_type"], "content": bytes(row["content"])}

@@ -1027,11 +1027,22 @@ function AtsInsights({ resume, job, scoring, isRewriting, onImprove, onNavigateT
             <h2>ATS Insights</h2>
             <span className="re-ats-live"><span /> Live evaluation</span>
           </div>
-          <p>Practical, role-specific ways to strengthen this résumé for <strong>{roleTitle}</strong>.</p>
+          <p>Practical, role-specific ways to strengthen this résumé for <strong>{roleTitle}</strong>. Scores are Cafy estimates, not an employer ATS result.</p>
         </div>
-        <div className="re-ats-score-box" aria-label={matchScore == null ? "Match score updating" : `${matchScore}% overall match`}>
-          <div><span>Overall match</span><strong>{matchScore == null ? "—" : `${matchScore}% match`}</strong></div>
-          <span className="re-ats-score-ring" style={{ "--match-progress": `${matchScore ?? 0}%` }}>{matchScore == null ? "…" : `${matchScore}%`}</span>
+        <div className="re-ats-score-group">
+          <div className="re-ats-score-box" aria-label={matchScore == null ? "Job match score updating" : `${matchScore}% Cafy job match estimate`}>
+            <div><span>Job match · Cafy estimate</span><strong>{matchScore == null ? "—" : `${matchScore}%`}</strong></div>
+            <span className="re-ats-score-ring" style={{ "--match-progress": `${matchScore ?? 0}%` }}>{matchScore == null ? "…" : `${matchScore}%`}</span>
+          </div>
+          {analysis?.cv_quality && (
+            <div className="re-ats-score-box re-cv-quality-box" aria-label={`${analysis.cv_quality.score}% CV content score`}>
+              <div>
+                <span>CV content score</span>
+                <strong>{analysis.cv_quality.score}%</strong>
+                <small>{analysis.cv_quality.passed_checks}/{analysis.cv_quality.total_checks} checks passed</small>
+              </div>
+            </div>
+          )}
         </div>
       </header>
       {scoring?.isAnalyzing && <p className="re-ats-status" role="status">Updating your match analysis…</p>}

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Eye, EyeOff, LockKeyhole, Mail, UserRound } from "lucide-react";
-import { authEnabled, getAccessToken, guestModeEnabled, installAuthFetch, setGuestMode, supabase, trackSession } from "./auth.js";
+import { auth, authEnabled, getAccessToken, guestModeEnabled, installAuthFetch, setGuestMode, trackSession } from "./auth.js";
 import logo from "./logo.png";
 import "./authGate.css";
 
@@ -35,12 +35,12 @@ function SignIn({ onGuestMode }) {
     setBusy(true);
     try {
       const { data, error } = isSignUp
-        ? await supabase.auth.signUp({
+        ? await auth.signUp({
             email,
             password,
             options: { data: { full_name: fullName.trim() } },
           })
-        : await supabase.auth.signInWithPassword({ email, password });
+        : await auth.signInWithPassword({ email, password });
 
       if (error) {
         setMessage({ kind: "error", text: error.message });
@@ -63,7 +63,7 @@ function SignIn({ onGuestMode }) {
     setBusy(true);
     setMessage(null);
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+      const { error } = await auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
       setMessage(error
         ? { kind: "error", text: error.message }
         : { kind: "ok", text: "Password reset email sent." });
@@ -259,7 +259,7 @@ export default function AuthGate({ children }) {
       <div className="ag-bar">
         <span>{session.user.email}</span>
         <button onClick={() => navigator.clipboard?.writeText(getAccessToken() || "")} title="Paste into the extension settings (valid ~1 hour)">Copy extension token</button>
-        <button onClick={() => supabase.auth.signOut()}>Sign out</button>
+        <button onClick={() => auth.signOut()}>Sign out</button>
       </div>
       {children}
     </React.Fragment>

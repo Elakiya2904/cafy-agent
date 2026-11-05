@@ -46,6 +46,7 @@ from .email_agent.api import build_router as build_email_agent_router
 from .email_agent.monitor import EmailMonitor
 from .nango_api import build_router as build_nango_router
 from .nango_service import NangoService
+from .custom_auth import build_router as build_custom_auth_router
 from .job_applications.service import JobApplicationService
 from .job_applications.api import build_router as build_job_applications_router
 from .job_applications.answers import groq_answer
@@ -149,6 +150,7 @@ class ResumeRewriteSectionRequest(BaseModel):
     section: str
     content: str
     resume_data: Optional[Dict[str, Any]] = None
+    improvement_goals: List[str] = Field(default_factory=list)
 
 app = FastAPI(
     title="Cafy Agent API",
@@ -181,7 +183,13 @@ validate_production_config()
 db = JobDatabase()
 user_store = UserStore(db)
 scraper_mgr = ScraperManager()
-scheduler = ScrapingScheduler(scraper_manager=scraper_mgr, database=db, interval_hours=6.0)
+scheduler = ScrapingScheduler(
+    scraper_manager=scraper_mgr,
+    database=db,
+    schedule_hour=int(os.getenv("SCRAPE_HOUR", "8")),
+    schedule_minute=int(os.getenv("SCRAPE_MINUTE", "0")),
+    schedule_timezone=os.getenv("SCRAPE_TIMEZONE", "Europe/London"),
+)
 resume_svc = ResumeService()
 rec_svc = RecommendationService()
 sponsor_registry = VisaSponsorRegistry.from_directory(
@@ -195,6 +203,7 @@ email_monitor = EmailMonitor(email_agent_svc)
 app.include_router(build_email_agent_router(email_agent_svc, email_monitor))
 nango_svc = NangoService()
 app.include_router(build_nango_router(nango_svc))
+app.include_router(build_custom_auth_router())
 
 
 def _stored_resume_file() -> Optional[Dict[str, Any]]:
@@ -336,6 +345,14 @@ def cron_scrape(request: Request, platform: str):
     return _scrape_and_store(platform)
 
 
+@app.get("/api/cron")
+def cron_run_all(request: Request):
+    """Run the full scheduled scrape through the protected cron endpoint."""
+    require_cron_secret(request)
+    scheduler.run_now()
+    return {"platform": "all"}
+
+
 @app.post("/api/scrape")
 @app.post("/api/scrapers/run")
 def trigger_scrape(background_tasks: BackgroundTasks, platform: Optional[str] = "all"):
@@ -395,8 +412,6 @@ def _profile_as_resume(profile: Dict[str, Any]) -> Dict[str, Any]:
 @app.get("/api/resume/uploaded")
 def get_uploaded_resume():
     """Metadata for the original uploaded resume file, if one was uploaded."""
-    if not ACTIVE_SESSION.get("resume"):
-        return {"uploaded": None}
     meta = user_store.file_meta(current_candidate())
     if not meta:
         return {"uploaded": None}
@@ -652,8 +667,6 @@ def _owned_artifact(resume_id: str, ext: str) -> Path:
 @app.get("/api/resumes/versions")
 def list_resume_versions():
     """Every generated tailored resume, newest first."""
-    if not ACTIVE_SESSION.get("resume"):
-        return {"count": 0, "versions": []}
     versions = [{**v, **_artifact_urls(v["resume_id"])} for v in db.list_resume_versions()]
     return {"count": len(versions), "versions": versions}
 
@@ -773,7 +786,8 @@ def rewrite_resume_section(request: ResumeRewriteSectionRequest):
             section=request.section,
             content=request.content,
             job=job,
-            resume_data=resume_data
+            resume_data=resume_data,
+            improvement_goals=request.improvement_goals,
         )
     except ResumeGenerationError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error

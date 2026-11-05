@@ -11,7 +11,7 @@ vi.mock("./auth.js", () => ({
   guestModeEnabled: true,
   installAuthFetch: vi.fn(),
   setGuestMode: authMock.setGuestMode,
-  supabase: { auth: { signOut: vi.fn() } },
+  auth: { signOut: vi.fn() },
   trackSession: (onChange) => {
     authMock.onChange = onChange;
     onChange(null);
@@ -66,7 +66,7 @@ describe("AuthGate", () => {
     render(<AuthGate><StatefulChild /></AuthGate>);
     await screen.findByRole("heading", { name: "Create Account" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue as guest" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue as Guest" }));
     expect(await screen.findByText("Guest mode — use test data only")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Draft: 0" })).toBeInTheDocument();
     expect(authMock.setGuestMode).toHaveBeenCalledWith(true);

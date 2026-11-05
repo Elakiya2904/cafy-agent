@@ -100,7 +100,7 @@ describe("ResumeEditor", () => {
     fireEvent.click(screen.getByRole("tab", { name: "ATS Insights" }));
 
     expect(await screen.findByRole("region", { name: "ATS insights and recommendations" })).toBeInTheDocument();
-    expect(screen.getByText("28% match")).toBeInTheDocument();
+    expect(screen.getByLabelText("28% Cafy job match estimate")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Actionable Recommendations" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Role keyword coverage" })).toBeInTheDocument();
     expect(screen.queryByText("Unrelated extracted term")).not.toBeInTheDocument();
@@ -182,5 +182,31 @@ describe("ResumeEditor", () => {
     expect(onSave).toHaveBeenCalledTimes(1);
     expect(onSave.mock.calls[0][0].projects[0].description).toBe("Updated project.");
     expect(onSave.mock.calls[0][0].projects[1].title).toBe("Project Two");
+  });
+
+  it("edits and autosaves an education description", () => {
+    const onSave = vi.fn();
+    const initial = {
+      ...base(),
+      education: [{
+        degree: "BSc Computer Science",
+        institution: "University of Leeds",
+        dates: "2020-2023",
+        location: "Leeds",
+        description: "",
+      }],
+    };
+    render(<Harness initial={initial} onSave={onSave} />);
+
+    goTo(/Education/);
+    const description = screen.getByLabelText("education description 1");
+    fireEvent.change(description, {
+      target: { value: "Studied software engineering and distributed systems." },
+    });
+    act(() => { vi.advanceTimersByTime(2100); });
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave.mock.calls[0][0].education[0].description)
+      .toBe("Studied software engineering and distributed systems.");
   });
 });

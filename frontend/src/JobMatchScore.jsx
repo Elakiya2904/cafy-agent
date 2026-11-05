@@ -149,12 +149,17 @@ export function EditorMatchScore({ analysis, previousScore, isAnalyzing, error, 
       <div className="jms-editor-score-main">
         <strong className="jms-score-ring">{analysis.job_match_score}%</strong>
         <span className="jms-score-head">
-          <b>ATS MATCH READINESS <i className="jms-tier">{analysis.match_tier || "Current draft"}</i></b>
+          <b>JOB MATCH SCORE <i className="jms-tier">{analysis.match_tier || "Current draft"}</i></b>
           <small>Optimized for: <strong>{targetRole || "this target role"}</strong></small>
           {delta !== 0 && (
             <em className={delta > 0 ? "up" : "down"}> {delta > 0 ? `+${delta}` : delta} since last change</em>
           )}
         </span>
+        {analysis.cv_quality && (
+          <span className="jms-cv-quality">
+            CV content <strong>{analysis.cv_quality.score}%</strong>
+          </span>
+        )}
         {isAnalyzing && <Loader2 size={14} className="jms-spin" aria-label="Updating score" />}
         <button type="button" className="jms-inspect" onClick={onInspect} disabled={!onInspect}>Inspect Matrix ›</button>
       </div>
@@ -175,6 +180,9 @@ export function EditorMatchScore({ analysis, previousScore, isAnalyzing, error, 
           {(analysis.missing_skills || []).slice(0, 4).map((skill) => <code key={skill}>+ {skill}</code>)}
         </div>
       )}
+      <p className="jms-score-note">
+        AI can improve wording without changing job match. The score rises when the résumé shows verified evidence for this role; missing skills are not added automatically.
+      </p>
     </div>
   );
 }

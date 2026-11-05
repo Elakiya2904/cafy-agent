@@ -1810,12 +1810,14 @@ function JobDetailPane({ job, onOpenWorkspace }) {
         {hasMatchScore && <span className={`jd-match big ${matchTone(score)}`} title="Job match based on your saved profile">{Math.round(score)}% Job Match</span>}
       </header>
 
-      <div className="jd-tabs" role="tablist">
-        {[["about", "Company details"], ["job-info", "Job info"], ["intelligence", "Job Intelligence"]].map(([id, label]) => (
-          <button key={id} type="button" role="tab" aria-selected={tab === id} className={tab === id ? "on" : ""} onClick={() => setTab(id)}>{label}</button>
-        ))}
-        <button type="button" className="jd-tailor-btn" onClick={onOpenWorkspace}>
-          <Sparkles size={15} aria-hidden="true" /> Apply with autofill
+      <div className="jd-tabs">
+        <div className="jd-tab-list" role="tablist">
+          {[["about", "Company details"], ["job-info", "Job info"], ["intelligence", "Job Intelligence"]].map(([id, label]) => (
+            <button key={id} type="button" role="tab" aria-selected={tab === id} className={tab === id ? "on" : ""} onClick={() => setTab(id)}>{label}</button>
+          ))}
+        </div>
+        <button type="button" className="jd-tailor-tab" onClick={onOpenWorkspace}>
+          Resume Tailoring
         </button>
       </div>
 
@@ -3069,6 +3071,14 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
           section: bulletIndex !== null ? "bullet" : sectionKey,
           content,
           resume_data: tailoredResume,
+          improvement_goals: (editorScoring.analysis?.suggestions || [])
+            .filter((item) => {
+              const section = sectionKey === "professional_summary" ? "summary" : sectionKey;
+              return item.section === section;
+            })
+            .map((item) => item.text)
+            .filter(Boolean)
+            .slice(0, 8),
         }),
       });
       const data = await resp.json();
@@ -3798,6 +3808,7 @@ function DirectoryView({
     const exclude = f.excludeTech.map((t) => t.toLowerCase());
     const salaryMin = f.salaryMin === "" ? null : Number(f.salaryMin);
     const salaryMax = f.salaryMax === "" || (salaryMin !== null && Number(f.salaryMax) < salaryMin) ? null : Number(f.salaryMax);
+    const postedAfter = f.postedWithin === "0" ? null : Date.now() - Number(f.postedWithin) * 24 * 60 * 60 * 1000;
 
     return sourcePool.filter((j) => {
       const jobText = getJobSearchText(j);
@@ -3810,6 +3821,10 @@ function DirectoryView({
         if (!locationMatches) return false;
       }
       if (levels.length && !levels.includes(getExperienceLevel(j))) return false;
+      if (postedAfter !== null) {
+        const postedAt = getPostedDate(j);
+        if (!postedAt || postedAt.getTime() < postedAfter) return false;
+      }
 
       if (salaryMin !== null || salaryMax !== null) {
         const amounts = getSalaryAmounts(j).filter((s) => s.currency === f.currency).map((s) => s.amount);
@@ -3901,7 +3916,7 @@ function DirectoryView({
             {visibleJobs.length === 0 ? (
               <div className="empty-results-box">
                 <h4>No roles match your filter criteria</h4>
-                <p>Try removing a role, skill or salary limit.</p>
+                <p>Try widening your posting date or removing another filter.</p>
               </div>
             ) : (
               <ul className="jd-list">
