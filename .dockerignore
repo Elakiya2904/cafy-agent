@@ -1,0 +1,65 @@
+# Keep the build context small and keep secrets and personal data out of the image.
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+.neon
+
+# Version control, editors, OS files
+.git
+.gitignore
+.gitattributes
+.vscode
+.idea
+.claude
+**/.DS_Store
+**/Thumbs.db
+
+# Python environments and caches
+.venv
+venv
+env
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+
+# Node / frontend sources (the image ships the prebuilt frontend/dist only)
+node_modules
+frontend/node_modules
+frontend/src
+frontend/public
+frontend/css
+frontend/*.json
+frontend/*.js
+frontend/*.ts
+
+# Local data, generated files and backups (persisted in Docker volumes instead)
+backups
+backend/cafy_jobs.db
+backend/*.db
+backend/generated_resumes
+backend/uploaded_resumes
+backend/tests
+tests
+
+# Logs, scratch scripts and docs
+*.log
+*_out.txt
+debug*.py
+inspect_jobs.py
+math_check.py
+backfill_skills.py
+test_chat.py
+test_rec.py
+resume-pipeline.jpeg
+file
+docs
+README.md
+api
+vercel.json
+neon.ts
+skills-lock.json
+package.json
+package-lock.json
+run.py

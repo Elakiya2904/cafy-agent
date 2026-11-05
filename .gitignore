@@ -44,3 +44,11 @@ Thumbs.db
 # Uploaded original resumes (personal data)
 backend/uploaded_resumes/
 .neon
+
+# Database backups (contain personal data)
+backups/
+# Machine-specific extra root certificates for Docker builds
+docker/certs/*.crt
+docker/certs/*.pem
+# Generated database seed for the cafy-agent-db image (docker/postgres/build-seed.ps1)
+docker/postgres/initdb/

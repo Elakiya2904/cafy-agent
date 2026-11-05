@@ -1,0 +1,66 @@
+# Cafy Agent backend + PostgreSQL.
+#
+#   docker compose up -d          # start (builds the API image on first run)
+#   docker compose ps             # status and health
+#   docker compose logs -f api    # backend logs
+#   docker compose down           # stop (data stays in the named volumes)
+#
+# Secrets are read from .env at runtime and are never copied into the image.
+# Never run "docker compose down -v" unless you really want to delete the database volume.
+
+name: cafy-agent
+
+services:
+  db:
+    # postgres:18, or the seeded image (schema + job listings, built from docker/postgres), e.g.
+    # DB_IMAGE=elakiya2946/cafy-agent-db:1.0.0. The seed only runs when the pgdata volume is empty.
+    image: ${DB_IMAGE:-postgres:18}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cafy_agent}
+      POSTGRES_USER: ${POSTGRES_USER:-cafy}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (see .env.example)}
+    volumes:
+      # PostgreSQL 18 images keep their data under /var/lib/postgresql/18/docker; mount the parent.
+      - pgdata:/var/lib/postgresql
+    ports:
+      # Localhost only, on 5433 so it does not clash with a PostgreSQL already running on 5432.
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        INSTALL_LATEX: ${INSTALL_LATEX:-false}
+    image: ${BACKEND_IMAGE:-cafy-agent-backend:local}
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: true
+    environment:
+      # Overrides the DATABASE_URL in .env so the API talks to the db container over the compose network.
+      # sslmode=disable: the app requires TLS for any non-localhost host (right for managed Postgres), but this
+      # connection never leaves the private Docker network and the postgres image does not enable TLS.
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-cafy}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-cafy_agent}?sslmode=disable
+      APP_ENV: ${DOCKER_APP_ENV:-${APP_ENV:-production}}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      # Localhost only by default (a tunnel or reverse proxy on this machine can still reach it).
+      # Set API_BIND=0.0.0.0 in .env to expose it on your network, e.g. on a server behind a firewall.
+      - "${API_BIND:-127.0.0.1}:${API_HOST_PORT:-8000}:8000"
+    volumes:
+      # Generated resume files (.tex/.docx/.pdf). Uploaded resumes are stored in PostgreSQL.
+      - generated_resumes:/app/backend/generated_resumes
+
+volumes:
+  pgdata:
+  generated_resumes:
