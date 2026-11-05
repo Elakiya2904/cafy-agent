@@ -10,7 +10,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import Nango from "@nangohq/frontend";
 import { Check, Loader2, Mail, Calendar, RefreshCw, X, AlertTriangle, ExternalLink } from "lucide-react";
-import { supabase } from "./auth.js";
+import { getCurrentUser } from "./auth.js";
 
 const API_BASE =
   typeof window !== "undefined" &&
@@ -189,9 +189,8 @@ export default function NangoConnectPanel({ onStatusChange }) {
     setBusy(integrationId);
     setError("");
     try {
-      const { data: { user } = {} } = supabase ? await supabase.auth.getUser() : { data: {} };
-      const metadata = user?.user_metadata || {};
-      const displayName = metadata.full_name || metadata.name || [metadata.first_name, metadata.last_name].filter(Boolean).join(" ");
+      const user = getCurrentUser();
+      const displayName = user?.full_name;
       // 1. Get a short-lived connect session token from our backend.
       const { session_token } = await apiFetch("/connect-session", {
         method: "POST",

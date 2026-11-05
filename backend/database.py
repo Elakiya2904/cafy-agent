@@ -1,3 +1,4 @@
+import re
 import sqlite3
 import json
 import os
@@ -9,11 +10,30 @@ from datetime import datetime, timezone
 
 from . import dbcore
 from .context import current_candidate
-from .scrapers.job_normalizer import JobNormalizer
+from .scrapers.job_normalizer import JobNormalizer, normalize_employment_type
 
 logger = logging.getLogger("cafy.database")
 
 USER_SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    full_name TEXT,
+    password_hash TEXT NOT NULL,
+    email_verified BOOLEAN NOT NULL DEFAULT FALSE,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at TEXT NOT NULL,
+    revoked_at TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_refresh_tokens_user_id ON refresh_tokens(user_id);
 CREATE TABLE IF NOT EXISTS user_profiles (
     candidate_id TEXT PRIMARY KEY,
     resume_json TEXT,
@@ -30,6 +50,13 @@ CREATE TABLE IF NOT EXISTS user_resume_files (
 )
 """
 DB_PATH = os.path.join(os.path.dirname(__file__), "cafy_jobs.db")
+
+_LEGACY_WORKDAY_URL = re.compile(r"^(https://([a-z0-9-]+)\.wd\d+\.myworkdayjobs\.com/[A-Za-z]{2}-[A-Za-z]{2})/\2/", re.I)
+
+
+def repair_workday_url(url: Optional[str]) -> Optional[str]:
+    """Drop the tenant segment that old imports put in Workday job links (it makes the link invalid)."""
+    return _LEGACY_WORKDAY_URL.sub(r"\1/", url) if url else url
 
 class JobDatabase:
     """
@@ -189,6 +216,17 @@ class JobDatabase:
                 "CREATE INDEX IF NOT EXISTS idx_user_integrations_user_provider "
                 "ON user_integrations(user_id, provider)"
             )
+
+            # Repair Workday links saved before the scraper fix: "/en-US/<tenant>/<site>/job/..." is rejected by
+            # Workday ("The URL you have provided is invalid"); the public page is "/en-US/<site>/job/...".
+            broken = cursor.execute(
+                "SELECT id, url FROM jobs WHERE platform = 'workday' AND url LIKE '%myworkdayjobs.com/%'"
+            ).fetchall()
+            repaired = [(fixed, row["id"]) for row in broken
+                        if (fixed := repair_workday_url(row["url"])) != row["url"]]
+            if repaired:
+                cursor.executemany("UPDATE jobs SET url = ? WHERE id = ?", repaired)
+                logger.info("[JobDatabase] Repaired %d legacy Workday job links", len(repaired))
 
             # Keep listings outside the UK out of the active feed.
             legacy_rows = cursor.execute(
@@ -371,7 +409,7 @@ class JobDatabase:
                     "url": r["url"],
                     "description": r["description"],
                     "department": r["department"],
-                    "employment_type": r["employment_type"],
+                    "employment_type": normalize_employment_type(r["employment_type"]),
                     "posted_at": r["posted_at"],
                     "extracted_skills": skills,
                     "first_seen": r["first_seen"],
@@ -400,7 +438,7 @@ class JobDatabase:
             "url": row["url"],
             "description": row["description"],
             "department": row["department"],
-            "employment_type": row["employment_type"],
+            "employment_type": normalize_employment_type(row["employment_type"]),
             "posted_at": row["posted_at"],
             "extracted_skills": skills,
             "first_seen": row["first_seen"],

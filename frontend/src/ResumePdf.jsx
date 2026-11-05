@@ -67,7 +67,15 @@ export default function ResumePdf({ resume, settings = DEFAULT_PDF_SETTINGS }) {
       </View>
     ));
 
-  const Entry = ({ left, sub, dates, bullets, description }) => (
+  const tidy = (v) => String(v || "").trim().replace(/[\s,|;–-]+$/, "");
+  const Entry = (props) => {
+    // With no company/institution, the role takes the bold line instead of leaving it blank.
+    let left = tidy(props.left);
+    let sub = tidy(props.sub);
+    if (!left && sub) [left, sub] = [sub, ""];
+    return <EntryView {...props} left={left} sub={sub} />;
+  };
+  const EntryView = ({ left, sub, dates, bullets, description }) => (
     <View style={styles.entry}>
       <View style={styles.row} wrap={false}>
         <Text style={styles.strong}>{left}</Text>

@@ -35,7 +35,11 @@ class BreezyHRScraper(BaseScraper):
         for item in data:
             loc_val = item.get("location")
             if isinstance(loc_val, dict):
-                loc = loc_val.get("name") or ""
+                # `name` is "City, CC" (e.g. "Leeds, GB"); add the country name so the UK filter can read it.
+                loc = loc_val.get("name") or loc_val.get("city") or ""
+                country = ((loc_val.get("country") or {}).get("name") or "").strip()
+                if country and country.lower() not in loc.lower():
+                    loc = f"{loc}, {country}" if loc else country
             else:
                 loc = str(loc_val or "")
 

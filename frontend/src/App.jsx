@@ -9,7 +9,8 @@ import {
   useJobMatchAnalysis,
 } from "./JobMatchScore.jsx";
 import ApplicationAnalysis from "./ApplicationAnalysis.jsx";
-import ResumeEditor, { saveBlob } from "./ResumeEditor.jsx";
+import ResumeEditor from "./ResumeEditor.jsx";
+import TailorResumeScreen from "./TailorResumeScreen.jsx";
 import ResumeVersionHistory from "./ResumeVersionHistory.jsx";
 import DataExport from "./DataExport.jsx";
 import EmailAgentDashboard from "./EmailAgentDashboard.jsx";
@@ -77,7 +78,6 @@ const ACTIVE_TAB_STORAGE_KEY = "cafy-agent-active-tab";
 const APP_TABS = new Set([
   "home",
   "find-jobs",
-  "companies",
   "job-alerts",
   "my-applications",
   "resume",
@@ -109,6 +109,10 @@ function App() {
 
   // Modal State
   const [selectedJob, setSelectedJob] = useState(null);
+  // Set when the workspace was opened with "Create resume", which starts generation at once.
+  const [createOnOpen, setCreateOnOpen] = useState(false);
+  const openJobForResume = useCallback((job) => { setCreateOnOpen(true); setSelectedJob(job); }, []);
+  const openJob = useCallback((job) => { setCreateOnOpen(false); setSelectedJob(job); }, []);
   const [showAddCompanyModal, setShowAddCompanyModal] = useState(false);
 
   // Toasts & Pipeline State
@@ -172,15 +176,6 @@ function App() {
 
   useEffect(() => {
     loadPlatformsAndJobs();
-    fetch(`${API_BASE}/api/resume/current`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data && data.resume) {
-          setCurrentResume(data.resume);
-          if (data.matched_jobs) setMatchedJobs(data.matched_jobs);
-        }
-      })
-      .catch(() => {});
   }, [loadPlatformsAndJobs]);
 
   useEffect(() => {
@@ -332,7 +327,7 @@ function App() {
             pipelineJobIds={pipelineJobIds}
             onTogglePipeline={togglePipeline}
             onAddAllToPipeline={handleAddAllToPipeline}
-            onSelectJob={setSelectedJob}
+            onSelectJob={openJobForResume}
             onRefresh={loadPlatformsAndJobs}
             onRemoveResume={handleRemoveResume}
           />
@@ -370,7 +365,7 @@ function App() {
           <ApplicationTrackingView
             pipelineJobIds={pipelineJobIds}
             allJobs={allJobs}
-            onSelectJob={setSelectedJob}
+            onSelectJob={openJob}
           />
         )}
 
@@ -432,6 +427,7 @@ function App() {
       {/* JOB DETAIL MODAL */}
       {selectedJob && (
         <JobDetailModal
+          key={selectedJob.id}
           job={selectedJob}
           resume={currentResume}
           onUpdateResume={setCurrentResume}
@@ -440,6 +436,7 @@ function App() {
           onClose={() => setSelectedJob(null)}
           fullPage
           resumeOnly
+          autoGenerate={createOnOpen}
         />
       )}
 
@@ -1158,19 +1155,6 @@ function Sidebar({ activeTab, setActiveTab, totalJobsCount, hasResume, highMatch
       )
     },
     {
-      id: "companies", label: "Companies", icon: (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect>
-          <line x1="9" y1="22" x2="9" y2="22.01"></line>
-          <line x1="15" y1="22" x2="15" y2="22.01"></line>
-          <line x1="9" y1="18" x2="9" y2="18.01"></line>
-          <line x1="15" y1="18" x2="15" y2="18.01"></line>
-          <line x1="9" y1="14" x2="9" y2="14.01"></line>
-          <line x1="15" y1="14" x2="15" y2="14.01"></line>
-        </svg>
-      )
-    },
-    {
       id: "job-alerts", label: "Job Alerts", icon: (
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
@@ -1621,51 +1605,48 @@ function getVisaState(job) {
     const years = Object.keys(permits).sort();
     return {
       tone: "ok",
-      title: "Verified sponsor · Ireland",
+      title: "Employment permit employer · Ireland",
       detail: total
-        ? `Issued ${total.toLocaleString()} Irish employment permit${total === 1 ? "" : "s"} in ${years.join("–")}`
-        : "Listed in the Irish employment permit data",
-      tip: job.visa_sponsor_disclaimer || "Ireland has no sponsor licence register. Verify directly with the employer.",
+        ? `Issued ${total.toLocaleString()} Irish employment permit${total === 1 ? "" : "s"} in ${years.join("–")}.`
+        : "Listed in Ireland's employment permit data.",
+      note: "Ireland has no sponsor licence register. Confirm sponsorship for this role with the employer.",
     };
   }
   if (job.visa_sponsored) {
+    const legalName = job.visa_sponsor_registered_names?.[0];
     return {
       tone: "ok",
-      title: "Verified sponsor · UK",
-      detail: "On the UK Home Office register · UK location confirmed",
-      tip: `Employer matches the official UK Sponsor Register as ${job.visa_sponsor_registered_names?.join(", ") || "a listed organisation"}. This does not guarantee sponsorship for this vacancy.`,
+      title: "Licensed UK visa sponsor",
+      detail: `Listed on the Home Office Register of Licensed Sponsors${legalName ? ` as ${legalName}` : ""}. UK-based role.`,
+      note: "A sponsor licence doesn't guarantee this role offers sponsorship. Check the advert or ask the recruiter.",
     };
   }
   if (inIreland) {
     return job.visa_sponsor_registered
       ? {
         tone: "warn",
-        title: "Not verified",
-        detail: "A UK sponsor, but not found in the Irish employment permit data for this Ireland role",
-        tip: "Verify directly with the employer.",
+        title: "Sponsorship not confirmed",
+        detail: "The employer is a UK sponsor but isn't in Ireland's employment permit data for this Ireland-based role.",
       }
       : {
         tone: "none",
-        title: "No sponsorship evidence",
-        detail: "Employer not found in the Irish employment permit data or the UK sponsor register",
-        tip: "Verify directly with the employer.",
+        title: "No sponsorship record",
+        detail: "The employer isn't in Ireland's employment permit data or the UK sponsor register.",
       };
   }
   if (job.visa_sponsor_registered) {
     return {
       tone: "warn",
-      title: "Not verified",
+      title: "Licensed sponsor · location unconfirmed",
       detail: job.visa_sponsor_location_status === "NON_UK"
-        ? "Employer is a UK sponsor, but this role is outside the UK"
-        : "Employer is a UK sponsor; this role's UK location isn't confirmed",
-      tip: "Being on the sponsor register does not guarantee sponsorship for this vacancy.",
+        ? "The employer holds a UK sponsor licence, but this role is based outside the UK."
+        : "The employer holds a UK sponsor licence, but this role's UK location isn't confirmed.",
     };
   }
   return {
     tone: "none",
-    title: "No sponsorship evidence",
-    detail: "Employer was not found on the UK sponsor register",
-    tip: "Verify directly with the employer.",
+    title: "Not on the sponsor register",
+    detail: "This employer isn't on the Home Office Register of Licensed Sponsors, so it can't sponsor a Skilled Worker visa.",
   };
 }
 
@@ -1674,8 +1655,11 @@ function matchTone(score) {
 }
 
 // Turns a posting's HTML into plain blocks (heading / paragraph / bullet) so it can be shown without injecting HTML.
+// Older Workday imports stored "Position: <title> at <company>. Location: <place>." instead of a description.
+const PLACEHOLDER_DESCRIPTION = /^\s*Position:\s.+\sat\s.+?\.(\s*Location:\s.+\.)?\s*$/;
+
 function parseJobDescription(raw) {
-  if (!raw) return [];
+  if (!raw || PLACEHOLDER_DESCRIPTION.test(raw)) return [];
   const read = (html) => new DOMParser().parseFromString(html, "text/html");
   let doc = read(raw);
   // Some feeds send the HTML escaped (&lt;p&gt;…); decode once more when real tags only appear after decoding.
@@ -1709,7 +1693,8 @@ function parseJobDescription(raw) {
   return blocks;
 }
 
-function JobListItem({ job, selected, inPipeline, onSelect, onTogglePipeline }) {
+// Memoised: selecting a job or saving one re-renders only the rows whose props changed.
+const JobListItem = React.memo(function JobListItem({ job, selected, inPipeline, onSelect, onTogglePipeline }) {
   const postingAge = formatJobAge(job.posted_at || job.created_at);
   const score = Number(job.match_score);
   const hasMatchScore = job.match_score !== null && job.match_score !== undefined && Number.isFinite(score);
@@ -1721,8 +1706,8 @@ function JobListItem({ job, selected, inPipeline, onSelect, onTogglePipeline }) 
         role="button"
         tabIndex={0}
         aria-pressed={selected}
-        onClick={onSelect}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(); } }}
+        onClick={() => onSelect(job.id)}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(job.id); } }}
       >
         <div className="jd-item-body">
           <div className="jd-item-company">
@@ -1745,7 +1730,7 @@ function JobListItem({ job, selected, inPipeline, onSelect, onTogglePipeline }) 
       <button
         type="button"
         className={`jd-bookmark jd-item-bookmark ${inPipeline ? "saved" : ""}`}
-        onClick={onTogglePipeline}
+        onClick={() => onTogglePipeline(job.id)}
         aria-label={inPipeline ? `Remove ${job.title} from pipeline` : `Save ${job.title} to pipeline`}
         aria-pressed={inPipeline}
       >
@@ -1753,9 +1738,9 @@ function JobListItem({ job, selected, inPipeline, onSelect, onTogglePipeline }) 
       </button>
     </li>
   );
-}
+});
 
-function JobDetailPane({ job, onOpenWorkspace }) {
+function JobDetailPane({ job, onCreateResume }) {
   const [tab, setTab] = useState("about");
   const [company, setCompany] = useState({ jobId: null, data: null, error: "" });
   useEffect(() => { setTab("about"); }, [job?.id]);
@@ -1790,7 +1775,7 @@ function JobDetailPane({ job, onOpenWorkspace }) {
     ["Headquarters", co?.headquarters || job.company_headquarters],
     ["Company size", co?.company_size || job.company_size],
     ["Careers page", co?.career_page],
-    ["Hiring locations", co?.operating_locations?.length ? co.operating_locations.join("; ") : ""],
+    ["UK hiring locations", co?.operating_locations?.length ? co.operating_locations.join(" · ") : ""],
   ].filter(([, value]) => value);
   const companyOverview = co?.overview || (job.company_description ? sanitizeDisplayText(job.company_description) : "");
   const companyWebsite = co?.official_website || job.company_website || job.website;
@@ -1816,21 +1801,18 @@ function JobDetailPane({ job, onOpenWorkspace }) {
         {[["about", "Company details"], ["job-info", "Job info"], ["intelligence", "Job Intelligence"]].map(([id, label]) => (
           <button key={id} type="button" role="tab" aria-selected={tab === id} className={tab === id ? "on" : ""} onClick={() => setTab(id)}>{label}</button>
         ))}
-        <button type="button" className="jd-tailor-btn" onClick={onOpenWorkspace}>
-          <Sparkles size={15} aria-hidden="true" /> Apply with autofill
+        <button type="button" className="jd-tailor-btn" onClick={onCreateResume}>
+          <FileText size={15} aria-hidden="true" /> Create resume
         </button>
       </div>
 
       <div className="jd-tab-body">
         {tab === "about" && (
           <>
-            <div className={`jd-sponsor-callout ${visa.tone}`}>
-              <strong>{job.visa_sponsored
-                ? job.visa_sponsor_country === "Ireland"
-                  ? "VERIFIED IRELAND SPONSOR"
-                  : job.visa_sponsor_country === "UK" ? "LICENSED UK VISA SPONSOR" : "VERIFIED VISA SPONSOR"
-                : visa.title.toUpperCase()}</strong>
+            <div className={`jd-sponsor-callout ${visa.tone}`} role="note" aria-label="Visa sponsorship">
+              <strong>{visa.title}</strong>
               <span>{visa.detail}</span>
+              {visa.note && <small>{visa.note}</small>}
             </div>
             <h3 className="jd-about-company">{job.company || "About this employer"}</h3>
             {(companyWebsite || companyLinkedIn) && (
@@ -1841,7 +1823,7 @@ function JobDetailPane({ job, onOpenWorkspace }) {
             )}
             {companyLoading && <p className="jd-muted"><Loader2 size={14} className="doc-spin" aria-hidden="true" /> Researching {job.company}…</p>}
             {company.error && <p className="jd-muted">{company.error}</p>}
-            {companyOverview && <p>{companyOverview}{co?.overview_source && <span className="jd-muted"> (source: {co.overview_source})</span>}</p>}
+            {companyOverview && <p>{companyOverview}</p>}
             {companyRows.length > 0 ? (
               <dl className="jd-facts">
                 {companyRows.map(([label, value]) => (
@@ -1852,7 +1834,6 @@ function JobDetailPane({ job, onOpenWorkspace }) {
                 ))}
                 </dl>
             ) : !companyLoading && !companyOverview && <p className="jd-muted">No public company details were found for {job.company || "this company"}.</p>}
-            {(co?.notes || []).map((n, i) => <p key={i} className="jd-muted jd-note">{n}</p>)}
           </>
         )}
 
@@ -1865,7 +1846,12 @@ function JobDetailPane({ job, onOpenWorkspace }) {
                 {salary && <span>{salary}</span>}
                 {postingAge && <span className="muted"><Clock size={13} aria-hidden="true" /> Posted {postingAge}</span>}
               </div>
-              {blocks.length === 0 && <p className="jd-muted">No full description is available for this job. Use Apply now to read it on the employer's site.</p>}
+              {blocks.length === 0 && (
+                <p className="jd-muted">
+                  The full description is on the employer's site.
+                  {applyUrl && <> <a href={applyUrl} target="_blank" rel="noopener noreferrer">Read the full job advert <ExternalLink size={12} aria-hidden="true" /></a></>}
+                </p>
+              )}
               {blocks.map((b, i) => (
                 b.type === "h" ? <h4 key={i}>{b.text}</h4>
                   : b.type === "li" ? <p key={i} className="jd-li"><CheckCircle2 size={15} aria-hidden="true" /><span>{b.text}</span></p>
@@ -1877,15 +1863,13 @@ function JobDetailPane({ job, onOpenWorkspace }) {
         {tab === "intelligence" && <JobIntelligence key={job.id} job={job} />}
       </div>
 
-      <div className="jd-detail-footer">
-        {applyUrl ? (
+      {applyUrl && (
+        <div className="jd-detail-footer">
           <a className="jd-apply-btn" href={applyUrl} target="_blank" rel="noopener noreferrer">
             Apply now <ExternalLink size={15} aria-hidden="true" />
           </a>
-        ) : (
-          <button type="button" className="jd-apply-btn" onClick={onOpenWorkspace}>Apply now</button>
-        )}
-      </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -2466,24 +2450,28 @@ function SuggestionsPanel({ job, resume, tailoredResume, onRewriteSummary, isRew
   );
 }
 
-function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline, inPipeline, fullPage = false, resumeOnly = false }) {
+function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline, inPipeline, fullPage = false, resumeOnly = false, autoGenerate = false }) {
   const [activeTab, setActiveTab] = useState("application");
   const [workspaceTab, setWorkspaceTab] = useState("editor");
   const drawerBodyRef = useRef(null);
-  // In the Apply-with-autofill flow the job review screen comes first, even if a saved resume exists.
+  // Resume-only mode starts on the Tailor screen; a saved resume for this job (or a fresh
+  // generation) opens the editor. "Regenerate" returns to the Tailor screen.
   const [editorOpen, setEditorOpen] = useState(!resumeOnly);
+  // True once we know whether this job already has a saved tailored resume.
+  const [savedChecked, setSavedChecked] = useState(false);
+  const autoStarted = useRef(false);
   const [isGeneratingResume, setIsGeneratingResume] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [isRewriting, setIsRewriting] = useState(false);
   const [resumeError, setResumeError] = useState("");
   const [resumeReady, setResumeReady] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
   const [applicationStatus, setApplicationStatus] = useState("Not started");
   const [draftSaved, setDraftSaved] = useState(false);
   const [generatedOutput, setGeneratedOutput] = useState(null);
-  // The editor's in-browser PDF of the current edits, reused by Download Resume.
-  const pdfFileRef = useRef(null);
-  const handlePdfReady = useCallback((file) => { pdfFileRef.current = file; }, []);
+  // Start downloading the PDF renderer now, so the preview is ready when the editor opens.
+  useEffect(() => {
+    if (resumeOnly) import("./PdfPreview.jsx").catch(() => {});
+  }, [resumeOnly]);
   const [tailoredResume, setTailoredResume] = useState(() => normalizeClientResume({}, resume, job));
   // Last generated/saved version, used by the editor's Reset button.
   const [savedSnapshot, setSavedSnapshot] = useState(null);
@@ -2535,11 +2523,14 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
             setSavedSnapshot(normalized);
             setGeneratedOutput(data);
             setResumeReady(true);
+            setEditorOpen(true);
             setApplicationStatus("Tailored resume ready");
           }
         }
       } catch (e) {
         // Fall back to clean initial state
+      } finally {
+        if (!isCancelled) setSavedChecked(true);
       }
     }
     loadSavedResume();
@@ -2550,9 +2541,10 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
 
   const handleGenerateResume = async () => {
     if (!resume) {
-      setResumeError("Upload a résumé before generating a tailored version.");
+      setResumeError("Upload a résumé on the Home page before creating a tailored version.");
       return;
     }
+    if (isGeneratingResume) return;
 
     setResumeError("");
     setIsGeneratingResume(true);
@@ -2594,6 +2586,14 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
     }
   };
 
+  // "Create resume" opens this screen and starts generating straight away, unless this job
+  // already has a saved tailored resume (then the editor opens with it instead).
+  useEffect(() => {
+    if (!autoGenerate || !savedChecked || resumeReady || autoStarted.current) return;
+    autoStarted.current = true;
+    handleGenerateResume();
+  }, [autoGenerate, savedChecked, resumeReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSaveDraft = async () => {
     setIsSavingDraft(true);
     try {
@@ -2606,13 +2606,18 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
           resume: tailoredResume,
         }),
       });
-      const data = await resp.json();
+      const data = await resp.json().catch(() => ({}));
       if (resp.ok) {
-        setGeneratedOutput((prev) => ({ ...prev, ...data }));
+        // Keep the editor's own copy: the server's normalised copy would reset the caret mid-edit.
+        const { resume: _serverCopy, ...urls } = data;
+        setGeneratedOutput((prev) => ({ ...prev, ...urls }));
         setSavedSnapshot(tailoredResume);
         setDraftSaved(true);
+        setResumeError("");
         setApplicationStatus("Draft saved");
         setTimeout(() => setDraftSaved(false), 3000);
+      } else {
+        setResumeError(typeof data.detail === "string" ? data.detail : `Could not save your changes (${resp.status}).`);
       }
     } catch (e) {
       setResumeError("Failed to save draft to server.");
@@ -2645,454 +2650,6 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
       setResumeError(error.message || "AI rewrite failed. Please try again.");
     } finally {
       setIsRewriting(false);
-    }
-  };
-
-  const generatePrintableResumeHtml = (resumeData, jobData) => {
-    const res = resumeData || {};
-    const pInfo = res.personal_info || {};
-    const role = res.target_role || jobData?.title || "";
-    const linkedInHandle = sanitizeLinkedInHandle(pInfo.linkedin);
-    const gitHubHandle = sanitizeGitHubHandle(pInfo.github);
-    const portfolioClean = sanitizePortfolioUrl(pInfo.portfolio || pInfo.website);
-
-    const renderClickableText = (text) => {
-      if (!text) return "";
-      const urlRegex = /(https?:\/\/[^\s<]+[^<.,:;"')\]\s])/g;
-      return String(text).replace(urlRegex, (url) => {
-        return `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color: #2563EB; text-decoration: underline;">${url}</a>`;
-      });
-    };
-
-    const expHtml = (res.experience || []).map((exp) => `
-      <div class="paper-entry">
-        <div class="paper-entry-meta">
-          <span class="paper-entry-company">${exp.organization || exp.company || ""}${exp.location ? ` | ${exp.location}` : ""}</span>
-          ${exp.dates ? `<span class="paper-entry-dates">${exp.dates}</span>` : ""}
-        </div>
-        ${exp.title ? `<div class="paper-entry-title">${exp.title}</div>` : ""}
-        ${exp.description ? `<p class="paper-summary">${renderClickableText(exp.description)}</p>` : ""}
-        ${exp.bullets && exp.bullets.length > 0 ? `
-          <ul class="paper-bullets">
-            ${exp.bullets.map(b => `<li>${renderClickableText(b)}</li>`).join("")}
-          </ul>
-        ` : ""}
-      </div>
-    `).join("");
-
-    const internshipHtml = (res.internships || []).map((item) => `
-      <div class="paper-entry">
-        <div class="paper-entry-meta">
-          <span class="paper-entry-company">${item.organization || item.company || ""}${item.location ? ` | ${item.location}` : ""}</span>
-          ${item.dates ? `<span class="paper-entry-dates">${item.dates}</span>` : ""}
-        </div>
-        ${item.title ? `<div class="paper-entry-title">${item.title}</div>` : ""}
-        ${item.description ? `<p class="paper-summary">${renderClickableText(item.description)}</p>` : ""}
-        ${item.bullets?.length ? `<ul class="paper-bullets">${item.bullets.map((bullet) => `<li>${renderClickableText(bullet)}</li>`).join("")}</ul>` : ""}
-      </div>
-    `).join("");
-
-    const projHtml = (res.projects || []).map((proj) => `
-      <div class="paper-entry">
-        <div class="paper-entry-meta">
-          <span class="paper-entry-company">${proj.title || ""}${proj.organization ? ` | ${proj.organization}` : ""}</span>
-          ${proj.dates ? `<span class="paper-entry-dates">${proj.dates}</span>` : ""}
-        </div>
-        ${proj.description ? `<p class="paper-summary">${renderClickableText(proj.description)}</p>` : ""}
-        ${proj.bullets && proj.bullets.length > 0 ? `
-          <ul class="paper-bullets">
-            ${proj.bullets.map(b => `<li>${renderClickableText(b)}</li>`).join("")}
-          </ul>
-        ` : ""}
-      </div>
-    `).join("");
-
-    const publicationsHtml = (res.publications || []).map((item) => `
-      <div class="paper-entry">
-        <div class="paper-entry-meta">
-          <span class="paper-entry-company">${item.title || item.name || ""}</span>
-          ${item.dates ? `<span class="paper-entry-dates">${item.dates}</span>` : ""}
-        </div>
-        ${item.organization ? `<div class="paper-entry-loc">${item.organization}</div>` : ""}
-        ${item.description ? `<p class="paper-summary">${renderClickableText(item.description)}</p>` : ""}
-      </div>
-    `).join("");
-
-    const achievementsHtml = (res.achievements || []).map((item) => `
-      <div class="paper-entry">
-        <div class="paper-entry-meta">
-          <span class="paper-entry-title">${item.title || item.name || ""}</span>
-          ${item.dates ? `<span class="paper-entry-dates">${item.dates}</span>` : ""}
-        </div>
-        ${item.description ? `<p class="paper-summary">${renderClickableText(item.description)}</p>` : ""}
-      </div>
-    `).join("");
-
-    const eduHtml = (res.education || []).map((edu) => `
-      <div class="paper-entry">
-        <div class="paper-entry-meta">
-          <span class="paper-entry-company">${edu.institution || edu.organization || edu.school || ""}${edu.location ? ` | ${edu.location}` : ""}</span>
-          ${edu.dates ? `<span class="paper-entry-dates">${edu.dates}</span>` : ""}
-        </div>
-        ${(edu.degree || edu.title) ? `<div class="paper-entry-title">${edu.degree || edu.title}</div>` : ""}
-        ${edu.description ? `<p class="paper-summary">${renderClickableText(edu.description)}</p>` : ""}
-        ${edu.bullets && edu.bullets.length > 0 ? `
-          <ul class="paper-bullets">
-            ${edu.bullets.map(b => `<li>${renderClickableText(b)}</li>`).join("")}
-          </ul>
-        ` : ""}
-      </div>
-    `).join("");
-
-    const skillsHtml = (res.skills || []).map(skill => `
-      <div class="paper-skill-item">
-        <span class="paper-bullet-dot">•</span> <span>${skill}</span>
-      </div>
-    `).join("");
-
-    const certsHtml = (res.certifications || []).map((cert) => `
-      <div class="paper-entry">
-        <div class="paper-entry-meta">
-          <span class="paper-entry-title">${cert.name || cert.title || ""}</span>
-          ${cert.dates ? `<span class="paper-entry-dates">${cert.dates}</span>` : ""}
-        </div>
-        ${cert.issuer ? `<div class="paper-entry-loc">${cert.issuer}</div>` : ""}
-      </div>
-    `).join("");
-
-    return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>${pInfo.name ? `${pInfo.name}_Resume` : "Resume"}</title>
-  <style>
-    @page {
-      size: A4 portrait;
-      margin: 12mm 14mm 10mm 14mm;
-    }
-    * {
-      box-sizing: border-box;
-      -webkit-print-color-adjust: exact;
-      print-color-adjust: exact;
-    }
-    html, body {
-      margin: 0;
-      padding: 0;
-      background: #FFFFFF;
-      color: #0F172A;
-      font-family: "Calibri", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      font-size: 10.2pt;
-      line-height: 1.44;
-    }
-    .resume-paper-doc {
-      width: 100%;
-      max-width: 794px;
-      margin: 0 auto;
-      padding: 0;
-      background: #FFFFFF;
-      box-sizing: border-box;
-    }
-    h1 {
-      font-size: 1.75rem;
-      font-weight: 800;
-      text-align: center;
-      color: #0F172A;
-      margin: 0 0 3px;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-    }
-    .paper-role {
-      font-size: 1.05rem;
-      text-align: center;
-      color: #334155;
-      font-weight: 600;
-      margin: 0 0 6px;
-    }
-    .paper-contact-bar {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-wrap: wrap;
-      gap: 6px 14px;
-      font-size: 0.84rem;
-      color: #475569;
-      margin: 3px 0 8px;
-    }
-    .paper-contact-bar a {
-      color: #0F172A;
-      text-decoration: underline;
-      text-decoration-color: #94A3B8;
-      text-underline-offset: 2px;
-      transition: color 0.15s ease;
-    }
-    .paper-contact-bar a:hover {
-      color: #2563EB;
-      text-decoration-color: #2563EB;
-    }
-    .paper-bullets a, .paper-summary a {
-      color: #2563EB;
-      text-decoration: underline;
-      text-underline-offset: 2px;
-    }
-    .paper-header-hr, .paper-section-hr {
-      border: none;
-      border-top: 1.5px solid #CBD5E1;
-      margin: 7px 0;
-    }
-    .paper-section {
-      margin-top: 8px;
-      page-break-inside: avoid;
-      break-inside: avoid;
-    }
-    .paper-section-title {
-      font-size: 0.94rem;
-      font-weight: 800;
-      color: #0F172A;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      border-bottom: 2px solid #0F172A;
-      padding-bottom: 2px;
-      margin: 8px 0 5px;
-    }
-    .paper-summary {
-      font-size: 0.88rem;
-      line-height: 1.45;
-      margin: 3px 0 6px;
-      text-align: justify;
-      color: #1E293B;
-    }
-    .paper-entry {
-      margin-bottom: 8px;
-      page-break-inside: avoid;
-      break-inside: avoid;
-    }
-    .paper-entry-meta {
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      font-size: 0.86rem;
-      color: #64748B;
-      margin-bottom: 2px;
-    }
-    .paper-entry-company {
-      font-weight: 700;
-      color: #334155;
-    }
-    .paper-entry-dates {
-      font-size: 0.84rem;
-      color: #64748B;
-    }
-    .paper-entry-title {
-      font-size: 0.90rem;
-      font-weight: 750;
-      color: #0F172A;
-    }
-    .paper-entry-loc {
-      font-size: 0.82rem;
-      color: #64748B;
-    }
-    .paper-bullets {
-      margin: 3px 0 6px;
-      padding-left: 20px;
-    }
-    .paper-bullets li {
-      font-size: 0.85rem;
-      line-height: 1.42;
-      margin-bottom: 2.5px;
-      color: #1E293B;
-    }
-    .paper-skills-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 5px 14px;
-      margin: 5px 0;
-    }
-    .paper-skill-item {
-      font-size: 0.85rem;
-      color: #334155;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      line-height: 1.35;
-    }
-    .paper-bullet-dot {
-      color: #0F172A;
-      font-weight: bold;
-    }
-  </style>
-</head>
-<body>
-  <div class="resume-paper-doc" id="resume-printable-doc">
-    <div class="resume-paper-content">
-      ${pInfo.name ? `<h1>${pInfo.name.toUpperCase()}</h1>` : ""}
-      ${role ? `<div class="paper-role">${role}</div>` : ""}
-      <div class="paper-contact-bar">
-        ${pInfo.phone ? `<span><a href="tel:${pInfo.phone.replace(/[^\d+]/g, '')}">${pInfo.phone}</a></span>` : ""}
-        ${pInfo.email ? `<span><a href="mailto:${pInfo.email}">${pInfo.email}</a></span>` : ""}
-        ${pInfo.location ? `<span>${pInfo.location}</span>` : ""}
-        ${linkedInHandle ? `<span><a href="https://linkedin.com/in/${linkedInHandle}" target="_blank" rel="noopener noreferrer">linkedin.com/in/${linkedInHandle}</a></span>` : ""}
-        ${gitHubHandle ? `<span><a href="https://github.com/${gitHubHandle}" target="_blank" rel="noopener noreferrer">github.com/${gitHubHandle}</a></span>` : ""}
-        ${portfolioClean ? `<span><a href="https://${portfolioClean}" target="_blank" rel="noopener noreferrer">${portfolioClean}</a></span>` : ""}
-      </div>
-      <hr class="paper-header-hr" />
-
-      ${res.professional_summary ? `
-        <div class="paper-section">
-          <div class="paper-section-title">Professional Summary</div>
-          <p class="paper-summary">${res.professional_summary}</p>
-          <hr class="paper-section-hr" />
-        </div>
-      ` : ""}
-
-      ${expHtml ? `
-        <div class="paper-section">
-          <div class="paper-section-title">Work Experience</div>
-          ${expHtml}
-          <hr class="paper-section-hr" />
-        </div>
-      ` : ""}
-
-      ${internshipHtml ? `
-        <div class="paper-section">
-          <div class="paper-section-title">Internships</div>
-          ${internshipHtml}
-          <hr class="paper-section-hr" />
-        </div>
-      ` : ""}
-
-      ${projHtml ? `
-        <div class="paper-section">
-          <div class="paper-section-title">Projects</div>
-          ${projHtml}
-          <hr class="paper-section-hr" />
-        </div>
-      ` : ""}
-
-      ${publicationsHtml ? `
-        <div class="paper-section">
-          <div class="paper-section-title">Publications</div>
-          ${publicationsHtml}
-          <hr class="paper-section-hr" />
-        </div>
-      ` : ""}
-
-      ${eduHtml ? `
-        <div class="paper-section">
-          <div class="paper-section-title">Education</div>
-          ${eduHtml}
-          <hr class="paper-section-hr" />
-        </div>
-      ` : ""}
-
-      ${skillsHtml ? `
-        <div class="paper-section">
-          <div class="paper-section-title">Core Skills</div>
-          <div class="paper-skills-grid">
-            ${skillsHtml}
-          </div>
-        </div>
-      ` : ""}
-
-      ${certsHtml ? `
-        <div class="paper-section">
-          <hr class="paper-section-hr" />
-          <div class="paper-section-title">Certifications</div>
-          ${certsHtml}
-        </div>
-      ` : ""}
-
-      ${achievementsHtml ? `
-        <div class="paper-section">
-          <div class="paper-section-title">Achievements</div>
-          ${achievementsHtml}
-        </div>
-      ` : ""}
-    </div>
-  </div>
-</body>
-</html>`;
-  };
-
-  const handleDownloadResume = (format = "pdf") => {
-    if (format === "pdf") {
-      if (pdfFileRef.current) {
-        saveBlob(pdfFileRef.current.blob, pdfFileRef.current.name);
-        return;
-      }
-      if (generatedOutput?.pdf_url) {
-        window.open(withToken(`${API_BASE}${generatedOutput.pdf_url}`), "_blank", "noopener,noreferrer");
-        return;
-      }
-      const printableHtml = generatePrintableResumeHtml(tailoredResume, job);
-
-      // Open a clean dedicated print window containing ONLY the resume (guaranteed 1 page)
-      try {
-        const printWin = window.open("", "_blank", "width=850,height=1100");
-        if (printWin) {
-          printWin.document.open();
-          printWin.document.write(printableHtml);
-          printWin.document.close();
-          printWin.focus();
-          setTimeout(() => {
-            try {
-              printWin.print();
-            } catch (err) {
-              console.error("Print window error:", err);
-            }
-          }, 350);
-          return;
-        }
-      } catch (err) {
-        console.warn("Popup blocked, trying off-screen iframe:", err);
-      }
-
-      // Fallback: off-screen iframe with A4 layout
-      const printFrame = document.createElement("iframe");
-      printFrame.style.position = "fixed";
-      printFrame.style.left = "-10000px";
-      printFrame.style.top = "-10000px";
-      printFrame.style.width = "800px";
-      printFrame.style.height = "1150px";
-      printFrame.style.border = "none";
-      document.body.appendChild(printFrame);
-
-      const frameDoc = printFrame.contentWindow?.document;
-      if (frameDoc) {
-        frameDoc.open();
-        frameDoc.write(printableHtml);
-        frameDoc.close();
-        setTimeout(() => {
-          try {
-            printFrame.contentWindow.focus();
-            printFrame.contentWindow.print();
-          } catch (e) {
-            window.print();
-          } finally {
-            setTimeout(() => {
-              try { document.body.removeChild(printFrame); } catch (_) { }
-            }, 2500);
-          }
-        }, 350);
-        return;
-      }
-      window.print();
-      return;
-    }
-    if (format === "docx") {
-      if (generatedOutput?.docx_url) {
-        window.open(withToken(`${API_BASE}${generatedOutput.docx_url}`), "_blank", "noopener,noreferrer");
-      } else {
-        setResumeError("DOCX file is not ready yet. Please save draft or re-generate.");
-      }
-      return;
-    }
-    if (format === "latex") {
-      if (generatedOutput?.tex_url) {
-        window.open(withToken(`${API_BASE}${generatedOutput.tex_url}`), "_blank", "noopener,noreferrer");
-      } else {
-        setResumeError("LaTeX source is not ready yet.");
-      }
-      return;
     }
   };
 
@@ -3217,7 +2774,7 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
     }
     if (!result.ok) {
       setApplicationStatus(result.data?.message || "Could not start the application");
-      if (result.status === 422) return; // no résumé stored: autofill is not possible yet
+      if (result.status === 422) return; // no résumé stored yet, so there is nothing to apply with
     } else {
       setApplicationStatus(result.data.resumed ? "Resumed existing application" : "Application started – use the Cafy extension on the company page");
     }
@@ -3262,7 +2819,7 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
             <span>/ Resumes /</span>
             <strong>{resume?.personal_info?.name || resume?.candidate_name || "Resume"}</strong>
             <span>— {job.title}</span>
-            <span className="workspace-compact-status"><Check size={12} aria-hidden="true" /> Autosaved</span>
+            {showWorkspace && <span className="workspace-compact-status"><Check size={12} aria-hidden="true" /> Autosaved</span>}
           </div>
           <div className="workspace-compact-context">
             {job.location && <span><MapPin size={12} aria-hidden="true" /> {job.location}</span>}
@@ -3270,6 +2827,11 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
             {job.match_score > 0 && <span className="badge-match-pill"><Check size={12} aria-hidden="true" /> {job.match_score}% match</span>}
           </div>
           <div className="workspace-header-actions" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              {resumeOnly && showWorkspace && (
+                <button type="button" className="btn-job-details-toggle" onClick={() => setEditorOpen(false)}>
+                  <RefreshCw size={15} aria-hidden="true" /> Regenerate
+                </button>
+              )}
               {!resumeOnly && (
                 <button
                   type="button"
@@ -3447,7 +3009,22 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
           {/* TAB 4: APPLICATION & RESUME WORKSPACE */}
           {activeTab === "application" && (
             <div className="job-detail-panel" style={{ padding: "0 0 16px" }}>
-              {!showWorkspace && <div className="application-job-context">
+              {resumeOnly && !showWorkspace && (
+                <TailorResumeScreen
+                  job={job}
+                  resume={resume}
+                  tailorJobDescription={tailorJobDescription}
+                  setTailorJobDescription={setTailorJobDescription}
+                  additionalInstructions={additionalInstructions}
+                  setAdditionalInstructions={setAdditionalInstructions}
+                  isGenerating={isGeneratingResume}
+                  onGenerate={handleGenerateResume}
+                  error={resumeError}
+                  hasExisting={resumeReady}
+                  onBackToEditor={resumeReady ? () => setEditorOpen(true) : undefined}
+                />
+              )}
+              {!resumeOnly && !showWorkspace && <div className="application-job-context">
                 <div>
                   <span className="application-context-label">Selected job</span>
                   <h3>{job.title}</h3>
@@ -3459,7 +3036,7 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
                 </div>
               </div>}
               {/* Background tailoring status banner (resume generation handled on backend) */}
-              {isGeneratingResume && (
+              {!resumeOnly && isGeneratingResume && (
                 <div className="pipeline-generating-banner">
                   <span className="pipeline-spinner" />
                   <span>Tailoring resume in background…</span>
@@ -3467,20 +3044,9 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
               )}
 
               {/* Step 1: review the job, then generate. The editor opens only after this. */}
-              {!showWorkspace && !isGeneratingResume && (
+              {!resumeOnly && !showWorkspace && !isGeneratingResume && (
                 <div>
-                  {resume && resumeOnly ? (
-                    <label className="tailor-field tailor-instructions">
-                      <span>Additional instructions (optional)</span>
-                      <textarea
-                        rows={2}
-                        maxLength={500}
-                        placeholder="e.g. Emphasise my Python and RAG experience"
-                        value={additionalInstructions}
-                        onChange={(e) => setAdditionalInstructions(e.target.value)}
-                      />
-                    </label>
-                  ) : resume ? (
+                  {resume ? (
                     <ApplicationAnalysis
                       job={job}
                       resume={resume}
@@ -3489,7 +3055,7 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
                     />
                   ) : (
                     <div className="pipeline-card">
-                      <p className="pipeline-desc">{resumeOnly ? "Upload a résumé to tailor it for this job." : "Upload a résumé to see your profile analysis for this job."}</p>
+                      <p className="pipeline-desc">Upload a résumé to see your profile analysis for this job.</p>
                     </div>
                   )}
                   {resumeError && <div className="pipeline-error" style={{ marginTop: 16 }}>{resumeError}</div>}
@@ -3501,7 +3067,7 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
                         onClick={handleGenerateResume}
                         disabled={isGeneratingResume}
                       >
-                        {resumeOnly && resumeError ? "Try again" : resumeReady ? "Regenerate Tailored Resume" : "Generate Tailored Resume"}
+                        {resumeReady ? "Regenerate Tailored Resume" : "Generate Tailored Resume"}
                       </button>
                     </span>
                   </div>
@@ -3559,7 +3125,6 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
                       onSave={handleSaveDraft}
                       isRewriting={isRewriting}
                       onImprove={handleRewriteSection}
-                      onPdfReady={handlePdfReady}
                       workspaceTab={workspaceTab}
                       onWorkspaceTab={setWorkspaceTab}
                       onApply={job.url || job.apply_url || job.application_url ? handleOpenCareerPortal : undefined}
@@ -3598,120 +3163,6 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
                         onRewriteSummary={() => handleRewriteSection("professional_summary")}
                         isRewriting={isRewriting}
                       />
-                    </div>
-                  )}
-
-                  {/* SUBTAB: CONTINUE TO APPLICATION */}
-                  {workspaceTab === "scenarios" && (
-                    <div className="scenarios-container">
-                      <div className="scenarios-title-bar">
-                        <div className="scenarios-heading">
-                          <span className="scenario-badge-circle">5</span>
-                          <div>
-                            <h3>Continue to Application</h3>
-                            <p style={{ margin: "2px 0 0", color: "#64748B", fontSize: "0.8rem" }}>
-                              Select your preferred method to complete and submit your application with your tailored resume.
-                            </p>
-                          </div>
-                        </div>
-                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                          <button
-                            type="button"
-                            className="btn-tracking-view"
-                            onClick={() => {
-                              if (!inPipeline) onTogglePipeline(job.id);
-                              setApplicationStatus("In pipeline");
-                            }}
-                          >
-                            {inPipeline ? "Tracked" : "Track Application"}
-                          </button>
-                          <button
-                            type="button"
-                            className="btn-mark-applied-hero"
-                            onClick={() => {
-                              if (!inPipeline) onTogglePipeline(job.id);
-                              setApplicationStatus("Applied");
-                              setSubmitted(true);
-                            }}
-                          >
-                            <span><Check size={14} aria-hidden="true" /></span> {submitted ? "Marked as Applied" : "Mark as Applied"}
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="scenarios-grid">
-                        <div className="scenario-card">
-                          <div>
-                            <div className="scenario-card-header">
-                              <div className="scenario-number-row"><span className="scenario-step-num">1</span><span className="scenario-card-title">External Application Page (Most Common)</span></div>
-                              <p className="scenario-card-subtitle">Opens the official application page with your resume ready.</p>
-                            </div>
-                            <div className="scenario-inner-box scenario-external-box">
-                              <strong>{job.company || "Company careers"}</strong>
-                              <p className="scenario-role-name">{job.title}</p>
-                              <p className="scenario-role-loc">{job.location || "Location not listed"}{job.employment_type ? ` | ${job.employment_type}` : ""}</p>
-                              <button type="button" className="btn-scenario-blue" onClick={handleOpenCareerPortal} disabled={!(job.url || job.apply_url || job.application_url)}>
-                                Apply on {job.company || "company careers"} <ExternalLink size={13} aria-hidden="true" />
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="scenario-card">
-                          <div>
-                            <div className="scenario-card-header">
-                              <div className="scenario-number-row"><span className="scenario-step-num" style={{ background: "#10B981" }}>2</span><span className="scenario-card-title">Supported Form Autofill (Where Available)</span></div>
-                              <p className="scenario-card-subtitle">We pre-fill the application form using your profile information.</p>
-                            </div>
-                            <div className="scenario-inner-box">
-                              <div className="scenario-pink-header">Application Form (Auto-filled)</div>
-                              <div className="autofill-preview-form">
-                                <label>Full Name<input value={resume?.candidate_name || resume?.name || ""} readOnly /></label>
-                                <label>Email<input value={resume?.email || ""} readOnly /></label>
-                                <label>Phone<input value={resume?.phone || ""} readOnly /></label>
-                                <div className="autofill-resume-pill">Resume <span>Tailored resume.pdf</span></div>
-                              </div>
-                              <button type="button" className="btn-scenario-green" onClick={handleOpenCareerPortal} disabled={!(job.url || job.apply_url || job.application_url)}>Review &amp; Submit</button>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="scenario-card">
-                          <div>
-                            <div className="scenario-card-header">
-                              <div className="scenario-number-row"><span className="scenario-step-num">3</span><span className="scenario-card-title">Multi-step Application (Company Specific)</span></div>
-                              <p className="scenario-card-subtitle">We guide you through each step with your information ready.</p>
-                            </div>
-                            <div className="scenario-inner-box">
-                              <div className="multistep-scenario-list">
-                                {["Personal Information", "Additional Questions", "Upload Documents", "Review & Submit"].map((step, index) => (
-                                  <div className="multistep-scenario-item" key={step}><span><span className="step-num-badge">{index + 1}</span> {step}</span>{index < 2 && <Check size={13} color="#10B981" />}</div>
-                                ))}
-                              </div>
-                              <button type="button" className="btn-scenario-blue">Continue to Next Step <ArrowRight size={13} aria-hidden="true" /></button>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="scenario-card">
-                          <div>
-                            <div className="scenario-card-header">
-                              <div className="scenario-number-row"><span className="scenario-step-num" style={{ background: "#BE123C" }}>4</span><span className="scenario-card-title">Manual Application (If Automation Not Possible)</span></div>
-                              <p className="scenario-card-subtitle">Some companies require manual submission. We still make it easy.</p>
-                            </div>
-                            <div className="scenario-inner-box">
-                              <div className="scenario-pink-header">Application Checklist</div>
-                              <div className="manual-checklist-items">
-                                <div className="manual-check-step"><span>① Download your tailored resume</span><span style={{ display: "flex", gap: 6 }}><button type="button" className="manual-mini-btn" onClick={() => handleDownloadResume("pdf")}>Download PDF</button><button type="button" className="manual-mini-btn" onClick={() => handleDownloadResume("docx")}>DOCX</button></span></div>
-                                <div className="manual-check-step"><span>② Go to company application page</span><button type="button" className="manual-mini-btn" onClick={handleOpenCareerPortal} disabled={!(job.url || job.apply_url || job.application_url)}>Open Application Page <ExternalLink size={12} /></button></div>
-                                <div className="manual-check-step"><span>③ Upload resume and fill details</span></div>
-                                <div className="manual-check-step"><span>④ Submit your application</span></div>
-                              </div>
-                              <div className="scenario-yellow-note">We keep this page open with job details and your resume so you can complete the application easily.</div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
                     </div>
                   )}
 
@@ -3783,7 +3234,19 @@ function isUkCountryTerm(value) {
     .test(value.trim());
 }
 
-function getJobSearchText(job) {
+// Per-job derived values are cached: filtering and sorting thousands of jobs would otherwise
+// re-run these regexes on every keystroke in the filter panel.
+const LIST_PAGE_SIZE = 60;
+function cachedBy(fn) {
+  const cache = new WeakMap();
+  return (job) => {
+    if (!job || typeof job !== "object") return fn(job);
+    if (!cache.has(job)) cache.set(job, fn(job));
+    return cache.get(job);
+  };
+}
+
+const getJobSearchText = cachedBy((job) => {
   return [
     job.title,
     job.company,
@@ -3792,9 +3255,9 @@ function getJobSearchText(job) {
     job.description,
     ...(job.extracted_skills || [])
   ].filter(Boolean).join(" ").toLowerCase();
-}
+});
 
-function getPostedDate(job) {
+const getPostedDate = cachedBy((job) => {
   const raw = job && job.posted_at;
   if (raw === null || raw === undefined || raw === "") return null;
   const text = String(raw).trim();
@@ -3819,9 +3282,9 @@ function getPostedDate(job) {
 
   const parsed = new Date(text);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
+});
 
-function getSalaryAmounts(job) {
+const getSalaryAmounts = cachedBy((job) => {
   const salaryLines = (job.description || "")
     .split(/\r?\n/)
     .filter((line) => (
@@ -3840,7 +3303,7 @@ function getSalaryAmounts(job) {
   }
 
   return amounts;
-}
+});
 
 const EXPERIENCE_LEVELS = [
   ["entry", "Entry level"],
@@ -3851,7 +3314,7 @@ const EXPERIENCE_LEVELS = [
 ];
 
 // Level comes from the job title first (the strongest signal), then from the years of experience asked for.
-function getExperienceLevel(job) {
+const getExperienceLevel = cachedBy((job) => {
   const title = job.title || "";
   if (/\b(graduate|grad scheme|new grad|early careers?|campus|trainee|school leaver|placement year)\b/i.test(title)) return "graduate";
   if (/\b(entry[- ]level|apprentice(ship)?|intern(ship)?|sales development|business development rep\w*|sdr|bdr|assistant|coordinator)\b/i.test(title)) return "entry";
@@ -3868,7 +3331,7 @@ function getExperienceLevel(job) {
   }
   if (/\bmanager\b/i.test(title)) return "mid";
   return null;
-}
+});
 
 function DirectoryView({
   jobs = [],
@@ -3989,6 +3452,24 @@ function DirectoryView({
     [visibleJobs, activeJobId]
   );
 
+  // Thousands of rows are slow to mount, so the list renders a page at a time and grows as
+  // the last row scrolls into view.
+  const [renderLimit, setRenderLimit] = useState(LIST_PAGE_SIZE);
+  useEffect(() => { setRenderLimit(LIST_PAGE_SIZE); }, [filtered, sortBy]);
+  const moreRef = useRef(null);
+  useEffect(() => {
+    const el = moreRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return undefined;
+    // The list scrolls inside its own pane on desktop and with the page on narrow screens.
+    const list = el.parentElement;
+    const root = list && list.scrollHeight > list.clientHeight ? list : null;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) setRenderLimit((n) => n + LIST_PAGE_SIZE);
+    }, { root, rootMargin: "600px 0px" });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [renderLimit, visibleJobs.length]);
+
   const allVisibleInPipeline = useMemo(() => {
     if (filtered.length === 0) return false;
     return filtered.every((j) => pipelineJobIds.has(j.id));
@@ -4045,23 +3526,24 @@ function DirectoryView({
               </div>
             ) : (
               <ul className="jd-list">
-                {visibleJobs.map((job) => (
+                {visibleJobs.slice(0, renderLimit).map((job) => (
                   <JobListItem
                     key={job.id}
                     job={job}
                     selected={activeJob?.id === job.id}
                     inPipeline={pipelineJobIds.has(job.id)}
-                    onSelect={() => setActiveJobId(job.id)}
-                    onTogglePipeline={() => onTogglePipeline(job.id)}
+                    onSelect={setActiveJobId}
+                    onTogglePipeline={onTogglePipeline}
                   />
                 ))}
+                {renderLimit < visibleJobs.length && <li ref={moreRef} className="jd-list-more" aria-hidden="true" />}
               </ul>
             )}
           </div>
           {activeJob && (
             <JobDetailPane
               job={activeJob}
-              onOpenWorkspace={() => onSelectJob(activeJob)}
+              onCreateResume={() => onSelectJob(activeJob)}
             />
           )}
         </div>
@@ -5249,6 +4731,7 @@ function AddCompanyModal({ onClose, onSuccess }) {
               <option value="oracle_cloud">Oracle Cloud HCM / CX</option>
               <option value="breezyhr">BreezyHR (*.breezy.hr)</option>
               <option value="pinpoint">Pinpoint (*.pinpointhq.com)</option>
+              <option value="smartrecruiters">SmartRecruiters (jobs.smartrecruiters.com)</option>
             </select>
           </div>
           <div className="form-group">

@@ -14,6 +14,7 @@ from .workable import WorkableScraper
 from .oracle_cloud import OracleCloudScraper
 from .breezyhr import BreezyHRScraper
 from .pinpoint import PinpointScraper
+from .smartrecruiters import SmartRecruitersScraper
 from .job_normalizer import JobNormalizer
 
 logger = logging.getLogger("cafy.scrapers.manager")
@@ -36,6 +37,7 @@ class ScraperManager:
             "oracle_cloud": OracleCloudScraper(),
             "breezyhr": BreezyHRScraper(),
             "pinpoint": PinpointScraper(),
+            "smartrecruiters": SmartRecruitersScraper(),
         }
         self.platforms_config = self._load_sources()
         self.health_status: Dict[str, Any] = {}
@@ -109,8 +111,10 @@ class ScraperManager:
 
         try:
             scraped_jobs = scraper.scrape_all(companies)
+            # Only UK jobs are kept; multi-site roles keep just their UK sites as the location.
             jobs = [
-                job for job in scraped_jobs
+                {**job, "location": JobNormalizer.uk_only_location(job.get("location", ""))}
+                for job in scraped_jobs
                 if JobNormalizer.is_uk_location(job.get("location", ""))
             ]
             excluded_count = len(scraped_jobs) - len(jobs)

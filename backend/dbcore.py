@@ -1,4 +1,4 @@
-"""Database access layer: Postgres (Supabase) in production, SQLite for offline development.
+"""Database access layer: PostgreSQL when ``DATABASE_URL`` is set, otherwise a local SQLite file.
 
 The application SQL is written once, in SQLite style (``?`` placeholders, ``rowid``...).
 When ``DATABASE_URL`` is set, ``PgConnection`` translates that SQL to Postgres on the fly and
@@ -27,10 +27,9 @@ class Row(dict):
         return super().__getitem__(key)
 
 
-DEFAULT_DATABASE_URL = "postgresql://postgres.tgeuiemybetiiwblhdbr:elakiya2904@aws-0-eu-west-1.pooler.supabase.com:5432/postgres"
-
 def database_url() -> Optional[str]:
-    return (os.getenv("DATABASE_URL") or DEFAULT_DATABASE_URL).strip() or None
+    """The configured PostgreSQL URL, or None for local SQLite. There is deliberately no built-in default."""
+    return (os.getenv("DATABASE_URL") or "").strip() or None
 
 
 def is_postgres() -> bool:
@@ -175,7 +174,7 @@ _pool_lock = threading.Lock()
 def _dsn(url: str) -> str:
     host = urlparse(url).hostname or ""
     if "sslmode=" not in url and host not in ("localhost", "127.0.0.1", "::1", ""):
-        url += ("&" if "?" in url else "?") + "sslmode=require"  # Supabase only accepts TLS
+        url += ("&" if "?" in url else "?") + "sslmode=require"  # managed Postgres providers require TLS
     return url
 
 

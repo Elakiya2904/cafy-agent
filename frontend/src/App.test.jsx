@@ -132,7 +132,7 @@ describe('Find Jobs browse layout', () => {
         jobs={[{
           ...job,
           visa_sponsored: true,
-          visa_sponsor_country: 'UK',
+          visa_sponsor_country: 'United Kingdom',  // what the API actually sends
           company_description: 'A growing technology company.',
           company_website: 'https://example.com',
         }]}
@@ -154,10 +154,33 @@ describe('Find Jobs browse layout', () => {
     expect(screen.getByRole('tab', { name: 'Job info' })).toHaveAttribute('aria-selected', 'false');
     expect(screen.getByRole('tab', { name: 'Job Intelligence' })).toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: 'Why This Job?' })).not.toBeInTheDocument();
-    expect(screen.getByText('LICENSED UK VISA SPONSOR')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Apply with autofill/i })).toBeInTheDocument();
+    expect(screen.getByText('Licensed UK visa sponsor')).toBeInTheDocument();
+    expect(screen.getByText(/doesn't guarantee this role offers sponsorship/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Create resume/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /autofill/i })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Apply now/i })).toHaveAttribute('target', '_blank');
 
+  });
+});
+
+describe('Job list rendering', () => {
+  it('renders a page of jobs at a time instead of the whole list', () => {
+    const many = Array.from({ length: 150 }, (_, i) => ({ ...job, id: `job-${i}`, title: `Engineer ${i}` }));
+    const { container } = render(
+      <DirectoryView
+        jobs={many}
+        matchedJobs={[]}
+        resume={null}
+        platforms={[]}
+        pipelineJobIds={new Set()}
+        onTogglePipeline={() => {}}
+        onAddAllToPipeline={() => {}}
+        onSelectJob={() => {}}
+        onRefresh={() => {}}
+      />
+    );
+    expect(screen.getByRole('heading', { name: '150 active jobs' })).toBeInTheDocument();
+    expect(container.querySelectorAll('.jd-item')).toHaveLength(60);
   });
 });
 
@@ -312,10 +335,13 @@ describe('Cafy Agent job application drawer', () => {
       />
     );
 
-    const description = await screen.findByText(/Build products\s+& lead teams/i);
-    expect(description.textContent).not.toContain('<p>');
-    expect(description.textContent).not.toContain('&nbsp;');
-    expect(description.textContent).not.toContain('&amp;');
+    const description = await screen.findByLabelText('Job description');
+    expect(description.value).toMatch(/Build products\s+& lead teams/i);
+    expect(description.value).not.toContain('<p>');
+    expect(description.value).not.toContain('&nbsp;');
+    expect(description.value).not.toContain('&amp;');
+    // Opened without "Create resume", nothing is generated until the user asks.
+    expect(global.fetch).not.toHaveBeenCalledWith(expect.stringContaining('/api/resumes/generate'), expect.anything());
   });
 
   it('opens the application drawer and switches tabs', async () => {
@@ -342,6 +368,7 @@ describe('Cafy Agent job application drawer', () => {
               onTogglePipeline={() => {}}
               inPipeline={false}
               resumeOnly
+              autoGenerate
             />
           )}
         </>
@@ -349,36 +376,35 @@ describe('Cafy Agent job application drawer', () => {
     }
 
     render(<DrawerHarness />);
-    screen.debug();
     fireEvent.click(screen.getByRole('button', { name: /Show 1 matching jobs/i }));
     expect(await screen.findAllByText('92% Job Match')).not.toHaveLength(0);
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Apply with autofill/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Create resume/i })).toBeInTheDocument();
     });
 
-    // "Apply now" opens the employer posting; "Apply with autofill" opens the tailoring workflow.
+    // "Apply now" opens the employer posting; "Create resume" creates a tailored resume for the job.
     expect(screen.getByRole('link', { name: /Apply now/i })).toHaveAttribute('target', '_blank');
-    fireEvent.click(screen.getByRole('button', { name: /Apply with autofill/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Create resume/i }));
 
-    // The selected job and its description come first; nothing is generated until the user asks.
-    expect(await screen.findByText('Selected job')).toBeInTheDocument();
-    expect(screen.getByText('Job description')).toBeInTheDocument();
-    expect(screen.getByText(/Additional instructions/i)).toBeInTheDocument();
-    expect(screen.queryByTestId('editor-match-score')).not.toBeInTheDocument();
-    expect(global.fetch).not.toHaveBeenCalledWith(expect.stringContaining('/api/resumes/generate'), expect.anything());
-
-    fireEvent.change(screen.getByPlaceholderText(/Emphasise my Python/i), { target: { value: 'Emphasise Python' } });
-    fireEvent.click(screen.getByRole('button', { name: /Generate Tailored Resume/i }));
+    // Generation starts straight away and lands in the Resume Editor.
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('/api/resumes/generate'), expect.anything());
     });
-    const call = global.fetch.mock.calls.find(([u]) => u.includes('/api/resumes/generate'));
-    expect(JSON.parse(call[1].body).additional_instructions).toBe('Emphasise Python');
     expect(screen.queryByRole('tab', { name: /^Requirements$/i })).not.toBeInTheDocument();
-    // Generating lands in the Resume Editor and the job review card goes away.
     expect(await screen.findByRole('navigation', { name: 'Structured editor sections' }, { timeout: 3000 })).toBeInTheDocument();
-    expect(screen.queryByText('Selected job')).not.toBeInTheDocument();
+
+    // Regenerate returns to the Tailor screen, where instructions can steer the next version.
+    fireEvent.click(screen.getByRole('button', { name: /^Regenerate$/i }));
+    expect(screen.getByRole('button', { name: /Back to editor/i })).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText(/Emphasise my Python/i), { target: { value: 'Emphasise Python' } });
+    fireEvent.click(screen.getByRole('button', { name: /Regenerate Tailored Resume/i }));
+    await waitFor(() => {
+      const calls = global.fetch.mock.calls.filter(([u]) => u.includes('/api/resumes/generate'));
+      expect(calls).toHaveLength(2);
+      expect(JSON.parse(calls[1][1].body).additional_instructions).toBe('Emphasise Python');
+    });
+    expect(await screen.findByRole('navigation', { name: 'Structured editor sections' }, { timeout: 3000 })).toBeInTheDocument();
   });
 
   it('generates a tailored resume without the removed output action bar', async () => {

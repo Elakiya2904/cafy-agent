@@ -71,29 +71,14 @@ class ResumeGenerationService:
                 logger.warning("Tailoring rewrite skipped, using profile text as-is: %s", error)
         structured = self._ensure_education_descriptions(structured)
         resume_id = uuid.uuid4().hex
-
-        # Render LaTeX
-        tex = self._render_latex(structured)
-        tex_path = self.output_dir / f"{resume_id}.tex"
-        tex_path.write_text(tex, encoding="utf-8")
-
-        # Compile PDF (if compiler available)
-        pdf_path = self._compile_pdf(tex_path)
-
-        # Export DOCX
-        docx_path = self.output_dir / f"{resume_id}.docx"
-        self._export_docx(structured, docx_path)
+        # The editor renders its own PDF, so the LaTeX PDF is compiled only when it is downloaded.
+        artifacts = self.update_artifacts(resume_id, structured, compile_pdf=False)
 
         return {
-            "status": "success" if pdf_path else "generated_without_pdf",
-            "resume_id": resume_id,
+            "status": "success",
             "template": "uk-standard",
             "resume": structured,
-            "tex_url": f"/api/resumes/{resume_id}/latex",
-            "pdf_url": f"/api/resumes/{resume_id}/pdf" if pdf_path else None,
-            "docx_url": f"/api/resumes/{resume_id}/docx",
-            "pdf_available": bool(pdf_path),
-            "docx_available": True,
+            **artifacts,
             "validation": {
                 "ats_friendly": True,
                 "factual_consistency": True,
@@ -108,25 +93,47 @@ class ResumeGenerationService:
         wanted = {str(s).casefold() for s in (job.get("matched_skills") or [])}
         return sorted(skills, key=lambda s: s.casefold() not in wanted)
 
-    def update_artifacts(self, resume_id: str, structured: Dict[str, Any]) -> Dict[str, Any]:
-        """Re-render LaTeX, DOCX, and PDF for an updated/saved draft."""
+    @staticmethod
+    def pdf_supported() -> bool:
+        return bool(shutil.which("pdflatex") or shutil.which("xelatex"))
+
+    def update_artifacts(self, resume_id: str, structured: Dict[str, Any], compile_pdf: bool = True) -> Dict[str, Any]:
+        """Re-render LaTeX and DOCX for a draft, and the PDF too unless ``compile_pdf`` is False.
+
+        Compiling LaTeX takes seconds, so saves skip it: the stale PDF is removed and the
+        download endpoint compiles a fresh one on first request.
+        """
         tex = self._render_latex(structured)
         tex_path = self.output_dir / f"{resume_id}.tex"
         tex_path.write_text(tex, encoding="utf-8")
 
-        pdf_path = self._compile_pdf(tex_path)
+        pdf_file = self.output_dir / f"{resume_id}.pdf"
+        if compile_pdf:
+            pdf_path = self._compile_pdf(tex_path)
+        else:
+            pdf_file.unlink(missing_ok=True)
+            pdf_path = None
 
         docx_path = self.output_dir / f"{resume_id}.docx"
         self._export_docx(structured, docx_path)
 
+        pdf_offered = bool(pdf_path) or (not compile_pdf and self.pdf_supported())
         return {
             "resume_id": resume_id,
             "tex_url": f"/api/resumes/{resume_id}/latex",
-            "pdf_url": f"/api/resumes/{resume_id}/pdf" if pdf_path else None,
+            "pdf_url": f"/api/resumes/{resume_id}/pdf" if pdf_offered else None,
             "docx_url": f"/api/resumes/{resume_id}/docx",
-            "pdf_available": bool(pdf_path),
+            "pdf_available": pdf_offered,
             "docx_available": True,
         }
+
+    def ensure_pdf(self, resume_id: str) -> Optional[Path]:
+        """Compile the PDF from the saved LaTeX source if it is not on disk yet."""
+        pdf_file = self.output_dir / f"{resume_id}.pdf"
+        if pdf_file.is_file():
+            return pdf_file
+        tex_path = self.output_dir / f"{resume_id}.tex"
+        return self._compile_pdf(tex_path) if tex_path.is_file() else None
 
     def rewrite_section(
         self, section: str, content: str, job: Dict[str, Any], resume_data: Dict[str, Any]
@@ -299,7 +306,8 @@ class ResumeGenerationService:
                         {"role": "user", "content": json.dumps(payload, ensure_ascii=True)},
                     ],
                     "temperature": 0.2,
-                    "max_tokens": 1500,
+                    # Room for every bullet; a truncated reply is invalid JSON and the rewrite is lost.
+                    "max_tokens": 3000,
                     "response_format": {"type": "json_object"},
                 },
                 timeout=(5, 45),
@@ -552,10 +560,28 @@ class ResumeGenerationService:
         return normalized
 
     def _validate_and_normalize(
-        self, generated: Dict[str, Any], resume: Dict[str, Any], job: Dict[str, Any]
+        self, generated: Dict[str, Any], resume: Dict[str, Any], job: Dict[str, Any], keep_edits: bool = False
     ) -> Dict[str, Any]:
+        """Normalise a tailored resume.
+
+        ``keep_edits`` is for drafts the user edited by hand: every section present in
+        ``generated`` is taken as-is (an emptied section stays empty instead of refilling
+        from the master profile) and the one-page trimming is skipped, because the editor
+        fits the page itself. Without it, missing sections fall back to the profile and
+        the result is trimmed to one page.
+        """
         if not isinstance(generated, dict):
             generated = {}
+
+        def pick(key: str, *fallbacks: Any) -> Any:
+            if keep_edits and key in generated:
+                return generated.get(key)
+            value = generated.get(key)
+            for fallback in fallbacks:
+                if value:
+                    break
+                value = fallback
+            return value
 
         allowed_skills = {str(skill).casefold(): str(skill) for skill in resume.get("skills", [])}
         gen_skills_raw = generated.get("skills") or []
@@ -574,7 +600,7 @@ class ResumeGenerationService:
                 skills.append(allowed_skills[c_fold])
             else:
                 skills.append(cleaned)
-        if not skills:
+        if not skills and not (keep_edits and "skills" in generated):
             skills = list(allowed_skills.values())
         # Deduplicate skills while preserving order
         seen = set()
@@ -615,27 +641,32 @@ class ResumeGenerationService:
             },
             "target_role": self._clean_text(job.get("title") or generated.get("target_role") or ""),
             "company": self._clean_text(job.get("company") or generated.get("company") or ""),
-            "professional_summary": (
-                self._clean_text(generated.get("professional_summary"))
-                or self._clean_text(generated.get("summary"))
-                or self._clean_text(resume.get("summary"))
+            "professional_summary": self._clean_text(
+                generated.get("professional_summary")
+                if keep_edits and "professional_summary" in generated
+                else (
+                    self._clean_text(generated.get("professional_summary"))
+                    or self._clean_text(generated.get("summary"))
+                    or self._clean_text(resume.get("summary"))
+                )
             ),
-            "education": self._normalize_entries(generated.get("education") or resume.get("education"), section="education"),
+            "education": self._normalize_entries(pick("education", resume.get("education")), section="education"),
+            # With no work history, internships stand in as Work Experience (the template has no internship section).
             "experience": self._normalize_entries(
-                generated.get("experience") or resume.get("experience") or generated.get("internships") or resume.get("internships"),
+                pick("experience", resume.get("experience"), generated.get("internships"), resume.get("internships")),
                 section="experience"
             ),
-            "projects": self._normalize_entries(generated.get("projects") or resume.get("projects"), section="projects"),
-            "internships": self._normalize_entries(generated.get("internships") or resume.get("internships"), section="internships"),
-            "publications": self._normalize_entries(generated.get("publications") or resume.get("publications"), section="publications"),
-            "certifications": self._normalize_entries(generated.get("certifications") or resume.get("certifications"), section="certifications"),
-            "achievements": self._normalize_entries(generated.get("achievements") or resume.get("achievements"), section="achievements"),
+            "projects": self._normalize_entries(pick("projects", resume.get("projects")), section="projects"),
+            "internships": self._normalize_entries(pick("internships", resume.get("internships")), section="internships"),
+            "publications": self._normalize_entries(pick("publications", resume.get("publications")), section="publications"),
+            "certifications": self._normalize_entries(pick("certifications", resume.get("certifications")), section="certifications"),
+            "achievements": self._normalize_entries(pick("achievements", resume.get("achievements")), section="achievements"),
             "activities": resume.get("activities", generated.get("activities", [])),
             "leadership": resume.get("leadership", generated.get("leadership", [])),
             "awards": resume.get("awards", generated.get("awards", [])),
             "skills": deduped_skills,
         }
-        return self._enforce_single_page_limits(res)
+        return res if keep_edits else self._enforce_single_page_limits(res)
 
     @classmethod
     def _enforce_single_page_limits(cls, data: Dict[str, Any]) -> Dict[str, Any]:

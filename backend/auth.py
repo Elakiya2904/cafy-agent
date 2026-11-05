@@ -1,27 +1,38 @@
-"""Supabase Auth: verify the caller's JWT and expose their id to the rest of the backend.
+"""Request authentication: verify the caller's access token and expose their id to the rest of the backend.
 
-* ``SUPABASE_URL`` (+ JWKS) verifies asymmetric (ES256/RS256) tokens; ``SUPABASE_JWT_SECRET`` verifies legacy HS256 tokens.
-* With ``APP_ENV=production`` a missing auth configuration fails closed (503) instead of letting anyone in.
-* Without auth configured and outside production, requests run as the development user (``X-Candidate-Id`` or ``local``).
+Sign-up, sign-in and token refresh live in ``auth_api``; token and password logic lives in ``auth_service``.
+
+* Every ``/api/*`` route except ``PUBLIC_PATHS`` needs ``Authorization: Bearer <access token>``.
+* Guest mode (``ENABLE_GUEST_MODE=true``, never in production) lets a request without a token use the shared
+  anonymous ``guest`` account when it sends ``X-Cafy-Guest: true``.
+* Production refuses to start without a strong ``JWT_SECRET_KEY`` and a ``DATABASE_URL``.
 """
+import hmac
 import logging
 import os
 import re
-from typing import Any, Dict, Optional
+from typing import Optional
 
-import jwt
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from . import context
+from .auth_service import (
+    JWT_LEEWAY_SECONDS,  # noqa: F401  (re-exported for tests)
+    AuthError,
+    configured_secret,
+    guest_mode_enabled,
+    is_production,
+    secret_problem,
+    verify_access_token,
+)
 
 logger = logging.getLogger("cafy.auth")
 
-ALLOWED_ALGS = {"HS256", "ES256", "RS256"}
-JWT_LEEWAY_SECONDS = 30
 PUBLIC_PATHS = (
     re.compile(r"^/api/health/?$"),
+    re.compile(r"^/api/auth/(config|signup|login|refresh|logout)/?$"),  # these authenticate themselves
     re.compile(r"^/api/email-agent/oauth/[a-z]+/callback/?$"),   # Google redirects the browser here; the signed state authenticates it
     re.compile(r"^/api/email-agent/cron/poll/?$"),               # cron endpoints are protected by CRON_SECRET instead
     re.compile(r"^/api/cron/?$"),
@@ -34,16 +45,12 @@ TOKEN_IN_QUERY_PATHS = (
     re.compile(r"^/api/export/?$"),
 )
 
-_jwks: Dict[str, jwt.PyJWKClient] = {}
-
 
 def require_cron_secret(request: Request) -> None:
     """Scheduler calls (Vercel Cron sends ``Authorization: Bearer $CRON_SECRET``). Closed when no secret is configured."""
-    import hmac
-    from fastapi import HTTPException
     secret = os.getenv("CRON_SECRET")
     supplied = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
-    if not secret or not hmac.compare_digest(supplied, secret):
+    if not secret or not hmac.compare_digest(supplied.encode(), secret.encode()):
         raise HTTPException(status_code=401, detail="Invalid cron credentials.")
 
 
@@ -53,9 +60,10 @@ def validate_production_config() -> None:
         return
     missing = []
     if not os.getenv("DATABASE_URL"):
-        missing.append("DATABASE_URL (Supabase Postgres; SQLite is not durable on a server)")
-    if not auth_configured():
-        missing.append("SUPABASE_URL or SUPABASE_JWT_SECRET (user sign-in)")
+        missing.append("DATABASE_URL (PostgreSQL; SQLite is not durable on a server)")
+    problem = secret_problem(configured_secret())
+    if problem:
+        missing.append(problem + " (signs user sessions)")
     if not os.getenv("EMAIL_AGENT_SECRET"):
         missing.append("EMAIL_AGENT_SECRET (signs OAuth state, derives the token-encryption key)")
     if missing:
@@ -68,66 +76,6 @@ def validate_production_config() -> None:
         logger.warning("CORS_ORIGINS is '*'; set it to your site's origin.")
 
 
-class AuthError(Exception):
-    def __init__(self, message: str, status: int = 401):
-        super().__init__(message)
-        self.status = status
-
-
-def supabase_url() -> str:
-    return (os.getenv("SUPABASE_URL") or "https://tgeuiemybetiiwblhdbr.supabase.co").rstrip("/")
-
-
-def auth_configured() -> bool:
-    return bool(supabase_url() or os.getenv("SUPABASE_JWT_SECRET"))
-
-
-def is_production() -> bool:
-    return (os.getenv("APP_ENV") or "").lower() in ("production", "prod")
-
-
-def guest_mode_enabled() -> bool:
-    """Guest requests are opt-in."""
-    val = (os.getenv("ENABLE_GUEST_MODE") or "true").strip().lower()
-    return val in {"1", "true", "yes", "on"}
-
-
-def verify_token(token: str) -> Dict[str, Any]:
-    """Validate signature, timestamps, issuer and audience; return the JWT claims."""
-    try:
-        alg = jwt.get_unverified_header(token).get("alg")
-        if alg not in ALLOWED_ALGS:
-            raise AuthError("Unsupported token algorithm.")
-        if alg == "HS256":
-            secret = os.getenv("SUPABASE_JWT_SECRET")
-            if not secret:
-                raise AuthError("HS256 tokens are not accepted by this server.")
-            key: Any = secret
-        else:
-            if not supabase_url():
-                raise AuthError("Asymmetric tokens are not accepted by this server.")
-            client = _jwks.setdefault(supabase_url(), jwt.PyJWKClient(f"{supabase_url()}/auth/v1/.well-known/jwks.json", cache_keys=True))
-            key = client.get_signing_key_from_jwt(token).key
-        project_url = supabase_url()
-        claims = jwt.decode(
-            token,
-            key,
-            algorithms=[alg],
-            audience="authenticated",
-            issuer=f"{project_url}/auth/v1" if project_url else None,
-            leeway=JWT_LEEWAY_SECONDS,
-            options={"require": ["exp", "sub"]},
-        )
-    except AuthError:
-        raise
-    except jwt.ExpiredSignatureError as err:
-        raise AuthError("Session expired. Please sign in again.") from err
-    except (jwt.PyJWTError, ValueError) as err:
-        logger.warning("Supabase JWT validation failed: %s", err)
-        raise AuthError("Invalid sign-in token.") from err
-    return claims
-
-
 def _bearer(request: Request) -> Optional[str]:
     header = request.headers.get("authorization", "")
     if header.lower().startswith("bearer "):
@@ -137,30 +85,30 @@ def _bearer(request: Request) -> Optional[str]:
     return None
 
 
+def _unauthorized(message: str, status: int = 401) -> JSONResponse:
+    return JSONResponse({"detail": message}, status_code=status, headers={"WWW-Authenticate": "Bearer"})
+
+
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
         if request.method == "OPTIONS" or not path.startswith("/api/") or any(p.match(path) for p in PUBLIC_PATHS):
             return await call_next(request)
-        if not auth_configured():
-            if is_production():
-                logger.error("APP_ENV=production but SUPABASE_URL / SUPABASE_JWT_SECRET are not set; refusing request.")
+
+        token = _bearer(request)
+        if token:
+            try:
+                claims = verify_access_token(token)
+            except AuthError as err:
+                return _unauthorized(str(err), err.status)
+            except RuntimeError:  # production without a usable signing key: fail closed
+                logger.error("JWT_SECRET_KEY is missing or weak; refusing authenticated request.")
                 return JSONResponse({"detail": "Authentication is not configured on the server."}, status_code=503)
-            marker = context.set_candidate((request.headers.get("x-candidate-id") or context.DEV_CANDIDATE).strip()[:64] or context.DEV_CANDIDATE)
+            marker = context.set_candidate(claims["sub"])
+        elif request.headers.get("x-cafy-guest", "").strip().lower() == "true" and guest_mode_enabled():
+            marker = context.set_candidate(context.GUEST_CANDIDATE)
         else:
-            token = _bearer(request)
-            if not token:
-                guest_requested = request.headers.get("x-cafy-guest", "").strip().lower() == "true"
-                if guest_requested and guest_mode_enabled():
-                    marker = context.set_candidate(context.GUEST_CANDIDATE)
-                else:
-                    return JSONResponse({"detail": "Sign in required."}, status_code=401, headers={"WWW-Authenticate": "Bearer"})
-            else:
-                try:
-                    claims = verify_token(token)
-                except AuthError as err:
-                    return JSONResponse({"detail": str(err)}, status_code=err.status, headers={"WWW-Authenticate": "Bearer"})
-                marker = context.set_candidate(claims["sub"])
+            return _unauthorized("Sign in required.")
         try:
             return await call_next(request)
         finally:

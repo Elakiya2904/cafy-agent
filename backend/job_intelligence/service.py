@@ -15,7 +15,8 @@ from typing import Any, Callable, Dict, List, Optional
 from ..company_profiles import get_company_profile
 from . import analysis
 from .fetcher import parse_page
-from .research import HiringResearcher
+from ..scrapers.job_normalizer import JobNormalizer
+from .research import HiringResearcher, is_hiring_page
 
 COMPANY_TTL_DAYS = 30
 HIRING_TTL_DAYS = 14
@@ -26,6 +27,21 @@ STATUS_LABELS = {"officially_confirmed": "Officially confirmed", "publicly_repor
 def slugify(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
 
+
+
+PLACEHOLDER_LOCATION = re.compile(r"^\s*\d+\s+locations?\s*$", re.I)  # Workday's "4 Locations" summary
+MAX_HIRING_LOCATIONS = 8
+
+
+def uk_hiring_locations(locations) -> List[str]:
+    """Distinct UK locations, without ATS placeholders. Cafy is a UK careers site, so overseas offices are noise."""
+    seen: Dict[str, str] = {}
+    for raw in locations:
+        for site in re.split(r"\s*;\s*", raw or ""):
+            site = site.strip()
+            if site and not PLACEHOLDER_LOCATION.match(site) and JobNormalizer.is_uk_location(site):
+                seen.setdefault(site.lower(), site)
+    return list(seen.values())[:MAX_HIRING_LOCATIONS]
 
 class JobIntelligenceService:
     def __init__(self, database, researcher: HiringResearcher, match_fn: Callable[[Optional[Dict], Dict], Dict],
@@ -92,7 +108,7 @@ class JobIntelligenceService:
         career = None
         if website:
             for res in self.researcher.company_pages(website, home)[:4]:
-                if res.ok and re.search(r"career|jobs|join", res.final_url or res.url, re.I):
+                if res.ok and re.search(r"career|jobs|join", res.final_url or res.url, re.I) and is_hiring_page(res.final_url or res.url):
                     career = res.final_url or res.url
                     break
             if not career:
@@ -100,7 +116,8 @@ class JobIntelligenceService:
         overview = curated.get("description") or job.get("company_description") or meta.get("description") or public.get("overview")
         osrc = ("curated company profile" if (curated.get("description") or job.get("company_description"))
                 else "company website" if meta.get("description") else "Wikipedia" if public.get("overview") else None)
-        locations = [r["location"] for r in self._all("SELECT DISTINCT location FROM jobs WHERE company=? AND location IS NOT NULL AND location != '' LIMIT 12", (company,))]
+        locations = uk_hiring_locations(r["location"] for r in self._all(
+            "SELECT DISTINCT location FROM jobs WHERE company=? AND status='active' AND location IS NOT NULL AND location != ''", (company,)))
         details = {"headquarters": curated.get("headquarters") or meta.get("hq") or public.get("headquarters"),
                    "company_size": curated.get("company_size") or public.get("company_size"),
                    "products_and_services": None, "business_model": None, "operating_locations": locations,
@@ -117,9 +134,11 @@ class JobIntelligenceService:
     @staticmethod
     def _company_view(row: Dict[str, Any]) -> Dict[str, Any]:
         d = json.loads(row["details"] or "{}")
-        fields = {"industry": row["industry"], "overview": row["overview"], "official_website": row["official_website"], "career_page": row["career_page"],
+        # Sanitised on read so research cached before these rules existed is cleaned too.
+        career = row["career_page"] if is_hiring_page(row["career_page"] or "") else None
+        fields = {"industry": row["industry"], "overview": row["overview"], "official_website": row["official_website"], "career_page": career,
                   "headquarters": d.get("headquarters"), "company_size": d.get("company_size"), "products_and_services": d.get("products_and_services"),
-                  "business_model": d.get("business_model"), "operating_locations": d.get("operating_locations") or []}
+                  "business_model": d.get("business_model"), "operating_locations": uk_hiring_locations(d.get("operating_locations") or [])}
         return {"company_id": row["company_id"], "name": row["company_name"], **fields,
                 "unavailable": [k for k, v in fields.items() if not v], "overview_source": d.get("overview_source"),
                 "website_verified": d.get("website_verified", False), "notes": d.get("notes", []), "last_researched": row["last_researched"]}

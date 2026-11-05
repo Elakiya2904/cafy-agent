@@ -263,6 +263,19 @@ def default_search() -> SearchProvider:
 
 
 CAREER_PATHS = ("/careers", "/jobs", "/careers/hiring-process", "/careers/interview-process", "/about/careers", "/join-us", "/how-we-hire")
+# Pages about learning, education products, students or blogs are never hiring-process evidence or a careers page
+# (e.g. trailhead.salesforce.com/career-path is a training site; /education/recruitment-admissions-software is a product).
+NOT_HIRING_PAGE = re.compile(
+    r"trailhead|/learn(?:ing)?\b|/training\b|/courses?\b|/academy\b|/education\b|/university\b|/universities\b|"
+    r"/students?\b|/admissions?\b|/blog\b|/news\b|/press\b|/products?\b|/solutions?\b|career-path|-software\b",
+    re.I,
+)
+
+
+def is_hiring_page(url: str) -> bool:
+    return bool(url) and not NOT_HIRING_PAGE.search(url)
+
+
 LINK_HINT = re.compile(r"(hiring[- ]process|interview|how[- ]we[- ]hire|recruit|our[- ]process|application[- ]process|faq|early[- ]careers|graduate)", re.I)
 
 
@@ -308,6 +321,7 @@ class HiringResearcher:
         if home and home.ok:
             for link in parse_page(home.html, home.final_url or website)["links"]:
                 if root_domain(urlparse(link["url"]).hostname or "") == root_domain(urlparse(website).hostname or "") and \
+                        is_hiring_page(link["url"]) and \
                         (LINK_HINT.search(link["text"]) or LINK_HINT.search(urlparse(link["url"]).path) or re.search(r"career|jobs", urlparse(link["url"]).path, re.I)):
                     urls.append(link["url"].split("#")[0])
         base = website.rstrip("/")

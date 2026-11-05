@@ -58,18 +58,18 @@ class WorkableScraper(BaseScraper):
             else:
                 loc = str(loc_obj or "")
 
-            if not item.get("location") and item.get("locations"):
-                locations = item["locations"]
-                if isinstance(locations, list) and locations:
-                    loc = ", ".join(
-                        part
-                        for part in (
-                            locations[0].get("city"),
-                            locations[0].get("region"),
-                            locations[0].get("country"),
-                        )
-                        if part
-                    )
+            # `locations` lists every site of a multi-location role; previously only the first was kept,
+            # so a role at "Toronto + London" was filtered out as non-UK.
+            locations = item.get("locations")
+            if isinstance(locations, list) and locations:
+                sites = [
+                    ", ".join(p for p in (l.get("city"), l.get("region"), l.get("country")) if p)
+                    for l in locations
+                    if isinstance(l, dict) and not l.get("hidden")
+                ]
+                sites = [s for s in dict.fromkeys(sites) if s]
+                if sites:
+                    loc = "; ".join(sites)
 
             workplace = str(item.get("workplace") or "").lower()
             is_remote = (

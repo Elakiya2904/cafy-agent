@@ -1,10 +1,60 @@
 import React, { useEffect, useState } from "react";
 import { Eye, EyeOff, LockKeyhole, Mail, UserRound } from "lucide-react";
-import { authEnabled, getAccessToken, guestModeEnabled, installAuthFetch, setGuestMode, supabase, trackSession } from "./auth.js";
+import {
+  AuthApiError,
+  getAccessToken,
+  installAuthFetch,
+  isGuestAvailable,
+  isGuestMode,
+  setGuestMode,
+  signIn,
+  signOut,
+  signUp,
+  trackSession,
+} from "./auth.js";
 import logo from "./logo.png";
 import "./authGate.css";
 
 installAuthFetch();
+
+const MIN_PASSWORD_LENGTH = 8;
+const MAX_PASSWORD_LENGTH = 128;
+
+function PasswordField({ label, placeholder = label, autoComplete, value, onChange, validateLength }) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <label className="ag-field">
+      <LockKeyhole aria-hidden="true" />
+      <input
+        type={visible ? "text" : "password"}
+        autoComplete={autoComplete}
+        placeholder={placeholder}
+        aria-label={label}
+        required
+        minLength={validateLength ? MIN_PASSWORD_LENGTH : undefined}
+        maxLength={MAX_PASSWORD_LENGTH}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      <button
+        className="ag-reveal"
+        type="button"
+        aria-label={visible ? `Hide ${label.toLowerCase()}` : `Show ${label.toLowerCase()}`}
+        onClick={() => setVisible((shown) => !shown)}
+      >
+        {visible ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
+      </button>
+    </label>
+  );
+}
+
+function describeFailure(error) {
+  if (error instanceof AuthApiError && error.status === 429 && error.retryAfter) {
+    const minutes = Math.max(1, Math.ceil(error.retryAfter / 60));
+    return `Too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`;
+  }
+  return error instanceof AuthApiError ? error.message : "Something went wrong. Please try again.";
+}
 
 function SignIn({ onGuestMode }) {
   const [mode, setMode] = useState("signup");
@@ -12,64 +62,35 @@ function SignIn({ onGuestMode }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState(null);
+  const [error, setError] = useState(null);
   const isSignUp = mode === "signup";
 
   const changeMode = (nextMode) => {
     setMode(nextMode);
-    setMessage(null);
+    setError(null);
+    setPassword("");
+    setConfirmPassword("");
   };
 
   const submit = async (event) => {
     event.preventDefault();
-    setMessage(null);
+    if (busy) return;
+    setError(null);
 
     if (isSignUp && password !== confirmPassword) {
-      setMessage({ kind: "error", text: "Passwords do not match." });
+      setError("Passwords do not match.");
       return;
     }
 
     setBusy(true);
     try {
-      const { data, error } = isSignUp
-        ? await supabase.auth.signUp({
-            email,
-            password,
-            options: { data: { full_name: fullName.trim() } },
-          })
-        : await supabase.auth.signInWithPassword({ email, password });
-
-      if (error) {
-        setMessage({ kind: "error", text: error.message });
-      } else if (isSignUp && !data.session) {
-        setMessage({ kind: "ok", text: "Account created. Check your email to confirm it, then sign in." });
-      }
-    } catch {
-      setMessage({ kind: "error", text: "Unable to reach the authentication service. Check your connection and try again." });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const reset = async () => {
-    if (!email) {
-      setMessage({ kind: "error", text: "Enter your email address first." });
-      return;
-    }
-
-    setBusy(true);
-    setMessage(null);
-    try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
-      setMessage(error
-        ? { kind: "error", text: error.message }
-        : { kind: "ok", text: "Password reset email sent." });
-    } catch {
-      setMessage({ kind: "error", text: "Unable to send the reset email. Check your connection and try again." });
-    } finally {
+      const credentials = { email: email.trim(), password };
+      if (isSignUp) await signUp({ ...credentials, fullName: fullName.trim() });
+      else await signIn(credentials);
+      // Success: trackSession() reports the new session and AuthGate swaps this screen out.
+    } catch (failure) {
+      setError(describeFailure(failure));
       setBusy(false);
     }
   };
@@ -93,6 +114,7 @@ function SignIn({ onGuestMode }) {
                 placeholder="Full Name"
                 aria-label="Full name"
                 required
+                maxLength={100}
                 value={fullName}
                 onChange={(event) => setFullName(event.target.value)}
               />
@@ -106,68 +128,37 @@ function SignIn({ onGuestMode }) {
               placeholder="Email Address"
               aria-label="Email address"
               required
+              maxLength={320}
               value={email}
               onChange={(event) => setEmail(event.target.value)}
             />
           </label>
-          <label className="ag-field">
-            <LockKeyhole aria-hidden="true" />
-            <input
-              type={showPassword ? "text" : "password"}
-              autoComplete={isSignUp ? "new-password" : "current-password"}
-              placeholder="Password"
-              aria-label="Password"
-              required
-              minLength={8}
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-            />
-            <button
-              className="ag-reveal"
-              type="button"
-              aria-label={showPassword ? "Hide password" : "Show password"}
-              onClick={() => setShowPassword((visible) => !visible)}
-            >
-              {showPassword ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
-            </button>
-          </label>
+          <PasswordField
+            label="Password"
+            autoComplete={isSignUp ? "new-password" : "current-password"}
+            value={password}
+            onChange={setPassword}
+            validateLength={isSignUp}
+          />
           {isSignUp && (
-            <label className="ag-field">
-              <LockKeyhole aria-hidden="true" />
-              <input
-                type={showConfirmPassword ? "text" : "password"}
-                autoComplete="new-password"
-                placeholder="Confirm Password"
-                aria-label="Confirm password"
-                required
-                minLength={8}
-                value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
-              />
-              <button
-                className="ag-reveal"
-                type="button"
-                aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
-                onClick={() => setShowConfirmPassword((visible) => !visible)}
-              >
-                {showConfirmPassword ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
-              </button>
-            </label>
+            <PasswordField
+              label="Confirm password"
+              placeholder="Confirm Password"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={setConfirmPassword}
+              validateLength
+            />
           )}
 
-          {message && <div className={`ag-msg ag-${message.kind}`} role="alert">{message.text}</div>}
+          {error && <div className="ag-msg ag-error" role="alert">{error}</div>}
 
           <button className="ag-submit" type="submit" disabled={busy}>
             {busy ? "Please wait…" : isSignUp ? "SIGN UP" : "SIGN IN"}
           </button>
-          {!isSignUp && (
-            <button className="ag-forgot" type="button" onClick={reset} disabled={busy}>
-              Forgot password?
-            </button>
-          )}
         </form>
 
-        {guestModeEnabled && (
+        {isGuestAvailable() && (
           <div className="ag-guest-wrapper">
             <div className="ag-divider">
               <span>or</span>
@@ -205,23 +196,20 @@ function SignIn({ onGuestMode }) {
 }
 
 export default function AuthGate({ children }) {
-  const [session, setSession] = useState(undefined);
-  const [guestMode, setGuestModeState] = useState(() => {
-    if (typeof window !== "undefined") {
-      return window.sessionStorage?.getItem("cafy_guest_mode") === "true";
-    }
-    return false;
-  });
+  const [session, setSession] = useState(undefined); // undefined = still restoring the session
+  const [guestMode, setGuestModeState] = useState(false);
 
-  useEffect(() => trackSession((nextSession) => {
-    if (nextSession) {
-      setGuestMode(false);
-      setGuestModeState(false);
-    }
-    setSession(nextSession);
+  useEffect(() => trackSession((next) => {
+    if (next) setGuestMode(false);
+    setGuestModeState(next ? false : isGuestMode()); // a remembered guest session resumes once the server confirms guests are allowed
+    setSession(next);
   }), []);
 
-  if (!authEnabled) return children;
+  const updateGuestMode = (enabled) => {
+    setGuestMode(enabled);
+    setGuestModeState(enabled);
+  };
+
   if (session === undefined) {
     return <div className="ag-loading" role="status">Loading Cafy Agent…</div>;
   }
@@ -230,36 +218,27 @@ export default function AuthGate({ children }) {
       <React.Fragment key="guest">
         <div className="ag-bar">
           <span>Guest mode — use test data only</span>
-          <button
-            onClick={() => {
-              setGuestMode(false);
-              setGuestModeState(false);
-            }}
-          >
-            Sign in
-          </button>
+          <button onClick={() => updateGuestMode(false)}>Sign in</button>
         </div>
         {children}
       </React.Fragment>
     );
   }
   if (!session) {
-    return (
-      <SignIn
-        onGuestMode={() => {
-          setGuestMode(true);
-          setGuestModeState(true);
-        }}
-      />
-    );
+    return <SignIn onGuestMode={() => updateGuestMode(true)} />;
   }
 
   return (
     <React.Fragment key={session.user.id}>
       <div className="ag-bar">
         <span>{session.user.email}</span>
-        <button onClick={() => navigator.clipboard?.writeText(getAccessToken() || "")} title="Paste into the extension settings (valid ~1 hour)">Copy extension token</button>
-        <button onClick={() => supabase.auth.signOut()}>Sign out</button>
+        <button
+          onClick={() => navigator.clipboard?.writeText(getAccessToken() || "")}
+          title="Paste into the extension settings (valid for about 15 minutes)"
+        >
+          Copy extension token
+        </button>
+        <button onClick={signOut}>Sign out</button>
       </div>
       {children}
     </React.Fragment>
