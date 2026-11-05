@@ -64,7 +64,12 @@ class EmailAgentService:
         self.db = database
         self.providers = providers if providers is not None else build_providers()
         configured = secret or os.getenv("EMAIL_AGENT_SECRET")
-        if not configured and (os.getenv("APP_ENV") or "").lower() in ("production", "prod"):
+        temporary_vercel_guest = (
+            bool(os.getenv("VERCEL"))
+            and not (os.getenv("DATABASE_URL") or "").strip()
+            and (os.getenv("ENABLE_GUEST_MODE") or "").strip().lower() in {"1", "true", "yes", "on"}
+        )
+        if not configured and (os.getenv("APP_ENV") or "").lower() in ("production", "prod") and not temporary_vercel_guest:
             raise RuntimeError("EMAIL_AGENT_SECRET must be set in production (OAuth state would not survive restarts or multiple workers).")
         self._secret = (configured or secrets.token_hex(32)).encode()
         self.now = now

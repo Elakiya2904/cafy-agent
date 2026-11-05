@@ -128,6 +128,21 @@ PostgreSQL-backed authentication is enabled by setting a random
 `/api/auth/register`, `/api/auth/login`, `/api/auth/refresh`, and
 `/api/auth/logout` endpoints.
 
+#### Temporary Vercel API fallback without PostgreSQL
+
+For short-term testing only, Vercel can use the bundled SQLite database copied
+to its temporary `/tmp` directory. In Vercel's Production environment, remove
+`DATABASE_URL` (a localhost URL cannot work there), set `ENABLE_GUEST_MODE=true`
+and a random `JWT_SECRET_KEY` of at least 32 characters, and set `GROQ_API_KEY`
+for Career Analyst and AI resume rewriting. If `VITE_ENABLE_GUEST_MODE` is set
+to `false`, change it to `true` and redeploy so the guest option is shown.
+
+This mode supports guest API use but not account registration or login. SQLite
+storage is temporary and is not shared consistently between serverless
+instances; uploaded resumes, edits, and other changes can disappear. Do not use
+it for real user data. Remove this fallback and configure reachable PostgreSQL
+before enabling account authentication.
+
 The background scraper runs once daily at 08:00 UK time by default
 (`Europe/London`, including daylight-saving changes). Configure
 `SCRAPE_HOUR`, `SCRAPE_MINUTE`, and `SCRAPE_TIMEZONE` to change it.

@@ -227,6 +227,65 @@ class AuthTests(unittest.TestCase):
         with mock.patch.dict(os.environ, full, clear=True):
             validate_production_config()  # complete -> no error
 
+    def test_vercel_boot_rejects_local_database_url(self):
+        from backend.auth import validate_production_config
+        env = {
+            "VERCEL": "1",
+            "DATABASE_URL": "postgresql://user:password@localhost:5432/cafy_agent",
+            "JWT_SECRET_KEY": SECRET,
+            "EMAIL_AGENT_SECRET": "test-email-secret",
+        }
+        with mock.patch.dict(os.environ, env, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "not reachable from Vercel"):
+                validate_production_config()
+
+    def test_vercel_is_production_even_without_app_env(self):
+        with mock.patch.dict(os.environ, {"VERCEL": "1"}, clear=True):
+            self.assertTrue(auth.is_production())
+
+    def test_vercel_sqlite_guest_fallback_allows_api_start_without_email_secret(self):
+        from backend.auth import validate_production_config
+        env = {
+            "VERCEL": "1",
+            "ENABLE_GUEST_MODE": "true",
+            "JWT_SECRET_KEY": SECRET,
+        }
+        with mock.patch.dict(os.environ, env, clear=True):
+            validate_production_config()
+
+    def test_vercel_sqlite_guest_fallback_requires_explicit_opt_in(self):
+        from backend.auth import validate_production_config
+        env = {
+            "VERCEL": "1",
+            "JWT_SECRET_KEY": SECRET,
+        }
+        with mock.patch.dict(os.environ, env, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "ENABLE_GUEST_MODE=true"):
+                validate_production_config()
+
+    def test_vercel_guest_access_uses_isolated_signed_tokens(self):
+        from backend import custom_auth
+        with mock.patch.dict(os.environ, {
+            "VERCEL": "1",
+            "ENABLE_GUEST_MODE": "true",
+            "JWT_SECRET_KEY": SECRET,
+            "JWT_ISSUER": "cafy-agent",
+            "JWT_AUDIENCE": "cafy-agent-web",
+        }, clear=True), mock.patch.object(custom_auth, "SessionLocal", None):
+            first = self.client.post("/api/auth/guest")
+            second = self.client.post("/api/auth/guest")
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        first_token = first.json()["access_token"]
+        second_token = second.json()["access_token"]
+        first_claims = auth.verify_token(first_token)
+        second_claims = auth.verify_token(second_token)
+        self.assertNotEqual(first_claims["sub"], second_claims["sub"])
+        self.assertTrue(first_claims["guest"])
+        response = self.client.get("/api/resume/current", headers={"Authorization": f"Bearer {first_token}"})
+        self.assertEqual(response.status_code, 200)
+
 
 if __name__ == "__main__":
     unittest.main()

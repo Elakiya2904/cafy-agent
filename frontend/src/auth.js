@@ -8,6 +8,8 @@ let guestModeActive = typeof window !== 'undefined' && window.sessionStorage?.ge
 export const getAccessToken = () => accessToken;
 
 const customStorageKey = "cafy_custom_session";
+const guestTokenStorageKey = "cafy_guest_access_token";
+let guestTokenRequest = null;
 
 function readCustomSession() {
   if (typeof window === "undefined") return null;
@@ -94,14 +96,40 @@ export function setGuestMode(enabled) {
       window.sessionStorage?.setItem('cafy_guest_mode', 'true');
     } else {
       window.sessionStorage?.removeItem('cafy_guest_mode');
+      window.sessionStorage?.removeItem(guestTokenStorageKey);
     }
   }
 }
 
+async function getGuestAccessToken(originalFetch) {
+  const cached = window.sessionStorage?.getItem(guestTokenStorageKey);
+  if (cached) return cached;
+  if (!guestTokenRequest) {
+    guestTokenRequest = originalFetch("/api/auth/guest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.access_token) {
+          throw new Error(data.detail || "Could not start temporary guest access.");
+        }
+        window.sessionStorage?.setItem(guestTokenStorageKey, data.access_token);
+        return data.access_token;
+      })
+      .finally(() => {
+        guestTokenRequest = null;
+      });
+  }
+  return guestTokenRequest;
+}
+
 /** For file previews/downloads opened in a new tab, which cannot send an Authorization header. */
 export function withToken(path) {
-  if (!authEnabled || !accessToken) return path;
-  return `${path}${path.includes("?") ? "&" : "?"}access_token=${encodeURIComponent(accessToken)}`;
+  const token = accessToken || (guestModeActive && window.sessionStorage?.getItem(guestTokenStorageKey));
+  if (!authEnabled || !token) return path;
+  return `${path}${path.includes("?") ? "&" : "?"}access_token=${encodeURIComponent(token)}`;
 }
 
 export function trackSession(onChange) {
@@ -128,11 +156,15 @@ export function installAuthFetch() {
     if (accessToken && !headers.has("Authorization")) {
       headers.set("Authorization", `Bearer ${accessToken}`);
     } else if (guestModeActive && !headers.has("Authorization")) {
-      headers.set("X-Cafy-Guest", "true");
+      const token = await getGuestAccessToken(original);
+      headers.set("Authorization", `Bearer ${token}`);
     } else if (!accessToken) {
       return original(input, init);
     }
     const response = await original(input, { ...init, headers });
+    if (response.status === 401 && guestModeActive && !accessToken) {
+      window.sessionStorage?.removeItem(guestTokenStorageKey);
+    }
     if (response.status === 401 && accessToken) auth.signOut();  // expired or revoked session
     return response;
   };

@@ -7,6 +7,7 @@ import logging
 import os
 import re
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -20,7 +21,7 @@ logger = logging.getLogger("cafy.auth")
 
 PUBLIC_PATHS = (
     re.compile(r"^/api/health/?$"),
-    re.compile(r"^/api/auth/(register|login|refresh|logout)/?$"),
+    re.compile(r"^/api/auth/(register|login|refresh|logout|guest)/?$"),
     re.compile(r"^/api/email-agent/oauth/[a-z]+/callback/?$"),   # Google redirects the browser here; the signed state authenticates it
     re.compile(r"^/api/email-agent/cron/poll/?$"),               # cron endpoints are protected by CRON_SECRET instead
     re.compile(r"^/api/cron/?$"),
@@ -48,12 +49,37 @@ def validate_production_config() -> None:
     if not is_production():
         return
     missing = []
-    if not os.getenv("DATABASE_URL"):
-        missing.append("DATABASE_URL (PostgreSQL; SQLite is not durable on a server)")
+    database_url = (os.getenv("DATABASE_URL") or "").strip()
+    if not database_url:
+        if sqlite_guest_fallback_enabled():
+            logger.warning(
+                "Vercel is using temporary SQLite storage for guest API access. "
+                "Data is not durable or shared across serverless instances; account sign-in is unavailable."
+            )
+        else:
+            missing.append(
+                "DATABASE_URL (PostgreSQL), or set ENABLE_GUEST_MODE=true on Vercel for temporary SQLite guest access"
+            )
+    else:
+        try:
+            parsed_database_url = urlparse(database_url)
+            database_host = (parsed_database_url.hostname or "").lower()
+        except ValueError:
+            parsed_database_url = None
+            database_host = ""
+        if parsed_database_url is None or parsed_database_url.scheme not in {"postgres", "postgresql", "postgresql+psycopg"} or not database_host:
+            raise RuntimeError("DATABASE_URL must be a valid PostgreSQL connection URL.")
+        if os.getenv("VERCEL") and database_host in {"localhost", "127.0.0.1", "::1"}:
+            raise RuntimeError(
+                "DATABASE_URL points to localhost, which is not reachable from Vercel. "
+                "Configure a hosted PostgreSQL connection URL in the Vercel Production environment."
+            )
     if not os.getenv("JWT_SECRET_KEY"):
         missing.append("JWT_SECRET_KEY (PostgreSQL-backed user sign-in)")
-    if not os.getenv("EMAIL_AGENT_SECRET"):
+    if not os.getenv("EMAIL_AGENT_SECRET") and not sqlite_guest_fallback_enabled():
         missing.append("EMAIL_AGENT_SECRET (signs OAuth state, derives the token-encryption key)")
+    elif not os.getenv("EMAIL_AGENT_SECRET"):
+        logger.warning("EMAIL_AGENT_SECRET is not set; email-agent integrations are unavailable in SQLite guest mode.")
     if missing:
         raise RuntimeError("Production configuration incomplete: " + "; ".join(missing))
     for name, hint in (("PUBLIC_BASE_URL", "Google OAuth redirect URI"), ("CRON_SECRET", "background jobs on serverless"),
@@ -75,13 +101,19 @@ def auth_configured() -> bool:
 
 
 def is_production() -> bool:
-    return (os.getenv("APP_ENV") or "").lower() in ("production", "prod")
+    return (os.getenv("APP_ENV") or "").lower() in ("production", "prod") or bool(os.getenv("VERCEL"))
 
 
 def guest_mode_enabled() -> bool:
     """Guest requests are opt-in."""
     val = (os.getenv("ENABLE_GUEST_MODE") or "true").strip().lower()
     return val in {"1", "true", "yes", "on"}
+
+
+def sqlite_guest_fallback_enabled() -> bool:
+    """Allow explicitly enabled, ephemeral guest access on Vercel without PostgreSQL."""
+    enabled = (os.getenv("ENABLE_GUEST_MODE") or "").strip().lower() in {"1", "true", "yes", "on"}
+    return bool(os.getenv("VERCEL")) and not (os.getenv("DATABASE_URL") or "").strip() and enabled
 
 
 def verify_token(token: str) -> Dict[str, Any]:
