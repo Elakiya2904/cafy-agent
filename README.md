@@ -7,7 +7,7 @@ An enterprise-grade ATS automation and career intelligence platform engineered s
 ## 🌟 Platform Capabilities & Architecture
 
 ### 1. Strict UK Job Ingestion & Normalization (Pipeline 1)
-- **Multi-Source ATS Support**: Polls 8 enterprise Applicant Tracking Systems: **Greenhouse**, **Lever**, **Ashby**, **Workday**, **Workable**, **Oracle Cloud**, **BreezyHR**, and **Pinpoint**.
+- **Multi-Source ATS Support**: Polls 9 enterprise Applicant Tracking Systems: **Greenhouse**, **Lever**, **Ashby**, **Workday**, **Workable**, **Oracle Cloud**, **BreezyHR**, **Pinpoint**, and **SmartRecruiters**.
 - **Upstream Network Faceting**: Queries Workday dynamic tenant facets to request only UK job listings, eliminating non-UK enterprise vacancies before payload download.
 - **Strict UK Geographic Containment**: Employs a negative country and Ireland guard (`NON_UK_COUNTRY_PATTERN`, `IRELAND_LOCATION_PATTERN`, and US state suffixes) to explicitly reject overseas and Irish roles. Positive regex matches 25+ UK municipal hubs (*London, Manchester, Birmingham, Leeds, Edinburgh, Glasgow, Belfast, Bristol, Cambridge, Oxford, etc.*) and UK-wide remote roles.
 - **Home Office Visa Sponsorship Verification**: Automatically cross-references hiring employers against the official UK Home Office *Worker and Temporary Worker Register of Licensed Sponsors*, annotating verified Skilled Worker (A-Rating) sponsorship eligibility.
@@ -67,10 +67,10 @@ An enterprise-grade ATS automation and career intelligence platform engineered s
 | :--- | :--- | :--- |
 | **Backend Framework** | **FastAPI** (Python 3.13) | Asynchronous, high-throughput REST API with Pydantic validation |
 | **Frontend Framework** | **React 18** + **Vite 5** | Responsive single-page application with modern UI styling |
-| **Database** | **PostgreSQL** / **SQLite** | Multi-user relational persistence with fallback to SQLite for local development |
+| **Database** | **PostgreSQL** / **SQLite** | Multi-user relational persistence; local SQLite unless `DATABASE_URL` is set |
 | **Inference Engine** | **Groq API** | Ultra-fast inference with fallback cascade (`gpt-oss-20b`, `llama-3.3-70b`) |
 | **Document Rendering** | **XeLaTeX** & **python-docx** | Publication-grade single-page PDFs and editable DOCX files |
-| **Authentication** | **PostgreSQL-backed JWT** | Argon2id password hashing, rotating refresh tokens, and per-user API isolation |
+| **Authentication** | **Built-in accounts** (Argon2id + JWT) | Email/password sign-up and sign-in, short-lived access tokens, rotating HttpOnly refresh cookie |
 | **Testing** | **pytest** & **vitest** | Comprehensive unit, integration, and UI test coverage |
 
 ---
@@ -120,32 +120,8 @@ running, verify connectivity and apply migrations with:
 ```
 
 The existing runtime database adapter remains active until application tables
-are mapped and the PostgreSQL migration has been validated. Keep the existing
-database backup until migration verification is complete.
-
-PostgreSQL-backed authentication is enabled by setting a random
-`JWT_SECRET_KEY` (at least 32 characters) in `.env` for the
-`/api/auth/register`, `/api/auth/login`, `/api/auth/refresh`, and
-`/api/auth/logout` endpoints.
-
-#### Temporary Vercel API fallback without PostgreSQL
-
-For short-term testing only, Vercel can use the bundled SQLite database copied
-to its temporary `/tmp` directory. In Vercel's Production environment, remove
-`DATABASE_URL` (a localhost URL cannot work there), set `ENABLE_GUEST_MODE=true`
-and a random `JWT_SECRET_KEY` of at least 32 characters, and set `GROQ_API_KEY`
-for Career Analyst and AI resume rewriting. If `VITE_ENABLE_GUEST_MODE` is set
-to `false`, change it to `true` and redeploy so the guest option is shown.
-
-This mode supports guest API use but not account registration or login. SQLite
-storage is temporary and is not shared consistently between serverless
-instances; uploaded resumes, edits, and other changes can disappear. Do not use
-it for real user data. Remove this fallback and configure reachable PostgreSQL
-before enabling account authentication.
-
-The background scraper runs once daily at 08:00 UK time by default
-(`Europe/London`, including daylight-saving changes). Configure
-`SCRAPE_HOUR`, `SCRAPE_MINUTE`, and `SCRAPE_TIMEZONE` to change it.
+are mapped and the PostgreSQL migration has been validated. Do not delete the
+existing database during this transition.
 
 ### 3. Environment Configuration
 Copy `.env.example` to `.env` in the project root:
@@ -162,13 +138,16 @@ APP_ENV=development
 PUBLIC_BASE_URL=http://127.0.0.1:8000
 CORS_ORIGINS=http://127.0.0.1:8000,http://localhost:5173
 
-# Database (optional for local SQLite, required for PostgreSQL)
+# Database (leave unset for local SQLite; there is no built-in default database)
 DATABASE_URL=postgresql://user:pass@host:5432/dbname
 
-# Authentication & Guest Mode
-JWT_SECRET_KEY=replace-with-a-long-random-secret
+# Authentication: signs user sessions. Required in production (32+ characters).
+# Generate one with:  python -c "import secrets; print(secrets.token_urlsafe(48))"
+# In development it may be left unset (a temporary key is used and sessions end on restart).
+JWT_SECRET_KEY=
+
+# Guest login for testing: on by default in development (set false to hide it); never available in production
 ENABLE_GUEST_MODE=true
-VITE_ENABLE_GUEST_MODE=true
 ```
 
 ### 4. Frontend Setup
@@ -180,7 +159,7 @@ npm --prefix frontend install
 
 **Option A: Unified Server (Development & Production)**
 ```bash
-python run.py
+python backend/run.py
 ```
 * Backend API: `http://127.0.0.1:8000`
 * API Documentation (Swagger): `http://127.0.0.1:8000/docs`
@@ -188,7 +167,7 @@ python run.py
 **Option B: Separate Frontend Dev Server (Hot Module Reload)**
 ```bash
 # Terminal 1: Backend
-python run.py
+python backend/run.py
 
 # Terminal 2: Vite Dev Server
 npm --prefix frontend run dev
@@ -199,8 +178,9 @@ npm --prefix frontend run dev
 
 ## 🔒 Authentication & Guest Mode
 
-- **Production Mode**: The frontend uses PostgreSQL-backed Argon2id passwords and rotating refresh tokens. API requests are scoped to the authenticated user's ID by the application middleware.
-- **Guest Mode**: Opt-in testing mode enabled via `ENABLE_GUEST_MODE=true` and `VITE_ENABLE_GUEST_MODE=true`. Provides a clean, centered **Continue as Guest** button on the auth screen. Guest sessions start with a clean slate (no pre-loaded resumes) and persist across page refreshes via `sessionStorage`.
+- **Accounts**: Email and password sign-up/sign-in are served by the backend (`/api/auth/signup`, `/login`, `/refresh`, `/logout`, `/me`). Passwords are hashed with Argon2id. A session is a 15-minute access token (held only in browser memory) plus a rotating refresh token in an `HttpOnly`, `SameSite=Strict` cookie; replaying a used refresh token ends all of that user's sessions. Failed sign-ins are rate-limited. Every request to `/api` is scoped to the authenticated user's ID.
+- **Production**: the server refuses to start without `DATABASE_URL`, a strong `JWT_SECRET_KEY` and `EMAIL_AGENT_SECRET`. Password reset and email verification are not available yet (they need an outbound email service).
+- **Guest Mode**: A **Continue as Guest** button for testing, on by default in development and turned off with `ENABLE_GUEST_MODE=false`. The server tells the UI whether to show it (`GET /api/auth/config`) and refuses guests in production. All guests share one anonymous account, so never keep real data in it. Provides a clean, centered **Continue as Guest** button on the auth screen. Guest sessions start with a clean slate (no pre-loaded resumes) and persist across page refreshes via `sessionStorage`.
 
 ---
 
@@ -208,14 +188,14 @@ npm --prefix frontend run dev
 
 ### Backend Test Suite (Python)
 ```bash
-python -m pytest tests
+python -m pytest backend/tests
 ```
 Runs 80+ unit and integration tests covering:
-- Strict UK location normalizer & negative regex filters (`tests/test_normalizer.py`)
-- Resume section parser, date ranges, and internship extraction (`tests/test_resume_section_extraction.py`)
-- Zero-hallucination factual guardrails & compilation (`tests/test_resume_generation.py`)
-- Profile strength 100-point formula & recommendation rankings (`tests/test_recommendations.py`)
-- Auth token verification and tenant data isolation (`tests/test_auth_isolation.py`)
+- Strict UK location normalizer & negative regex filters (`backend/tests/test_normalizer.py`)
+- Resume section parser, date ranges, and internship extraction (`backend/tests/test_resume_section_extraction.py`)
+- Zero-hallucination factual guardrails & compilation (`backend/tests/test_resume_generation.py`)
+- Profile strength 100-point formula & recommendation rankings (`backend/tests/test_recommendations.py`)
+- Auth token verification and tenant data isolation (`backend/tests/test_auth_isolation.py`)
 
 ### Frontend Test Suite (React / Vitest)
 ```bash
@@ -255,10 +235,11 @@ cafy/
 │   │   ├── MyApplications.jsx   # 5-stage Kanban application pipeline
 │   │   ├── ResumeEditor.jsx     # Live resume editor with real-time XeLaTeX preview
 │   │   └── auth.js              # Token management & guest mode session handling
-│   └── css/                     # Enterprise design system & responsive styling
-├── extension/                   # Chrome extension for automated ATS form filling
-├── doc_assets/                  # High-resolution UI screenshots & architectural diagrams
-├── run.py                       # Application bootstrap script
+│   ├── css/                     # Enterprise design system & responsive styling
+│   └── extension/               # Chrome extension for automated ATS form filling
+├── api/                         # Vercel serverless entrypoint (api/index.py -> backend.main:app)
+├── docs/                        # PDFs, doc_assets/, notes, and doc generators
+├── vercel.json                  # Deployment config (must live at repo root)
 └── requirements.txt             # Python dependencies
 ```
 
@@ -283,13 +264,16 @@ APP_ENV=development
 PUBLIC_BASE_URL=http://127.0.0.1:8000
 CORS_ORIGINS=http://127.0.0.1:8000,http://localhost:5173
 
-# Database (optional for local SQLite, required for PostgreSQL)
+# Database (leave unset for local SQLite; there is no built-in default database)
 DATABASE_URL=postgresql://user:pass@host:5432/dbname
 
-# Authentication & Guest Mode
-JWT_SECRET_KEY=replace-with-a-long-random-secret
+# Authentication: signs user sessions. Required in production (32+ characters).
+# Generate one with:  python -c "import secrets; print(secrets.token_urlsafe(48))"
+# In development it may be left unset (a temporary key is used and sessions end on restart).
+JWT_SECRET_KEY=
+
+# Guest login for testing: on by default in development (set false to hide it); never available in production
 ENABLE_GUEST_MODE=true
-VITE_ENABLE_GUEST_MODE=true
 ```
 
 ### 4. Frontend Setup
@@ -301,7 +285,7 @@ npm --prefix frontend install
 
 **Option A: Unified Server (Development & Production)**
 ```bash
-python run.py
+python backend/run.py
 ```
 * Backend API: `http://127.0.0.1:8000`
 * API Documentation (Swagger): `http://127.0.0.1:8000/docs`
@@ -309,7 +293,7 @@ python run.py
 **Option B: Separate Frontend Dev Server (Hot Module Reload)**
 ```bash
 # Terminal 1: Backend
-python run.py
+python backend/run.py
 
 # Terminal 2: Vite Dev Server
 npm --prefix frontend run dev
@@ -320,8 +304,9 @@ npm --prefix frontend run dev
 
 ## 🔒 Authentication & Guest Mode
 
-- **Production Mode**: Uses PostgreSQL-backed email/password authentication with JWT tokens. Every request to `/api` is scoped to the authenticated user's ID by the application middleware.
-- **Guest Mode**: Opt-in testing mode enabled via `ENABLE_GUEST_MODE=true` and `VITE_ENABLE_GUEST_MODE=true`. Provides a clean, centered **Continue as Guest** button on the auth screen. Guest sessions start with a clean slate (no pre-loaded resumes) and persist across page refreshes via `sessionStorage`.
+- **Accounts**: Email and password sign-up/sign-in are served by the backend (`/api/auth/signup`, `/login`, `/refresh`, `/logout`, `/me`). Passwords are hashed with Argon2id. A session is a 15-minute access token (held only in browser memory) plus a rotating refresh token in an `HttpOnly`, `SameSite=Strict` cookie; replaying a used refresh token ends all of that user's sessions. Failed sign-ins are rate-limited. Every request to `/api` is scoped to the authenticated user's ID.
+- **Production**: the server refuses to start without `DATABASE_URL`, a strong `JWT_SECRET_KEY` and `EMAIL_AGENT_SECRET`. Password reset and email verification are not available yet (they need an outbound email service).
+- **Guest Mode**: A **Continue as Guest** button for testing, on by default in development and turned off with `ENABLE_GUEST_MODE=false`. The server tells the UI whether to show it (`GET /api/auth/config`) and refuses guests in production. All guests share one anonymous account, so never keep real data in it. Provides a clean, centered **Continue as Guest** button on the auth screen. Guest sessions start with a clean slate (no pre-loaded resumes) and persist across page refreshes via `sessionStorage`.
 
 ---
 
@@ -329,14 +314,14 @@ npm --prefix frontend run dev
 
 ### Backend Test Suite (Python)
 ```bash
-python -m pytest tests
+python -m pytest backend/tests
 ```
 Runs 80+ unit and integration tests covering:
-- Strict UK location normalizer & negative regex filters (`tests/test_normalizer.py`)
-- Resume section parser, date ranges, and internship extraction (`tests/test_resume_section_extraction.py`)
-- Zero-hallucination factual guardrails & compilation (`tests/test_resume_generation.py`)
-- Profile strength 100-point formula & recommendation rankings (`tests/test_recommendations.py`)
-- Auth token verification and tenant data isolation (`tests/test_auth_isolation.py`)
+- Strict UK location normalizer & negative regex filters (`backend/tests/test_normalizer.py`)
+- Resume section parser, date ranges, and internship extraction (`backend/tests/test_resume_section_extraction.py`)
+- Zero-hallucination factual guardrails & compilation (`backend/tests/test_resume_generation.py`)
+- Profile strength 100-point formula & recommendation rankings (`backend/tests/test_recommendations.py`)
+- Auth token verification and tenant data isolation (`backend/tests/test_auth_isolation.py`)
 
 ### Frontend Test Suite (React / Vitest)
 ```bash
@@ -376,10 +361,11 @@ cafy/
 │   │   ├── MyApplications.jsx   # 5-stage Kanban application pipeline
 │   │   ├── ResumeEditor.jsx     # Live resume editor with real-time XeLaTeX preview
 │   │   └── auth.js              # Token management & guest mode session handling
-│   └── css/                     # Enterprise design system & responsive styling
-├── extension/                   # Chrome extension for automated ATS form filling
-├── doc_assets/                  # High-resolution UI screenshots & architectural diagrams
-├── run.py                       # Application bootstrap script
+│   ├── css/                     # Enterprise design system & responsive styling
+│   └── extension/               # Chrome extension for automated ATS form filling
+├── api/                         # Vercel serverless entrypoint (api/index.py -> backend.main:app)
+├── docs/                        # PDFs, doc_assets/, notes, and doc generators
+├── vercel.json                  # Deployment config (must live at repo root)
 └── requirements.txt             # Python dependencies
 ```
 
@@ -391,6 +377,7 @@ Comprehensive documentation artifacts are maintained in the repository:
 - **[Complete Backend Logic & Systems Manual](file:///C:/Users/vlela/.gemini/antigravity/brain/75d067f9-1e31-4512-b557-ebd599b1d95c/complete-backend-logic-manual.md)**: Conceptual walkthrough of every decision tree, formula, and state machine with Mermaid diagrams.
 - **[Features, Pipelines & UI Specification](file:///C:/Users/vlela/.gemini/antigravity/brain/75d067f9-1e31-4512-b557-ebd599b1d95c/cafy-agent-features-and-pipelines-specification.md)**: Complete client specification with embedded live UI screens for all 6 features.
 - **[UK Job Scraping & Geographic Containment Architecture](file:///C:/Users/vlela/.gemini/antigravity/brain/75d067f9-1e31-4512-b557-ebd599b1d95c/uk-ireland-scraping-architecture.md)**: 4-tier defensive isolation model guaranteeing strict UK-only vacancy containment.
+- **Compiled 7-Page Client Presentation PDF**: [`docs/cafy-agent-up-to-date-features-and-pipelines.pdf`](docs/cafy-agent-up-to-date-features-and-pipelines.pdf).
 
 ---
 

@@ -205,6 +205,76 @@ platforms:
       name: Quantbot Technologies Ltd
     - token: armada
       name: THE ARMADA GROUP (HOSPITALITY) LIMITED
+    - token: sumup
+      name: SumUp Payments Limited
+    - token: monzo
+      name: Monzo Bank Ltd
+    - token: alphasense
+      name: AlphaSense Technology Limited
+    - token: ohme
+      name: Ohme Operations UK Limited
+    - token: redbadger
+      name: Red Badger Consulting Limited
+    - token: wheely
+      name: Wheely Technologies Ltd
+    - token: hearst
+      name: Hearst Networks UK
+    - token: mthree
+      name: Mthree Corporation Consulting Ltd
+    - token: digilab
+      name: digiLab Solutions Ltd
+    - token: focused
+      name: Focused Labs UK Ltd
+    - token: heatgeek
+      name: Heat Geek Technologies Ltd
+    - token: roller
+      name: ROLLER Networks LTD
+    - token: raisin
+      name: Raisin Platforms Limited
+    - token: unybrands
+      name: Unybrands Operations Ltd
+    - token: onetrust
+      name: OneTrust Technology Limited
+    - token: duco
+      name: Duco Technology Limited
+    - token: forter
+      name: Forter Solutions UK Limited
+    - token: sayari
+      name: Sayari Labs Limited
+    - token: xantium
+      name: Xantium Labs Limited
+    - token: appspace
+      name: Appspace Solutions Ltd
+    - token: captify
+      name: Captify Technologies Ltd
+    - token: commvault
+      name: Commvault Systems Ltd
+    - token: sedna
+      name: Sedna Systems Europe Limited
+    - token: decibio
+      name: DeciBio Consulting Ltd
+    - token: incode
+      name: Incode Technology UK Limited
+    - token: released
+      name: Re-Leased Software Company UK Limited
+    - token: wunderkind
+      name: Wunderkind Technologies UK Ltd
+    - token: xurrent
+      name: Xurrent Software UK Ltd
+    - token: accesso
+      name: accesso Technology Group
+    - token: boku
+      name: Boku Labs Ltd
+    - token: brightsign
+      name: BrightSign Digital Ltd
+    - token: goodfire
+      name: Goodfire AI UK Limited
+    - token: numerix
+      name: Numerix Software LTD
+    - token: onespan
+      name: OneSpan Solutions UK Limited
+    - token: solarwinds
+      name: SOLARWINDS SOFTWARE UK LIMITED
   ashby:
     name: Ashby
     color: '#6366F1'
@@ -229,8 +299,6 @@ platforms:
       name: Phase Biolabs Ltd
     - token: 9fin
       name: 9fin Limited
-    - token: airtable
-      name: Airtable
     - token: ashby
       name: Ashby
     - token: cursor
@@ -249,26 +317,16 @@ platforms:
       name: Junipersquare
     - token: kayak
       name: Kayak
-    - token: marqeta
-      name: Marqeta
-    - token: mercury
-      name: Mercury
     - token: midjourney
       name: Midjourney
     - token: openai
       name: Openai
-    - token: opentable
-      name: Opentable
     - token: perplexity
       name: Perplexity
-    - token: reddit
-      name: Reddit
     - token: replit
       name: Replit
     - token: siteminder
       name: Siteminder
-    - token: skyscanner
-      name: Skyscanner
     - token: snowflake
       name: Snowflake
     - token: supabase
@@ -277,8 +335,6 @@ platforms:
       name: Tripactions
     - token: vanta
       name: Vanta
-    - token: vercel
-      name: Vercel
     - token: zip
       name: Zip
     - token: neko-health
@@ -295,6 +351,102 @@ platforms:
       name: Slingshot Aerospace Limited
     - token: strider-technologies
       name: Strider Technologies UK Limited
+    - token: wayve
+      name: Wayve Technologies Ltd
+    - token: lendable
+      name: Lendable Operations Ltd
+    - token: harvey
+      name: Harvey AI UK Ltd
+    - token: lovable
+      name: Lovable Labs UK Limited
+    - token: relay
+      name: Relay Technologies Limited
+    - token: conduct
+      name: Conduct AI Ltd
+    - token: wordsmith
+      name: Wordsmith AI Ltd
+    - token: vertice
+      name: Vertice Technology Ltd
+    - token: granola
+      name: Granola Labs
+    - token: marshmallow
+      name: Marshmallow Technology Ltd
+    - token: decagon
+      name: Decagon AI UK Ltd
+    - token: atominvest
+      name: Atominvest Software Ltd
+    - token: ankar
+      name: Ankar.ai
+    - token: comind
+      name: CoMind Technologies Limited
+    - token: zilch
+      name: Zilch Technology Limited
+    - token: aptura
+      name: Aptura AI UK Ltd.
+    - token: fonoa
+      name: Fonoa Technologies UK Ltd
+    - token: humaans
+      name: Humaans Software UK Limited
+    - token: plaid
+      name: Plaid Financial Ltd
+    - token: pliant
+      name: Pliant Payments Limited
+    - token: red-gate
+      name: Red Gate Software Ltd
+    - token: artificial
+      name: Artificial Labs Limited
+    - token: gigaton
+      name: Gigaton Technologies Ltd
+    - token: mimica
+      name: Mimica Lab Ltd.
+    - token: nexcade
+      name: Nexcade AI Limited
+    - token: griffin
+      name: Griffin Bank Ltd
+    - token: stacks
+      name: Stacks AI Limited
+    - token: watershed
+      name: Watershed Technology Limited
+    - token: magentic
+      name: Magentic Labs Limited
+    - token: mercor
+      name: Mercor Innovations UK Ltd
+    - token: meticulous
+      name: Meticulous Ai Limited
+    - token: stellarentertainment
+      name: Stellar Entertainment Software Ltd
+    - token: conveo
+      name: Conveo.ai UK Ltd
+    - token: ledger
+      name: Ledger Technologies UK LTD
+    - token: ravio
+      name: Ravio Technologies Limited
+    - token: ideals
+      name: iDeals Solutions Group Limited
+    - token: axelera
+      name: Axelera AI UK
+    - token: capsa
+      name: Capsa.AI Ltd
+    - token: helmguard
+      name: HELMGUARD TECHNOLOGIES UK LIMITED
+    - token: stackone
+      name: StackOne Technologies Ltd
+    - token: teamworks
+      name: Teamworks Innovations UK Limited
+    - token: emagine
+      name: emagine Consulting Ltd
+    - token: fyxer
+      name: Fyxer AI Limited
+    - token: ameba
+      name: Ameba Systems Ltd
+    - token: aphex
+      name: Aphex Software Limited
+    - token: corti
+      name: CORTI AI UK LIMITED
+    - token: poolside
+      name: Poolside AI Ltd
+    - token: recraft
+      name: Recraft AI Limited
   workday:
     name: Workday
     color: '#F58220'
@@ -303,10 +455,6 @@ platforms:
       name: NVIDIA
       host: nvidia.wd5.myworkdayjobs.com
       site: NVIDIAExternalCareerSite
-    - tenant: target
-      name: Target
-      host: target.wd5.myworkdayjobs.com
-      site: targetcareers
     - tenant: salesforce
       name: Salesforce
       host: salesforce.wd12.myworkdayjobs.com
@@ -343,6 +491,12 @@ platforms:
       name: InvestorFlow UK Limited
     - token: ansatzcapital
       name: Ansatz Capital UK Ltd
+    - token: brightedge
+      name: Brightedge Technologies Limited
+    - token: coalfire
+      name: Coalfire Systems Limited
+    - token: coupa
+      name: Coupa Software UK Ltd
   workable:
     name: Workable
     color: '#00877C'
@@ -378,3 +532,31 @@ platforms:
       name: CFC
     - token: article
       name: Article
+  smartrecruiters:
+    name: SmartRecruiters
+    color: '#00B4D8'
+    companies:
+    - token: BoschGroup
+      name: Bosch Group
+    - token: shawbrook
+      name: SHAWBROOK BANK LIMITED
+    - token: afry
+      name: AFRY Management Consulting Limited
+    - token: stackone
+      name: StackOne Technologies Ltd
+    - token: freshworks
+      name: FRESHWORKS TECHNOLOGIES UK LIMITED
+    - token: playtech
+      name: Playtech Software Limited
+    - token: canva
+      name: CANVA UK OPERATIONS LIMITED
+    - token: boostit
+      name: Boost It Technologies LTD
+    - token: newcrosshealthcare
+      name: Newcross Healthcare Solutions Limited
+    - token: orpheus
+      name: Orpheus Technology Limited
+    - token: smarttrade
+      name: SMART TRADE TECHNOLOGIES UK LIMITED
+    - token: taina
+      name: Taina Technology

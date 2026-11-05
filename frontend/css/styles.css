@@ -7857,6 +7857,7 @@ a.jd-btn-primary { text-decoration: none; }
 .jd-list-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 12px; }
 .jd-list-head h2 { font-size: 1.05rem; font-weight: 800; color: var(--slate-900); }
 .jd-list { list-style: none; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; padding: 2px; margin: 0; }
+.jd-list-more { flex: 0 0 1px; list-style: none; }
 .jd-item { position: relative; }
 .jd-item-main { display: flex; gap: 12px; align-items: flex-start; padding: 14px 40px 14px 12px; border: 1px solid var(--slate-200); border-radius: 14px; background: #fff; cursor: pointer; transition: border-color .15s, box-shadow .15s, background .15s; }
 .jd-item-main:hover { border-color: var(--slate-300); box-shadow: 0 4px 14px -6px rgba(15, 23, 42, .15); }
@@ -8479,7 +8480,8 @@ a.jd-btn-primary { text-decoration: none; }
   color: #1E293B;
   font-size: .82rem;
 }
-.jd-sponsor-callout strong { color: #315B9B; font-size: .68rem; letter-spacing: .02em; }
+.jd-sponsor-callout strong { color: #315B9B; font-size: .78rem; letter-spacing: .01em; }
+.jd-sponsor-callout small { color: #64748B; font-size: .74rem; line-height: 1.4; }
 .jd-sponsor-callout.none, .jd-sponsor-callout.warn { border-color: #E2E8F0; background: #F8FAFC; }
 .jd-sponsor-callout.none strong, .jd-sponsor-callout.warn strong { color: #64748B; }
 .jd-about-company { margin-top: 4px; color: #64748B; font-size: .85rem; font-weight: 500; }

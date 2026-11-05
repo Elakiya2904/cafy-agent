@@ -84,30 +84,16 @@ class ResumeGenerationService:
         structured["skills"] = self._rank_skills(structured["skills"], job)
         if skill_extractor is not None:
             structured = self.rewrite_full(structured, job, skill_extractor, instructions)["resume"]
+        structured = self._ensure_education_descriptions(structured)
         resume_id = uuid.uuid4().hex
-
-        # Render LaTeX
-        tex = self._render_latex(structured)
-        tex_path = self.output_dir / f"{resume_id}.tex"
-        tex_path.write_text(tex, encoding="utf-8")
-
-        # Compile PDF (if compiler available)
-        pdf_path = self._compile_pdf(tex_path)
-
-        # Export DOCX
-        docx_path = self.output_dir / f"{resume_id}.docx"
-        self._export_docx(structured, docx_path)
+        # The editor renders its own PDF, so the LaTeX PDF is compiled only when it is downloaded.
+        artifacts = self.update_artifacts(resume_id, structured, compile_pdf=False)
 
         return {
-            "status": "success" if pdf_path else "generated_without_pdf",
-            "resume_id": resume_id,
+            "status": "success",
             "template": "uk-standard",
             "resume": structured,
-            "tex_url": f"/api/resumes/{resume_id}/latex",
-            "pdf_url": f"/api/resumes/{resume_id}/pdf" if pdf_path else None,
-            "docx_url": f"/api/resumes/{resume_id}/docx",
-            "pdf_available": bool(pdf_path),
-            "docx_available": True,
+            **artifacts,
             "validation": {
                 "ats_friendly": True,
                 "factual_consistency": True,
@@ -122,25 +108,47 @@ class ResumeGenerationService:
         wanted = {str(s).casefold() for s in (job.get("matched_skills") or [])}
         return sorted(skills, key=lambda s: s.casefold() not in wanted)
 
-    def update_artifacts(self, resume_id: str, structured: Dict[str, Any]) -> Dict[str, Any]:
-        """Re-render LaTeX, DOCX, and PDF for an updated/saved draft."""
+    @staticmethod
+    def pdf_supported() -> bool:
+        return bool(shutil.which("pdflatex") or shutil.which("xelatex"))
+
+    def update_artifacts(self, resume_id: str, structured: Dict[str, Any], compile_pdf: bool = True) -> Dict[str, Any]:
+        """Re-render LaTeX and DOCX for a draft, and the PDF too unless ``compile_pdf`` is False.
+
+        Compiling LaTeX takes seconds, so saves skip it: the stale PDF is removed and the
+        download endpoint compiles a fresh one on first request.
+        """
         tex = self._render_latex(structured)
         tex_path = self.output_dir / f"{resume_id}.tex"
         tex_path.write_text(tex, encoding="utf-8")
 
-        pdf_path = self._compile_pdf(tex_path)
+        pdf_file = self.output_dir / f"{resume_id}.pdf"
+        if compile_pdf:
+            pdf_path = self._compile_pdf(tex_path)
+        else:
+            pdf_file.unlink(missing_ok=True)
+            pdf_path = None
 
         docx_path = self.output_dir / f"{resume_id}.docx"
         self._export_docx(structured, docx_path)
 
+        pdf_offered = bool(pdf_path) or (not compile_pdf and self.pdf_supported())
         return {
             "resume_id": resume_id,
             "tex_url": f"/api/resumes/{resume_id}/latex",
-            "pdf_url": f"/api/resumes/{resume_id}/pdf" if pdf_path else None,
+            "pdf_url": f"/api/resumes/{resume_id}/pdf" if pdf_offered else None,
             "docx_url": f"/api/resumes/{resume_id}/docx",
-            "pdf_available": bool(pdf_path),
+            "pdf_available": pdf_offered,
             "docx_available": True,
         }
+
+    def ensure_pdf(self, resume_id: str) -> Optional[Path]:
+        """Compile the PDF from the saved LaTeX source if it is not on disk yet."""
+        pdf_file = self.output_dir / f"{resume_id}.pdf"
+        if pdf_file.is_file():
+            return pdf_file
+        tex_path = self.output_dir / f"{resume_id}.tex"
+        return self._compile_pdf(tex_path) if tex_path.is_file() else None
 
     def rewrite_section(
         self,
@@ -301,6 +309,18 @@ class ResumeGenerationService:
                 "verified_summary_facts": self._summary_facts(tailored),
                 "experience": entry_payload(tailored.get("experience")),
                 "projects": entry_payload(tailored.get("projects")),
+                "education": [
+                    {
+                        "index": i,
+                        "degree": entry.get("degree") or entry.get("title") or "",
+                        "institution": entry.get("institution") or entry.get("organization") or "",
+                        "dates": entry.get("dates") or "",
+                        "location": entry.get("location") or "",
+                        "bullets": list(entry.get("bullets") or []),
+                    }
+                    for i, entry in enumerate(tailored.get("education") or [])
+                    if isinstance(entry, dict) and not entry.get("description")
+                ],
             },
         }
         system = (
@@ -310,9 +330,12 @@ class ResumeGenerationService:
             "percentages, dates, employers, tools, technologies, skills or achievements that are not already in the resume. "
             "If professional_summary is empty, draft 2-3 concise sentences using only verified_summary_facts; do not "
             "leave it empty when those facts provide enough information. "
+            "For supplied education entries, write a concise description relevant to the stated degree, using only "
+            "their supplied degree, institution, dates, location and bullets. Do not invent modules, grades, awards "
+            "or other facts. "
             "Never add new bullets beyond the original count for an entry. Keep each entry's index. "
             "Return JSON only: {\"professional_summary\": str, \"experience\": [{\"index\": int, \"description\": str, "
-            "\"bullets\": [str]}], \"projects\": [same shape]}."
+            "\"bullets\": [str]}], \"projects\": [same shape], \"education\": [{\"index\": int, \"description\": str}]}."
         )
         steer = re.sub(r"\s+", " ", str(instructions or "")).strip()[:500]
         if steer:
@@ -331,9 +354,9 @@ class ResumeGenerationService:
                         {"role": "system", "content": system},
                         {"role": "user", "content": json.dumps(payload, ensure_ascii=True)},
                     ],
-                    # Groq's GPT-OSS models only accept temperature=1.
                     "temperature": 1 if model.startswith("openai/gpt-oss") else 0.2,
-                    "max_completion_tokens": 1500,
+                    # Room for every bullet; a truncated reply is invalid JSON and the rewrite is lost.
+                    "max_tokens": 3000,
                     "response_format": {"type": "json_object"},
                 },
                 timeout=(5, 45),
@@ -411,6 +434,14 @@ class ResumeGenerationService:
                     accept(new_bullets[j] if j < len(new_bullets) else "", old)
                     for j, old in enumerate(old_bullets)
                 ]
+        education_by_index = {
+            item.get("index"): item for item in (rewritten.get("education") or [])
+            if isinstance(item, dict) and isinstance(item.get("index"), int)
+        }
+        for i, entry in enumerate(result.get("education") or []):
+            new = education_by_index.get(i)
+            if isinstance(entry, dict) and not entry.get("description") and new:
+                entry["description"] = accept(new.get("description"), "")
         return {"resume": result, "rejected_lines": rejected}
 
     def _tailor_with_groq(self, resume: Dict[str, Any], job: Dict[str, Any], source_text: str) -> Dict[str, Any]:
@@ -594,10 +625,28 @@ class ResumeGenerationService:
         return normalized
 
     def _validate_and_normalize(
-        self, generated: Dict[str, Any], resume: Dict[str, Any], job: Dict[str, Any]
+        self, generated: Dict[str, Any], resume: Dict[str, Any], job: Dict[str, Any], keep_edits: bool = False
     ) -> Dict[str, Any]:
+        """Normalise a tailored resume.
+
+        ``keep_edits`` is for drafts the user edited by hand: every section present in
+        ``generated`` is taken as-is (an emptied section stays empty instead of refilling
+        from the master profile) and the one-page trimming is skipped, because the editor
+        fits the page itself. Without it, missing sections fall back to the profile and
+        the result is trimmed to one page.
+        """
         if not isinstance(generated, dict):
             generated = {}
+
+        def pick(key: str, *fallbacks: Any) -> Any:
+            if keep_edits and key in generated:
+                return generated.get(key)
+            value = generated.get(key)
+            for fallback in fallbacks:
+                if value:
+                    break
+                value = fallback
+            return value
 
         allowed_skills = {str(skill).casefold(): str(skill) for skill in resume.get("skills", [])}
         gen_skills_raw = generated.get("skills") or []
@@ -616,7 +665,7 @@ class ResumeGenerationService:
                 skills.append(allowed_skills[c_fold])
             else:
                 skills.append(cleaned)
-        if not skills:
+        if not skills and not (keep_edits and "skills" in generated):
             skills = list(allowed_skills.values())
         # Deduplicate skills while preserving order
         seen = set()
@@ -657,27 +706,32 @@ class ResumeGenerationService:
             },
             "target_role": self._clean_text(job.get("title") or generated.get("target_role") or ""),
             "company": self._clean_text(job.get("company") or generated.get("company") or ""),
-            "professional_summary": (
-                self._clean_text(generated.get("professional_summary"))
-                or self._clean_text(generated.get("summary"))
-                or self._clean_text(resume.get("summary"))
+            "professional_summary": self._clean_text(
+                generated.get("professional_summary")
+                if keep_edits and "professional_summary" in generated
+                else (
+                    self._clean_text(generated.get("professional_summary"))
+                    or self._clean_text(generated.get("summary"))
+                    or self._clean_text(resume.get("summary"))
+                )
             ),
-            "education": self._normalize_entries(generated.get("education") or resume.get("education"), section="education"),
+            "education": self._normalize_entries(pick("education", resume.get("education")), section="education"),
+            # With no work history, internships stand in as Work Experience (the template has no internship section).
             "experience": self._normalize_entries(
-                generated.get("experience") or resume.get("experience") or generated.get("internships") or resume.get("internships"),
+                pick("experience", resume.get("experience"), generated.get("internships"), resume.get("internships")),
                 section="experience"
             ),
-            "projects": self._normalize_entries(generated.get("projects") or resume.get("projects"), section="projects"),
-            "internships": self._normalize_entries(generated.get("internships") or resume.get("internships"), section="internships"),
-            "publications": self._normalize_entries(generated.get("publications") or resume.get("publications"), section="publications"),
-            "certifications": self._normalize_entries(generated.get("certifications") or resume.get("certifications"), section="certifications"),
-            "achievements": self._normalize_entries(generated.get("achievements") or resume.get("achievements"), section="achievements"),
+            "projects": self._normalize_entries(pick("projects", resume.get("projects")), section="projects"),
+            "internships": self._normalize_entries(pick("internships", resume.get("internships")), section="internships"),
+            "publications": self._normalize_entries(pick("publications", resume.get("publications")), section="publications"),
+            "certifications": self._normalize_entries(pick("certifications", resume.get("certifications")), section="certifications"),
+            "achievements": self._normalize_entries(pick("achievements", resume.get("achievements")), section="achievements"),
             "activities": resume.get("activities", generated.get("activities", [])),
             "leadership": resume.get("leadership", generated.get("leadership", [])),
             "awards": resume.get("awards", generated.get("awards", [])),
             "skills": deduped_skills,
         }
-        return self._enforce_single_page_limits(res)
+        return res if keep_edits else self._enforce_single_page_limits(res)
 
     @classmethod
     def _enforce_single_page_limits(cls, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -742,6 +796,35 @@ class ResumeGenerationService:
             data["skills"] = skills[:18]
 
         return data
+
+    @classmethod
+    def _ensure_education_descriptions(cls, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Fill missing education descriptions with degree-relevant context."""
+        result = json.loads(json.dumps(data))
+        for item in result.get("education") or []:
+            if not isinstance(item, dict) or cls._clean_text(item.get("description")):
+                continue
+            degree = cls._clean_text(item.get("degree") or item.get("title"))
+            institution = cls._clean_text(item.get("institution") or item.get("organization"))
+            degree_lower = degree.casefold()
+            if any(term in degree_lower for term in ("information technology", "it ", "it-", "software")):
+                focus = "software development, databases, networking, systems analysis, and information technology applications"
+            elif any(term in degree_lower for term in ("computer science", "computing", "informatics")):
+                focus = "algorithms, programming, data structures, databases, software engineering, and computing systems"
+            elif any(term in degree_lower for term in ("data science", "analytics", "artificial intelligence", "machine learning")):
+                focus = "data analysis, statistical methods, programming, machine learning, and practical data-driven problem solving"
+            elif any(term in degree_lower for term in ("business", "management", "commerce", "mba")):
+                focus = "business principles, analytical decision-making, organisational practice, and commercial problem solving"
+            elif any(term in degree_lower for term in ("engineering", "technology")):
+                focus = "engineering principles, technical analysis, design methods, and practical problem solving"
+            else:
+                focus = "the core theory, practical application, analytical thinking, and subject-specific problem solving of the discipline"
+            label = degree or "the qualification"
+            description = f"Studied {focus} through the {label}"
+            if institution:
+                description += f" at {institution}"
+            item["description"] = description + "."
+        return result
 
     def _export_docx(self, structured: Dict[str, Any], docx_path: Path) -> Path:
         """Exports ATS-friendly clean single-column DOCX format."""

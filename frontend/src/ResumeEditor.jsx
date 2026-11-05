@@ -450,6 +450,8 @@ export default function ResumeEditor({
       return;
     }
     const now = Date.now();
+    // Re-render only when the Undo/Redo buttons change state, not on every keystroke.
+    const buttonsChange = h.past.length === 0 || h.future.length > 0;
     if (now - h.at > HISTORY_COALESCE_MS) {
       h.past.push(h.last);
       if (h.past.length > 100) h.past.shift();
@@ -457,7 +459,7 @@ export default function ResumeEditor({
     h.at = now;
     h.future = [];
     h.last = resume;
-    force();
+    if (buttonsChange) force();
   }, [resume]);
 
   const undo = useCallback(() => {
@@ -618,6 +620,28 @@ export default function ResumeEditor({
 
   const fileBase = [info.name, job?.company].filter(Boolean).join(" - ").replace(/[^\w\- ]+/g, "").trim() || "resume";
   const downloadPdf = () => saveBlob(render.blob, `${fileBase}.pdf`);
+  // The DOCX is built on the server from the last save, so unsaved edits are saved first.
+  // Fetched (not linked) so the app's auth headers are sent; guest sessions have no URL token.
+  const [docxBusy, setDocxBusy] = useState(false);
+  const [docxError, setDocxError] = useState("");
+  const downloadDocx = async () => {
+    if (!generatedOutput?.docx_url || docxBusy) return;
+    setDocxBusy(true);
+    setDocxError("");
+    try {
+      if (dirty) {
+        attempted.current = resume;
+        await onSaveRef.current();
+      }
+      const response = await fetch(`${apiBase}${generatedOutput.docx_url}`);
+      if (!response.ok) throw new Error(`DOCX download failed (${response.status}).`);
+      saveBlob(await response.blob(), `${fileBase}.docx`);
+    } catch (e) {
+      setDocxError(e.message || "DOCX download failed.");
+    } finally {
+      setDocxBusy(false);
+    }
+  };
   // Lets the page's own Download Resume button hand out this same PDF.
   useEffect(() => {
     onPdfReady?.(render.blob ? { blob: render.blob, name: `${fileBase}.pdf` } : null);
@@ -653,9 +677,9 @@ export default function ResumeEditor({
         </span>
         <div className="re-context-actions">
           {generatedOutput?.docx_url && (
-            <a className="re-context-action" href={`${apiBase}${generatedOutput.docx_url}`} download>
-              <FileText size={13} aria-hidden="true" /> DOCX
-            </a>
+            <button type="button" className="re-context-action" onClick={downloadDocx} disabled={docxBusy} title={docxError || "Download as Word (DOCX)"}>
+              <FileText size={13} aria-hidden="true" /> {docxBusy ? "Preparing…" : docxError ? "Retry DOCX" : "DOCX"}
+            </button>
           )}
           <button type="button" className="re-context-action primary" onClick={downloadPdf} disabled={!render.blob}>
             <Download size={13} aria-hidden="true" /> Export PDF

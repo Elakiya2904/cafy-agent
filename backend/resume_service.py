@@ -480,6 +480,12 @@ class ResumeService:
                 remainder = re.sub(r"[\(\)\[\]]", "", remainder).strip(" -|")
 
                 parts = [p.strip() for p in re.split(r"\s*(?:\|| - | — |\s+at\s+)\s*", remainder) if p.strip()]
+                # "Software Engineer, Monzo, London" uses commas instead of | or -.
+                if len(parts) == 1 and "," in parts[0]:
+                    comma_parts = [p.strip() for p in parts[0].split(",") if p.strip()]
+                    if 2 <= len(comma_parts) <= 4:
+                        parts = comma_parts
+                location = ", ".join(parts[2:]) if len(parts) >= 3 else ""
                 if len(parts) >= 2:
                     if TITLE_HINTS.search(parts[1]) or COMPANY_HINTS.search(parts[0]):
                         title = parts[1]
@@ -499,7 +505,7 @@ class ResumeService:
                     "company": company.strip("()[] "),
                     "organization": company.strip("()[] "),
                     "dates": dates.strip(),
-                    "location": "",
+                    "location": location.strip("()[] ,"),
                     "description": "",
                     "bullets": [],
                 }
@@ -623,6 +629,12 @@ class ResumeService:
             title, details = text.split(":", 1)
             if ResumeService._looks_like_entry_title(title) and details.strip():
                 return title.strip(), details.strip()
+        # "Fraud Dashboard, Personal project, 2023": only with a year, so a plain list such as
+        # "React, FastAPI, PostgreSQL" is not mistaken for a heading.
+        if "," in text:
+            title, details = text.split(",", 1)
+            if ResumeService._looks_like_entry_title(title) and re.search(r"\b(?:19|20)\d{2}\b", details):
+                return title.strip(), details.strip(" ,")
         return None
 
     def _parse_named_entries(self, text: str, section: str) -> List[Dict[str, Any]]:
@@ -640,11 +652,15 @@ class ResumeService:
                 entries.append(current.copy())
 
         def start(title: str = "", organization: str = "", description: str = "") -> Dict[str, Any]:
+            dates = self._extract_year(organization)
+            if dates and section == "projects":
+                # "Personal project, 2023": the year goes to dates, not the organisation line.
+                organization = re.sub(r"[,\s(|–-]*\b" + dates + r"\b[)\s]*$", "", organization).strip(" ,|") or organization
             return {
                 "title": title,
                 "name": title,
                 "organization": organization,
-                "dates": self._extract_year(organization),
+                "dates": dates,
                 "description": description,
                 "bullets": [],
             }

@@ -36,3 +36,5 @@
 .ji-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
 .ji-table th, .ji-table td { text-align: left; padding: 7px 6px; border-bottom: 1px solid var(--slate-100); vertical-align: top; }
 .ji-table th { color: var(--slate-500); font-weight: 500; }
+.ji-sources > summary { cursor: pointer; font-weight: 600; font-size: 0.85rem; color: var(--slate-700); }
+.ji-sources[open] > summary { margin-bottom: 8px; }

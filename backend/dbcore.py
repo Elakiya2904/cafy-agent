@@ -1,4 +1,4 @@
-"""Database access layer: PostgreSQL in production, SQLite for offline development.
+"""Database access layer: PostgreSQL when ``DATABASE_URL`` is set, otherwise a local SQLite file.
 
 The application SQL is written once, in SQLite style (``?`` placeholders, ``rowid``...).
 When ``DATABASE_URL`` is set, ``PgConnection`` translates that SQL to Postgres on the fly and
@@ -27,8 +27,8 @@ class Row(dict):
         return super().__getitem__(key)
 
 
-
 def database_url() -> Optional[str]:
+    """The configured PostgreSQL URL, or None for local SQLite. There is deliberately no built-in default."""
     return (os.getenv("DATABASE_URL") or "").strip() or None
 
 
@@ -177,7 +177,7 @@ def _dsn(url: str) -> str:
     url = url.replace("postgresql+psycopg://", "postgresql://", 1)
     host = urlparse(url).hostname or ""
     if "sslmode=" not in url and host not in ("localhost", "127.0.0.1", "::1", ""):
-        url += ("&" if "?" in url else "?") + "sslmode=require"
+        url += ("&" if "?" in url else "?") + "sslmode=require"  # managed Postgres providers require TLS
     return url
 
 

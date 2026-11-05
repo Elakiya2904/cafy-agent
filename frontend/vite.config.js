@@ -1,18 +1,19 @@
-// Vite development/build configuration and React plugin setup.
-// Defines the frontend root and React transform, and supplies build-time
-// development-server settings used while working on the client application.
+import { configDefaults } from 'vitest/config';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
-  envDir: '..',
+  envDir: '..',  // VITE_* settings come from the single project-root .env (only VITE_-prefixed keys reach the browser)
   server: {
     port: 5173,
     host: '0.0.0.0',
     proxy: {
       '/api': { target: 'http://127.0.0.1:8000', changeOrigin: true }
     }
+  },
+  test: {
+    exclude: [...configDefaults.exclude, 'extension/**'],  // the browser extension has its own tests
   },
   build: {
     outDir: 'dist',

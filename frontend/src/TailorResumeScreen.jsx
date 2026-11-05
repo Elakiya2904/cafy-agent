@@ -3,14 +3,15 @@
  * Collects instructions, requests a tailored draft, and presents the result.
  */
 import React, { useState, useEffect } from "react";
-import { Sparkles, FileText, CheckCircle2, Loader2, ChevronRight, Zap, Target, Shield } from "lucide-react";
+import { Sparkles, FileText, CheckCircle2, Loader2, ArrowLeft, Zap, Target, Shield } from "lucide-react";
+import "./tailorResumeScreen.css";
 
 const STEPS = [
   { id: "parse",    label: "Parsing your resume",          detail: "Extracting skills, experience & education" },
   { id: "match",    label: "Analysing job requirements",   detail: "Identifying key skills and keywords" },
   { id: "tailor",   label: "Tailoring content with AI",    detail: "Rewriting bullets to match the role" },
   { id: "validate", label: "Validating factual accuracy",  detail: "Zero-hallucination guardrail check" },
-  { id: "compile",  label: "Compiling ATS-ready document", detail: "Generating PDF & DOCX files" },
+  { id: "compile",  label: "Preparing your editor",        detail: "Building the one-page PDF preview and DOCX" },
 ];
 
 function StepRow({ step, status }) {
@@ -39,6 +40,8 @@ export default function TailorResumeScreen({
   isGenerating,
   onGenerate,
   error,
+  hasExisting = false,
+  onBackToEditor,
 }) {
   const [activeStep, setActiveStep] = useState(-1);
 
@@ -65,7 +68,7 @@ export default function TailorResumeScreen({
           <div className="trs-header">
             <div className="trs-header-icon"><Sparkles size={20} /></div>
             <div>
-              <h2 className="trs-title">Tailor Resume</h2>
+              <h2 className="trs-title">{hasExisting ? "Regenerate resume" : "Create resume"}</h2>
               <p className="trs-subtitle">AI-powered, zero-hallucination tailoring</p>
             </div>
           </div>
@@ -88,7 +91,7 @@ export default function TailorResumeScreen({
               <FileText size={14} /> Base resume
             </label>
             <div className="trs-readonly-input">
-              {resume?.filename || resume?.candidate_name || "Uploaded resume"}
+              {resume ? resume.filename || resume.candidate_name || "Uploaded resume" : "No résumé uploaded yet. Upload one on the Home page first."}
             </div>
           </div>
 
@@ -102,6 +105,7 @@ export default function TailorResumeScreen({
             </label>
             <textarea
               className="trs-textarea"
+              aria-label="Job description"
               rows={6}
               value={tailorJobDescription}
               onChange={(e) => setTailorJobDescription(e.target.value)}
@@ -118,6 +122,7 @@ export default function TailorResumeScreen({
             </label>
             <textarea
               className="trs-textarea trs-textarea-sm"
+              aria-label="Additional instructions"
               rows={2}
               maxLength={500}
               placeholder="e.g. Emphasise my Python and RAG experience"
@@ -133,14 +138,19 @@ export default function TailorResumeScreen({
             type="button"
             className="trs-generate-btn"
             onClick={onGenerate}
-            disabled={isGenerating}
+            disabled={isGenerating || !resume}
           >
             {isGenerating ? (
               <><Loader2 size={16} className="trs-icon-spin" /> Generating…</>
             ) : (
-              <><Sparkles size={16} /> Generate Tailored Resume</>
+              <><Sparkles size={16} /> {hasExisting ? "Regenerate Tailored Resume" : "Generate Tailored Resume"}</>
             )}
           </button>
+          {onBackToEditor && !isGenerating && (
+            <button type="button" className="trs-back-btn" onClick={onBackToEditor}>
+              <ArrowLeft size={14} /> Back to editor
+            </button>
+          )}
 
           <p className="trs-disclaimer">
             <Shield size={12} /> Resume facts are preserved during tailoring.
@@ -156,8 +166,8 @@ export default function TailorResumeScreen({
               <div className="trs-idle-icon">
                 <Sparkles size={36} />
               </div>
-              <h3>Your tailored resume will appear here</h3>
-              <p>Fill in the details on the left and click <strong>Generate Tailored Resume</strong> to begin.</p>
+              <h3>{error ? "The resume was not created" : "Your tailored resume will appear here"}</h3>
+              <p>{error ? "Check the message on the left, then try again." : <>Review the job description, add any instructions, then click <strong>Generate Tailored Resume</strong>.</>}</p>
 
               <div className="trs-feature-list">
                 <div className="trs-feature-item">

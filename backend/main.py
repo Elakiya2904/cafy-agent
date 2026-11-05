@@ -33,7 +33,9 @@ from dotenv import load_dotenv
 from .scrapers.scraper_manager import ScraperManager
 from .scrapers.job_normalizer import JobNormalizer
 from .database import JobDatabase
-from .auth import AuthMiddleware, auth_configured, is_production, require_cron_secret, validate_production_config
+from .auth import AuthMiddleware, require_cron_secret, validate_production_config
+from .auth_api import build_router as build_auth_router
+from .auth_service import AuthService
 from .context import current_candidate
 from .user_store import MAX_RESUME_BYTES, UserSession, UserStore
 from .scheduler import ScrapingScheduler
@@ -51,7 +53,7 @@ from .email_agent.api import build_router as build_email_agent_router
 from .email_agent.monitor import EmailMonitor
 from .nango_api import build_router as build_nango_router
 from .nango_service import NangoService
-from .custom_auth import build_router as build_custom_auth_router
+from .custom_auth import build_guest_router
 from .job_applications.service import JobApplicationService
 from .job_applications.api import build_router as build_job_applications_router
 from .job_applications.answers import groq_answer
@@ -105,25 +107,6 @@ class DataExportRequest(BaseModel):
     include: List[str] = Field(default_factory=list)
     applications: List[ExportApplication] = Field(default_factory=list)
 
-
-class PreGenerationAnalysisRequest(BaseModel):
-    job_id: str
-    resume_data: Optional[Dict[str, Any]] = None
-
-
-class ExportApplication(BaseModel):
-    job_id: Optional[str] = None
-    title: Optional[str] = None
-    company: Optional[str] = None
-    status: Optional[str] = None
-    url: Optional[str] = None
-
-
-class DataExportRequest(BaseModel):
-    include: List[str] = Field(default_factory=list)
-    applications: List[ExportApplication] = Field(default_factory=list)
-
-
 class ResumeSaveRequest(BaseModel):
     job_id: str
     resume_id: Optional[str] = None
@@ -169,7 +152,7 @@ _cors_origins = [o.strip() for o in (os.getenv("CORS_ORIGINS") or "*").split(","
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
-    allow_credentials=False,  # auth is a Bearer token, never a cookie
+    allow_credentials=False,  # API calls use a Bearer token; the refresh cookie is same-origin only (SameSite=Strict)
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -198,17 +181,19 @@ scheduler = ScrapingScheduler(
 resume_svc = ResumeService()
 rec_svc = RecommendationService()
 sponsor_registry = VisaSponsorRegistry.from_directory(
-    PROJECT_ROOT / "sponsor-data",
-    PROJECT_ROOT / "ireland-data",
+    PROJECT_ROOT / "backend" / "sponsor-data",
+    PROJECT_ROOT / "backend" / "ireland-data",
 )
 career_chat_svc = CareerChatService()
 resume_generation_svc = ResumeGenerationService(PROJECT_ROOT)
+auth_svc = AuthService(db)
+app.include_router(build_auth_router(auth_svc))
 email_agent_svc = EmailAgentService(db)
 email_monitor = EmailMonitor(email_agent_svc)
 app.include_router(build_email_agent_router(email_agent_svc, email_monitor))
 nango_svc = NangoService()
 app.include_router(build_nango_router(nango_svc))
-app.include_router(build_custom_auth_router())
+app.include_router(build_guest_router())
 
 
 def _stored_resume_file() -> Optional[Dict[str, Any]]:
@@ -260,12 +245,16 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     logger.exception("Unhandled server exception: %s", exc)
     return JSONResponse(
         status_code=500,
-        content={"detail": f"Internal server error: {str(exc)}"},
+        content={"detail": "Internal server error."},  # details go to the log, never to the client
     )
 
 
 @app.on_event("startup")
 def startup_event():
+    try:
+        auth_svc.purge_expired_tokens()  # keep the refresh-token table from growing without bound
+    except Exception:
+        logger.exception("Could not purge expired refresh tokens")
     # Only run the background scheduler in standard server mode, not ephemeral serverless
     if not os.environ.get("VERCEL"):
         scheduler.start()
@@ -649,7 +638,8 @@ _RESUME_ID = re.compile(r"^[0-9a-f]{32}$")
 def _artifact_urls(resume_id: str) -> Dict[str, Optional[str]]:
     out_dir = resume_generation_svc.output_dir
     return {
-        "pdf_url": f"/api/resumes/{resume_id}/pdf" if (out_dir / f"{resume_id}.pdf").exists() else None,
+        "pdf_url": f"/api/resumes/{resume_id}/pdf"
+        if (out_dir / f"{resume_id}.pdf").exists() or resume_generation_svc.pdf_supported() else None,
         "docx_url": f"/api/resumes/{resume_id}/docx",
         "tex_url": f"/api/resumes/{resume_id}/latex",
     }
@@ -663,7 +653,10 @@ def _owned_artifact(resume_id: str, ext: str) -> Path:
     path = resume_generation_svc.output_dir / f"{resume_id}.{ext}"
     if not path.is_file():
         try:
-            resume_generation_svc.update_artifacts(resume_id, version["resume"])
+            # Saves skip the slow LaTeX compile; the PDF is built here on first download.
+            if ext == "pdf" and resume_generation_svc.ensure_pdf(resume_id):
+                return path
+            resume_generation_svc.update_artifacts(resume_id, version["resume"], compile_pdf=ext == "pdf")
         except Exception as error:
             logger.warning("[API] Could not re-render %s.%s: %s", resume_id, ext, error)
     return path
@@ -726,12 +719,13 @@ def get_job_tailored_resume(job_id: str):
 def save_tailored_resume(request: ResumeSaveRequest):
     job = db.get_job(request.job_id) or {}
     master_resume = ACTIVE_SESSION.get("resume") or {}
-    normalized = resume_generation_svc._validate_and_normalize(request.resume, master_resume, job)
+    # The user's edits are kept exactly: no one-page trimming, and emptied sections stay empty.
+    normalized = resume_generation_svc._validate_and_normalize(request.resume, master_resume, job, keep_edits=True)
 
     # Manual edits are stored in the current version; new versions come only from AI
-    # generation and full AI rewrites.
+    # generation and full AI rewrites. Autosave calls this often, so the PDF is compiled lazily.
     resume_id = request.resume_id or uuid.uuid4().hex
-    artifacts = resume_generation_svc.update_artifacts(resume_id, normalized)
+    artifacts = resume_generation_svc.update_artifacts(resume_id, normalized, compile_pdf=False)
     db.save_tailored_resume(request.job_id, resume_id, normalized)
     db.save_resume_version(resume_id, request.job_id, normalized, job_title=job.get("title"), company=job.get("company"))
     return {
@@ -753,15 +747,15 @@ def rewrite_full_resume(request: ResumeSaveRequest):
     if not job:
         raise HTTPException(status_code=404, detail="The selected job could not be found.")
     master_resume = ACTIVE_SESSION.get("resume") or {}
-    current = resume_generation_svc._validate_and_normalize(request.resume, master_resume, job)
+    current = resume_generation_svc._validate_and_normalize(request.resume, master_resume, job, keep_edits=True)
     try:
         outcome = resume_generation_svc.rewrite_full(current, job, resume_svc)
     except ResumeGenerationError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    rewritten = resume_generation_svc._validate_and_normalize(outcome["resume"], master_resume, job)
+    rewritten = resume_generation_svc._validate_and_normalize(outcome["resume"], master_resume, job, keep_edits=True)
 
     resume_id = uuid.uuid4().hex
-    artifacts = resume_generation_svc.update_artifacts(resume_id, rewritten)
+    artifacts = resume_generation_svc.update_artifacts(resume_id, rewritten, compile_pdf=False)
     db.save_tailored_resume(request.job_id, resume_id, rewritten)
     db.save_resume_version(
         resume_id, request.job_id, rewritten,

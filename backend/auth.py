@@ -1,27 +1,41 @@
-"""Verify the caller's PostgreSQL-backed account JWT and expose their id to the backend.
+"""Request authentication: verify the caller's access token and expose their id to the rest of the backend.
 
-* With ``APP_ENV=production`` a missing auth configuration fails closed (503) instead of letting anyone in.
-* Without auth configured and outside production, requests run as the development user (``X-Candidate-Id`` or ``local``).
+Sign-up, sign-in and token refresh live in ``auth_api``; token and password logic lives in ``auth_service``.
+
+* Every ``/api/*`` route except ``PUBLIC_PATHS`` needs ``Authorization: Bearer <access token>``.
+* Guest mode (``ENABLE_GUEST_MODE=true``, never in production) lets a request without a token use the shared
+  anonymous ``guest`` account when it sends ``X-Cafy-Guest: true``.
+* Production refuses to start without a strong ``JWT_SECRET_KEY`` and a ``DATABASE_URL``.
 """
+import hmac
 import logging
 import os
 import re
-from typing import Any, Dict, Optional
+from typing import Optional
 from urllib.parse import urlparse
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from jwt import PyJWTError
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from . import context
-from .custom_auth import verify_custom_token
+from .auth_service import (
+    JWT_LEEWAY_SECONDS,  # noqa: F401  (re-exported for tests)
+    AuthError,
+    configured_secret,
+    guest_mode_enabled,
+    is_production,
+    secret_problem,
+    verify_access_token,
+    sqlite_guest_fallback_enabled,
+)
 
 logger = logging.getLogger("cafy.auth")
 
 PUBLIC_PATHS = (
     re.compile(r"^/api/health/?$"),
-    re.compile(r"^/api/auth/(register|login|refresh|logout|guest)/?$"),
+    re.compile(r"^/api/auth/(config|signup|login|refresh|logout|guest)/?$"),  # these authenticate themselves
     re.compile(r"^/api/email-agent/oauth/[a-z]+/callback/?$"),   # Google redirects the browser here; the signed state authenticates it
     re.compile(r"^/api/email-agent/cron/poll/?$"),               # cron endpoints are protected by CRON_SECRET instead
     re.compile(r"^/api/cron/?$"),
@@ -34,13 +48,12 @@ TOKEN_IN_QUERY_PATHS = (
     re.compile(r"^/api/export/?$"),
 )
 
+
 def require_cron_secret(request: Request) -> None:
     """Scheduler calls (Vercel Cron sends ``Authorization: Bearer $CRON_SECRET``). Closed when no secret is configured."""
-    import hmac
-    from fastapi import HTTPException
     secret = os.getenv("CRON_SECRET")
     supplied = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
-    if not secret or not hmac.compare_digest(supplied, secret):
+    if not secret or not hmac.compare_digest(supplied.encode(), secret.encode()):
         raise HTTPException(status_code=401, detail="Invalid cron credentials.")
 
 
@@ -67,15 +80,20 @@ def validate_production_config() -> None:
         except ValueError:
             parsed_database_url = None
             database_host = ""
-        if parsed_database_url is None or parsed_database_url.scheme not in {"postgres", "postgresql", "postgresql+psycopg"} or not database_host:
+        if (
+            parsed_database_url is None
+            or parsed_database_url.scheme not in {"postgres", "postgresql", "postgresql+psycopg"}
+            or not database_host
+        ):
             raise RuntimeError("DATABASE_URL must be a valid PostgreSQL connection URL.")
         if os.getenv("VERCEL") and database_host in {"localhost", "127.0.0.1", "::1"}:
             raise RuntimeError(
                 "DATABASE_URL points to localhost, which is not reachable from Vercel. "
                 "Configure a hosted PostgreSQL connection URL in the Vercel Production environment."
             )
-    if not os.getenv("JWT_SECRET_KEY"):
-        missing.append("JWT_SECRET_KEY (PostgreSQL-backed user sign-in)")
+    problem = secret_problem(configured_secret())
+    if problem:
+        missing.append(problem + " (signs user sessions)")
     if not os.getenv("EMAIL_AGENT_SECRET") and not sqlite_guest_fallback_enabled():
         missing.append("EMAIL_AGENT_SECRET (signs OAuth state, derives the token-encryption key)")
     elif not os.getenv("EMAIL_AGENT_SECRET"):
@@ -90,41 +108,6 @@ def validate_production_config() -> None:
         logger.warning("CORS_ORIGINS is '*'; set it to your site's origin.")
 
 
-class AuthError(Exception):
-    def __init__(self, message: str, status: int = 401):
-        super().__init__(message)
-        self.status = status
-
-
-def auth_configured() -> bool:
-    return bool(os.getenv("JWT_SECRET_KEY"))
-
-
-def is_production() -> bool:
-    return (os.getenv("APP_ENV") or "").lower() in ("production", "prod") or bool(os.getenv("VERCEL"))
-
-
-def guest_mode_enabled() -> bool:
-    """Guest requests are opt-in."""
-    val = (os.getenv("ENABLE_GUEST_MODE") or "true").strip().lower()
-    return val in {"1", "true", "yes", "on"}
-
-
-def sqlite_guest_fallback_enabled() -> bool:
-    """Allow explicitly enabled, ephemeral guest access on Vercel without PostgreSQL."""
-    enabled = (os.getenv("ENABLE_GUEST_MODE") or "").strip().lower() in {"1", "true", "yes", "on"}
-    return bool(os.getenv("VERCEL")) and not (os.getenv("DATABASE_URL") or "").strip() and enabled
-
-
-def verify_token(token: str) -> Dict[str, Any]:
-    """Validate signature, timestamps, issuer and audience; return the JWT claims."""
-    try:
-        return verify_custom_token(token)
-    except (PyJWTError, ValueError) as err:
-        logger.warning("Custom authentication token validation failed: %s", err)
-        raise AuthError("Invalid sign-in token.") from err
-
-
 def _bearer(request: Request) -> Optional[str]:
     header = request.headers.get("authorization", "")
     if header.lower().startswith("bearer "):
@@ -134,30 +117,34 @@ def _bearer(request: Request) -> Optional[str]:
     return None
 
 
+def _unauthorized(message: str, status: int = 401) -> JSONResponse:
+    return JSONResponse({"detail": message}, status_code=status, headers={"WWW-Authenticate": "Bearer"})
+
+
+def verify_token(token: str) -> dict:
+    return verify_access_token(token)
+
+
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
         if request.method == "OPTIONS" or not path.startswith("/api/") or any(p.match(path) for p in PUBLIC_PATHS):
             return await call_next(request)
-        if not auth_configured():
-            if is_production():
-                logger.error("APP_ENV=production but JWT_SECRET_KEY is not set; refusing request.")
+
+        token = _bearer(request)
+        if token:
+            try:
+                claims = verify_token(token)
+            except AuthError as err:
+                return _unauthorized(str(err), err.status)
+            except RuntimeError:  # production without a usable signing key: fail closed
+                logger.error("JWT_SECRET_KEY is missing or weak; refusing authenticated request.")
                 return JSONResponse({"detail": "Authentication is not configured on the server."}, status_code=503)
-            marker = context.set_candidate((request.headers.get("x-candidate-id") or context.DEV_CANDIDATE).strip()[:64] or context.DEV_CANDIDATE)
+            marker = context.set_candidate(claims["sub"])
+        elif request.headers.get("x-cafy-guest", "").strip().lower() == "true" and guest_mode_enabled():
+            marker = context.set_candidate(context.GUEST_CANDIDATE)
         else:
-            token = _bearer(request)
-            if not token:
-                guest_requested = request.headers.get("x-cafy-guest", "").strip().lower() == "true"
-                if guest_requested and guest_mode_enabled() and not is_production():
-                    marker = context.set_candidate(context.GUEST_CANDIDATE)
-                else:
-                    return JSONResponse({"detail": "Sign in required."}, status_code=401, headers={"WWW-Authenticate": "Bearer"})
-            else:
-                try:
-                    claims = verify_token(token)
-                except AuthError as err:
-                    return JSONResponse({"detail": str(err)}, status_code=err.status, headers={"WWW-Authenticate": "Bearer"})
-                marker = context.set_candidate(claims["sub"])
+            return _unauthorized("Sign in required.")
         try:
             return await call_next(request)
         finally:

@@ -10,6 +10,11 @@ from .job_normalizer import JobNormalizer
 
 logger = logging.getLogger("cafy.scrapers.lever")
 
+PAGE_SIZE = 100
+MAX_PAGES = 20
+# Lever's `country` is an ISO code; only UK/IE matter for the location filter.
+COUNTRY_NAMES = {"GB": "United Kingdom", "UK": "United Kingdom", "IE": "Ireland"}
+
 class LeverScraper(BaseScraper):
     platform_name = "lever"
 
@@ -20,28 +25,39 @@ class LeverScraper(BaseScraper):
             return []
 
         url = f"https://api.lever.co/v0/postings/{token}"
-        params = {"mode": "json", "limit": 50}
 
-        resp = self.get(url, params=params)
-        if not resp:
-            logger.info(f"[Lever] No response received for company '{token}'")
-            return []
-
-        try:
-            data = resp.json()
-        except Exception as e:
-            logger.error(f"[Lever] Failed to parse JSON for {token}: {e}")
-            return []
-
-        if not isinstance(data, list):
-            return []
+        # Page through the board: a single `limit=50` request silently dropped every posting past 50.
+        data: List[Dict[str, Any]] = []
+        for page in range(MAX_PAGES):
+            resp = self.get(url, params={"mode": "json", "limit": PAGE_SIZE, "skip": page * PAGE_SIZE})
+            if not resp:
+                if page == 0:
+                    logger.info(f"[Lever] No response received for company '{token}'")
+                break
+            try:
+                batch = resp.json()
+            except Exception as e:
+                logger.error(f"[Lever] Failed to parse JSON for {token}: {e}")
+                break
+            if not isinstance(batch, list):
+                break
+            data.extend(batch)
+            if len(batch) < PAGE_SIZE:
+                break
 
         logger.info(f"[Lever] Fetched {len(data)} raw jobs for {name} ({token})")
 
         normalized_jobs = []
         for item in data:
             cats = item.get("categories") or {}
-            loc = cats.get("location") or ""
+            # Multi-location roles list every site in allLocations; the primary may not be the UK one.
+            all_locs = [l for l in (cats.get("allLocations") or []) if l] or [cats.get("location") or ""]
+            loc = "; ".join(dict.fromkeys(all_locs))
+            country = COUNTRY_NAMES.get((item.get("country") or "").upper())
+            # `country` describes the primary site, so only attach it to single-location postings.
+            if (country and len(all_locs) == 1 and country.lower() not in loc.lower()
+                    and not JobNormalizer._is_uk_site(loc)):
+                loc = f"{loc}, {country}" if loc else country
             team = cats.get("team") or ""
             commitment = cats.get("commitment") or ""
             workplace = cats.get("workplaceType") or ""

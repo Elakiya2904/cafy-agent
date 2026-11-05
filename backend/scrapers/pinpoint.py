@@ -37,7 +37,13 @@ class PinpointScraper(BaseScraper):
         normalized_jobs = []
         for item in data_list:
             loc_obj = item.get("location") or {}
-            city = loc_obj.get("city") or loc_obj.get("name") or ""
+            # `name` is the full label ("UK - London") and `province` holds the country; `city` alone
+            # dropped UK roles in towns missing from the normaliser's city list.
+            city = loc_obj.get("name") or loc_obj.get("city") or ""
+            province = (loc_obj.get("province") or "").strip()
+            if (province and province.lower() not in str(city).lower()
+                    and not JobNormalizer._is_uk_site(str(city))):
+                city = f"{city}, {province}" if city else province
             workplace = item.get("workplace_type") or ""
             is_remote = (
                 bool(loc_obj.get("remote"))

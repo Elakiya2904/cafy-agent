@@ -32,7 +32,8 @@ class NangoService:
     """
 
     def __init__(self, secret_key: Optional[str] = None):
-        self._key = (secret_key or os.getenv("NANGO_SECRET_KEY") or "").strip()
+        configured_key = os.getenv("NANGO_SECRET_KEY") if secret_key is None else secret_key
+        self._key = (configured_key or "").strip()
         if not self._key:
             logger.warning("NANGO_SECRET_KEY is not set; Nango integration will be unavailable.")
 

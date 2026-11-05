@@ -13,6 +13,7 @@ from .workable import WorkableScraper
 from .oracle_cloud import OracleCloudScraper
 from .breezyhr import BreezyHRScraper
 from .pinpoint import PinpointScraper
+from .smartrecruiters import SmartRecruitersScraper
 from .scraper_manager import ScraperManager
 
 __all__ = [
@@ -26,5 +27,6 @@ __all__ = [
     "OracleCloudScraper",
     "BreezyHRScraper",
     "PinpointScraper",
+    "SmartRecruitersScraper",
     "ScraperManager"
 ]

@@ -10,6 +10,19 @@ from .job_normalizer import JobNormalizer
 
 logger = logging.getLogger("cafy.scrapers.ashby")
 
+
+def _site_label(site: Dict[str, Any]) -> str:
+    """'<location>, <country>' — labels like 'Milton Keynes Office' only reveal the country via the address."""
+    label = (site.get("location") or site.get("locationName") or "").strip()
+    postal = (site.get("address") or {}).get("postalAddress") or {}
+    if not label:
+        label = (postal.get("addressLocality") or "").strip()
+    country = (postal.get("addressCountry") or "").strip()
+    # Skip when the label already reads as UK ("London, UK") to avoid "London, UK, United Kingdom".
+    if country and country.lower() not in label.lower() and not JobNormalizer._is_uk_site(label):
+        label = f"{label}, {country}" if label else country
+    return label
+
 class AshbyScraper(BaseScraper):
     platform_name = "ashby"
 
@@ -36,19 +49,22 @@ class AshbyScraper(BaseScraper):
 
         normalized_jobs = []
         for item in raw_jobs:
-            loc = item.get("locationName", "")
-            if not loc and item.get("address"):
-                loc = item["address"].get("postalAddress", {}).get("addressLocality", "")
+            if item.get("isListed") is False:
+                continue
+            # The posting API returns `location` (not `locationName`) plus `secondaryLocations`;
+            # UK roles are often only listed as a secondary site (e.g. primary SF, secondary London).
+            sites = [item] + [s for s in (item.get("secondaryLocations") or []) if isinstance(s, dict)]
+            loc = "; ".join(dict.fromkeys(filter(None, (_site_label(s) for s in sites))))
 
             raw_job = {
                 "source_id": str(item.get("id")),
                 "title": item.get("title"),
                 "company": name,
-                "location": loc or "",
+                "location": loc,
                 "is_remote": item.get("isRemote", False),
                 "url": item.get("jobUrl") or f"https://jobs.ashbyhq.com/{token}/{item.get('id')}",
                 "description": item.get("descriptionHtml") or item.get("descriptionPlain") or "",
-                "department": item.get("departmentName") or "",
+                "department": item.get("department") or item.get("team") or "",
                 "employment_type": item.get("employmentType") or "",
                 "posted_at": item.get("publishedAt")
             }

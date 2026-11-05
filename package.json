@@ -5,5 +5,9 @@
   "description": "Cafy Agent static frontend and Python API",
   "scripts": {
     "build": "npm --prefix frontend run build"
+  },
+  "dependencies": {
+    "@neon/config": "^1.11.2",
+    "@neon/env": "^1.6.14"
   }
 }

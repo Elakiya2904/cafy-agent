@@ -3,7 +3,7 @@
 Mounted under /api/integrations/nango.
 
 Security model:
-- Every endpoint is protected by the existing AuthMiddleware (application JWT).
+- Every endpoint is protected by the existing AuthMiddleware (signed access token).
 - The authenticated user ID comes from current_candidate() — never from the
   request body or query string.
 - Connection ownership is verified before any read/delete operation.
@@ -61,7 +61,7 @@ def build_router(nango: NangoService) -> APIRouter:
     router = APIRouter(prefix="/api/integrations/nango", tags=["nango"])
 
     def uid() -> str:
-        """Verified account ID — set by AuthMiddleware, never from client input."""
+        """Verified user id from the access token — set by AuthMiddleware, never from client input."""
         return current_candidate()
 
     def _run(fn, *args, **kwargs):

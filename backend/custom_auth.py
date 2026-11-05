@@ -186,6 +186,41 @@ def build_router() -> APIRouter:
     return router
 
 
+def build_guest_router() -> APIRouter:
+    router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+    @router.post("/guest")
+    def guest():
+        from .auth import sqlite_guest_fallback_enabled
+
+        if SessionLocal is not None or not sqlite_guest_fallback_enabled():
+            raise HTTPException(
+                status_code=403,
+                detail="Temporary guest access is only available when explicitly enabled without PostgreSQL.",
+            )
+        now = _now()
+        guest_id = f"guest_{uuid.uuid4().hex}"
+        token = jwt.encode(
+            {
+                "sub": guest_id,
+                "guest": True,
+                "iss": os.getenv("JWT_ISSUER", "cafy-agent"),
+                "aud": os.getenv("JWT_AUDIENCE", "cafy-agent-web"),
+                "iat": now,
+                "exp": now + timedelta(hours=GUEST_ACCESS_TOKEN_HOURS),
+            },
+            _secret(),
+            algorithm="HS256",
+        )
+        return {
+            "access_token": token,
+            "token_type": "bearer",
+            "user": {"id": guest_id, "full_name": "Guest"},
+        }
+
+    return router
+
+
 def verify_custom_token(token: str) -> dict[str, Any]:
     return jwt.decode(
         token,

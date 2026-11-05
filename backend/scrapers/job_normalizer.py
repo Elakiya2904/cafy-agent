@@ -58,6 +58,30 @@ NON_UK_COUNTRY_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Separators between distinct sites in a multi-location string. Commas are NOT separators: they sit inside
+# a single site ("London, UK", "Cambridge, MA").
+LOCATION_SEPARATOR_PATTERN = re.compile(r"\s*(?:;|\||•|\n|\s/\s|\s+or\s+|\s+&\s+)\s*", re.IGNORECASE)
+
+
+# ATS feeds spell the same thing many ways ("FullTime", "Permanent - Full Time") and sometimes put a department
+# or work mode in this field ("Engineering", "Hybrid"). Only real employment types are kept.
+_EMPLOYMENT_TYPES = (
+    (re.compile(r"intern", re.I), "Internship"),
+    (re.compile(r"fixed[\s-]*term|maternity|cover\b", re.I), "Fixed-term"),
+    (re.compile(r"contract", re.I), "Contract"),
+    (re.compile(r"temp", re.I), "Temporary"),
+    (re.compile(r"part[\s-]*time", re.I), "Part-time"),
+    (re.compile(r"full[\s-]*time|permanent", re.I), "Full-time"),
+)
+
+
+def normalize_employment_type(value: Optional[str]) -> str:
+    for pattern, label in _EMPLOYMENT_TYPES:
+        if value and pattern.search(value):
+            return label
+    return ""
+
+
 class JobNormalizer:
     """
     Validates, sanitizes, and standardizes job records collected from any ATS platform.
@@ -67,7 +91,33 @@ class JobNormalizer:
 
     @staticmethod
     def is_uk_location(location: str) -> bool:
-        """Return whether a location identifies a UK role."""
+        """Return whether a location identifies a UK role.
+
+        Multi-location strings ("San Francisco; London, UK") are split into sites and the role counts as
+        UK when any single site is UK. Previously the whole string was rejected as soon as it mentioned a
+        non-UK place, which dropped every multi-site role that included a UK office.
+        """
+        sites = [s for s in LOCATION_SEPARATOR_PATTERN.split(location or "") if s.strip()]
+        if len(sites) > 1:
+            return any(JobNormalizer._is_uk_site(site) for site in sites)
+        return JobNormalizer._is_uk_site(location)
+
+    @staticmethod
+    def uk_only_location(location: str) -> str:
+        """Reduce a multi-site location to its UK sites ("San Francisco; London, UK" -> "London, UK").
+
+        Stored jobs then describe only where the role can be done in the UK, so downstream checks
+        (sponsor register, location badges) see a plain UK location.
+        """
+        sites = [s.strip() for s in LOCATION_SEPARATOR_PATTERN.split(location or "") if s.strip()]
+        if len(sites) <= 1:
+            return (location or "").strip()
+        uk_sites = [s for s in sites if JobNormalizer._is_uk_site(s)]
+        return "; ".join(uk_sites) if uk_sites else (location or "").strip()
+
+    @staticmethod
+    def _is_uk_site(location: str) -> bool:
+        """Classify a single site, e.g. 'London, UK' or 'Cambridge, MA'."""
         normalized_location = (location or "").strip()
         if not normalized_location:
             return False
@@ -117,7 +167,7 @@ class JobNormalizer:
         is_remote = JobNormalizer.detect_remote(location, title, clean_desc, raw.get("is_remote"))
 
         # 7. Employment type & Department
-        employment_type = (raw.get("employment_type") or "").strip()
+        employment_type = normalize_employment_type(raw.get("employment_type"))
         department = (raw.get("department") or "").strip()
         posted_at = raw.get("posted_at")
 
