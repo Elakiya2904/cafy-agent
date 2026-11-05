@@ -551,6 +551,63 @@ class JobDatabase:
             data = {}
         return {"resume_id": row["resume_id"], "job_id": row["job_id"], "kind": row["kind"], "resume": data}
 
+    def delete_resume_version(self, resume_id: str) -> Optional[Dict[str, str]]:
+        """Delete one of the current candidate's versions and repair its saved job pointer."""
+        candidate_id = current_candidate()
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT resume_id, job_id FROM tailored_resume_versions WHERE resume_id = ? AND candidate_id = ?",
+                (resume_id, candidate_id),
+            ).fetchone()
+            if not row:
+                return None
+
+            conn.execute(
+                "DELETE FROM tailored_resume_versions WHERE resume_id = ? AND candidate_id = ?",
+                (resume_id, candidate_id),
+            )
+            conn.execute(
+                "UPDATE tailored_resume_versions SET based_on = NULL WHERE based_on = ? AND candidate_id = ?",
+                (resume_id, candidate_id),
+            )
+
+            saved = conn.execute(
+                "SELECT id FROM tailored_resumes WHERE job_id = ? AND resume_id = ? AND candidate_id = ?",
+                (row["job_id"], resume_id, candidate_id),
+            ).fetchone()
+            if saved:
+                replacement = conn.execute(
+                    """
+                    SELECT resume_id, structured_data FROM tailored_resume_versions
+                    WHERE job_id = ? AND candidate_id = ?
+                    ORDER BY updated_at DESC, rowid DESC LIMIT 1
+                    """,
+                    (row["job_id"], candidate_id),
+                ).fetchone()
+                if replacement:
+                    conn.execute(
+                        """
+                        UPDATE tailored_resumes
+                        SET resume_id = ?, structured_data = ?, updated_at = ?
+                        WHERE id = ? AND candidate_id = ?
+                        """,
+                        (
+                            replacement["resume_id"],
+                            replacement["structured_data"],
+                            datetime.now(timezone.utc).isoformat(),
+                            saved["id"],
+                            candidate_id,
+                        ),
+                    )
+                else:
+                    conn.execute(
+                        "DELETE FROM tailored_resumes WHERE id = ? AND candidate_id = ?",
+                        (saved["id"], candidate_id),
+                    )
+
+            conn.commit()
+        return {"resume_id": row["resume_id"], "job_id": row["job_id"]}
+
     def list_resume_versions(self) -> List[Dict[str, Any]]:
         """All generated resume versions, newest first, numbered from 1 (oldest)."""
         with self._get_connection() as conn:

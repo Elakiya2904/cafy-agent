@@ -425,3 +425,8 @@
     bottom: 24px;
   }
 }
+
+/* On desktop the sidebar carries the account action, so the floating bar is redundant there. */
+@media (min-width: 861px) {
+  body:has(.sidebar-account) .ag-bar { display: none; }
+}

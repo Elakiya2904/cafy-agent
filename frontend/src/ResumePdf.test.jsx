@@ -4,7 +4,7 @@
 import React from "react";
 import { describe, expect, it } from "vitest";
 import { pdf } from "@react-pdf/renderer";
-import ResumePdf from "./ResumePdf.jsx";
+import ResumePdf, { normalizePdfText } from "./ResumePdf.jsx";
 import { countPdfPagesFromBytes } from "./pdfUtils.js";
 
 const resume = (bulletCount) => ({
@@ -29,6 +29,12 @@ async function pages(data, settings) {
 }
 
 describe("ResumePdf", () => {
+  it("normalizes line breaks from uploaded resume text", () => {
+    expect(normalizePdfText("Built an AI\n document intelligence\tplatform.")).toBe(
+      "Built an AI document intelligence platform."
+    );
+  });
+
   it("renders a real one-page PDF for a short resume", async () => {
     const out = await pages(resume(3));
     expect(String.fromCharCode(...out.bytes.subarray(0, 5))).toBe("%PDF-");

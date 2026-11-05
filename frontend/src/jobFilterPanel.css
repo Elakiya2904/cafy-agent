@@ -1,0 +1,474 @@
+/* Job search + filter panel (JobFilterPanel.jsx). Spacing runs on a 4px scale: 8 / 12 / 16 / 20 / 24. */
+.jfp {
+  --jfp-ink: #0f172a;
+  --jfp-text: #334155;
+  --jfp-muted: #64748b;
+  --jfp-faint: #94a3b8;
+  --jfp-line: #e2e8f0;
+  --jfp-line-strong: #cbd5e1;
+  --jfp-soft: #f8fafc;
+  --jfp-brand: #2447b5;
+  --jfp-brand-hover: #1b3a9c;
+  --jfp-brand-soft: #eef2ff;
+  --jfp-brand-line: #c7d2fe;
+  --jfp-danger: #b42318;
+  --jfp-danger-soft: #fef3f2;
+  --jfp-radius: 12px;
+
+  margin-bottom: 20px;
+  border: 1px solid var(--jfp-line);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 8px 24px rgba(15, 23, 42, .05);
+  color: var(--jfp-text);
+  font-size: .875rem;
+}
+
+/* ---------- Search row ---------- */
+.jfp-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 20px 24px;
+}
+.jfp-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--jfp-line);
+  border-radius: var(--jfp-radius);
+  background: var(--jfp-soft);
+  color: var(--jfp-faint);
+  transition: border-color .15s, box-shadow .15s, background .15s;
+}
+.jfp-field:hover { border-color: var(--jfp-line-strong); }
+.jfp-field:focus-within {
+  border-color: var(--jfp-brand);
+  background: #fff;
+  box-shadow: 0 0 0 4px rgba(36, 71, 181, .12);
+  color: var(--jfp-brand);
+}
+.jfp-field input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--jfp-ink);
+  font: inherit;
+  font-size: .9375rem;
+}
+.jfp-field input::placeholder { color: var(--jfp-faint); }
+.jfp-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 48px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: var(--jfp-radius);
+  background: var(--jfp-brand);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .1), inset 0 1px 0 rgba(255, 255, 255, .12);
+  color: #fff;
+  font: inherit;
+  font-size: .9375rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background .15s;
+}
+.jfp-submit:hover { background: var(--jfp-brand-hover); }
+.jfp-submit:focus-visible { outline: 2px solid var(--jfp-brand); outline-offset: 2px; }
+
+/* ---------- Filter bar: toggle, active chips, clear ---------- */
+.jfp-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 8px 24px;
+  border-top: 1px solid var(--jfp-line);
+  background: var(--jfp-soft);
+}
+.jfp:has(.jfp-body) .jfp-bar { border-bottom: 1px solid var(--jfp-line); }
+.jfp:not(:has(.jfp-body)) .jfp-bar { border-radius: 0 0 16px 16px; }
+.jfp-toggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--jfp-ink);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.jfp-toggle:hover { background: #eef2f7; }
+.jfp-count {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--jfp-brand);
+  color: #fff;
+  font-size: .72rem;
+  font-weight: 600;
+}
+.jfp-chevron { color: var(--jfp-muted); transition: transform .2s; }
+.jfp-chevron.open { transform: rotate(180deg); }
+
+.jfp-chips {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+.jfp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 4px 0 10px;
+  border: 1px solid var(--jfp-brand-line);
+  border-radius: 999px;
+  background: var(--jfp-brand-soft);
+  color: var(--jfp-brand);
+  font-size: .78rem;
+  font-weight: 500;
+}
+.jfp-chip.exclude { border-color: #fecdca; background: var(--jfp-danger-soft); color: var(--jfp-danger); }
+.jfp-chip button,
+.jfp-tag button {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: .7;
+}
+.jfp-chip button:hover,
+.jfp-tag button:hover { background: rgba(15, 23, 42, .08); opacity: 1; }
+.jfp-reset {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--jfp-brand);
+  font: inherit;
+  font-size: .8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.jfp-reset:hover:not(:disabled) { background: var(--jfp-brand-soft); }
+.jfp-reset:disabled { color: var(--jfp-faint); cursor: default; }
+
+/* ---------- Filter sections ---------- */
+.jfp-body {
+  align-items: start;
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 16px;
+  padding: 20px 24px 24px;
+}
+.jfp-experience { grid-column: span 6; }
+.jfp-posted { grid-column: span 3; }
+.jfp-mode { grid-column: span 3; }
+.jfp-type { grid-column: span 6; }
+
+.jfp-salary { grid-column: span 6; }
+.jfp-skills { grid-column: span 6; grid-row: span 2; }
+
+.jfp-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--jfp-line);
+  border-radius: var(--jfp-radius);
+  background: #fff;
+}
+.jfp-section-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.jfp-section-icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--jfp-brand-soft);
+  color: var(--jfp-brand);
+}
+.jfp-section-titles { flex: 1; min-width: 0; }
+.jfp-section-titles h3 {
+  margin: 0;
+  color: var(--jfp-ink);
+  font-size: .875rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.jfp-section-titles p {
+  margin: 2px 0 0;
+  color: var(--jfp-muted);
+  font-size: .75rem;
+  line-height: 1.45;
+}
+
+.jfp-fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+.jfp-options { display: flex; flex-wrap: wrap; gap: 8px; }
+.jfp-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--jfp-line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--jfp-text);
+  font: inherit;
+  font-size: .8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color .15s, background .15s, color .15s;
+}
+.jfp-option:hover { border-color: var(--jfp-line-strong); background: var(--jfp-soft); }
+.jfp-option.on {
+  border-color: var(--jfp-brand);
+  background: var(--jfp-brand-soft);
+  color: var(--jfp-brand);
+  font-weight: 600;
+}
+
+/* Native select with a custom chevron */
+.jfp-select { position: relative; display: block; }
+.jfp-select select {
+  width: 100%;
+  height: 40px;
+  padding: 0 36px 0 12px;
+  border: 1px solid var(--jfp-line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--jfp-ink);
+  font: inherit;
+  font-size: .8125rem;
+  font-weight: 500;
+  appearance: none;
+  cursor: pointer;
+}
+.jfp-select svg { position: absolute; top: 12px; right: 12px; color: var(--jfp-muted); pointer-events: none; }
+.jfp-select select:focus,
+.jfp-money-box:focus-within,
+.jfp-tags:focus-within {
+  outline: 0;
+  border-color: var(--jfp-brand);
+  box-shadow: 0 0 0 3px rgba(36, 71, 181, .12);
+}
+
+/* Segmented control (currency, Any/All) */
+.jfp-segment {
+  display: inline-flex;
+  flex: 0 0 auto;
+  padding: 3px;
+  border-radius: 8px;
+  background: #f1f5f9;
+}
+.jfp-segment button {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--jfp-muted);
+  font: inherit;
+  font-size: .75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.jfp-segment button:disabled { color: #cbd5e1; cursor: not-allowed; }
+.jfp-segment button.on { background: #fff; box-shadow: 0 1px 2px rgba(15, 23, 42, .1); color: var(--jfp-ink); }
+
+/* Salary */
+.jfp-range { display: flex; align-items: flex-end; gap: 10px; }
+.jfp-range-dash { padding-bottom: 10px; color: var(--jfp-faint); }
+.jfp-money { display: flex; flex: 1; flex-direction: column; gap: 6px; min-width: 0; }
+.jfp-money > span:first-child { color: var(--jfp-muted); font-size: .72rem; font-weight: 500; }
+.jfp-money-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--jfp-line);
+  border-radius: 10px;
+  background: #fff;
+}
+.jfp-money-box b { color: var(--jfp-faint); font-weight: 500; }
+.jfp-money-box input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--jfp-ink);
+  font: inherit;
+  font-size: .875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Skills */
+.jfp-skill-row {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+}
+.jfp-skill-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-top: 11px;
+  color: var(--jfp-text);
+  font-size: .75rem;
+  font-weight: 600;
+}
+.jfp-skill-label.exclude { color: var(--jfp-danger); }
+.jfp-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 5px 8px;
+  border: 1px solid var(--jfp-line);
+  border-radius: 10px;
+  background: #fff;
+  cursor: text;
+}
+.jfp-tags input {
+  flex: 1;
+  min-width: 90px;
+  height: 28px;
+  padding: 0 4px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--jfp-ink);
+  font: inherit;
+  font-size: .8125rem;
+}
+.jfp-tags input::placeholder { color: var(--jfp-faint); }
+.jfp-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 26px;
+  padding: 0 2px 0 9px;
+  border-radius: 6px;
+  background: var(--jfp-brand-soft);
+  color: var(--jfp-brand);
+  font-size: .78rem;
+  font-weight: 500;
+}
+.jfp-tags.exclude .jfp-tag { background: var(--jfp-danger-soft); color: var(--jfp-danger); }
+.jfp-suggest {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--jfp-line);
+}
+.jfp-suggest > span { margin-right: 2px; color: var(--jfp-faint); font-size: .72rem; font-weight: 500; }
+.jfp-suggest button {
+  height: 26px;
+  padding: 0 9px;
+  border: 1px dashed var(--jfp-line-strong);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--jfp-text);
+  font: inherit;
+  font-size: .75rem;
+  cursor: pointer;
+}
+.jfp-suggest button:hover { border-style: solid; border-color: var(--jfp-brand); color: var(--jfp-brand); }
+
+/* Perks switch */
+.jfp-switch { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; }
+.jfp-switch input { position: absolute; opacity: 0; pointer-events: none; }
+.jfp-switch-track {
+  position: relative;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 20px;
+  margin-top: 1px;
+  border-radius: 999px;
+  background: var(--jfp-line-strong);
+  transition: background .15s;
+}
+.jfp-switch-track span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .2);
+  transition: transform .15s;
+}
+.jfp-switch input:checked + .jfp-switch-track { background: var(--jfp-brand); }
+.jfp-switch input:checked + .jfp-switch-track span { transform: translateX(16px); }
+.jfp-switch input:focus-visible + .jfp-switch-track { box-shadow: 0 0 0 3px rgba(36, 71, 181, .25); }
+.jfp-switch-text { display: flex; flex-direction: column; gap: 2px; }
+.jfp-switch-text strong { display: inline-flex; align-items: center; gap: 6px; }
+.jfp-switch-text strong { color: var(--jfp-ink); font-size: .8125rem; font-weight: 600; }
+.jfp-switch-text small { color: var(--jfp-muted); font-size: .72rem; line-height: 1.4; }
+
+/* ---------- Responsive ---------- */
+@media (max-width: 1180px) {
+  .jfp-experience { grid-column: span 12; }
+  .jfp-posted,
+  .jfp-mode { grid-column: span 6; }
+}
+@media (max-width: 900px) {
+  .jfp-search { grid-template-columns: 1fr 1fr; }
+  .jfp-submit { grid-column: 1 / -1; }
+  .jfp-salary,
+  .jfp-skills,
+  .jfp-type { grid-column: span 12; grid-row: auto; }
+}
+@media (max-width: 600px) {
+  .jfp-search { grid-template-columns: 1fr; padding: 16px; }
+  .jfp-bar { flex-wrap: wrap; padding: 8px 16px; }
+  .jfp-chips { order: 3; flex-basis: 100%; }
+  .jfp-body { padding: 16px; gap: 12px; }
+  .jfp-posted,
+  .jfp-mode { grid-column: span 12; }
+}
+
+/* Compact pills for short option lists (work mode) */
+.jfp-options.compact { gap: 6px; }
+.jfp-options.compact .jfp-option { height: 34px; padding: 0 12px; }
+

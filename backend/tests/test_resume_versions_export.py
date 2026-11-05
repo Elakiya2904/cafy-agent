@@ -56,6 +56,20 @@ class TestResumeVersions(unittest.TestCase):
         self.assertEqual(versions[0]["resume"]["skills"], ["Python", "Go"])
         self.assertEqual(versions[0]["job_title"], "SRE")  # kept when not supplied
 
+    def test_delete_version_repairs_saved_resume_and_lineage(self):
+        self.db.save_resume_version("r1", "job-a", {"skills": ["Python"]})
+        self.db.save_resume_version("r2", "job-a", {"skills": ["Python", "Go"]}, based_on="r1")
+        self.db.save_tailored_resume("job-a", "r2", {"skills": ["Python", "Go"]})
+
+        self.assertEqual(self.db.delete_resume_version("r2"), {"resume_id": "r2", "job_id": "job-a"})
+        self.assertEqual(self.db.get_tailored_resume("job-a")["resume_id"], "r1")
+        self.assertEqual(self.db.get_tailored_resume("job-a")["resume"]["skills"], ["Python"])
+        self.assertIsNone(self.db.get_resume_version("r2"))
+
+        self.assertEqual(self.db.delete_resume_version("r1"), {"resume_id": "r1", "job_id": "job-a"})
+        self.assertIsNone(self.db.get_tailored_resume("job-a"))
+        self.assertIsNone(self.db.delete_resume_version("missing"))
+
     def test_backfill_from_existing_tailored_resumes(self):
         self.db.save_tailored_resume("job-x", "legacy-1", {"skills": ["Rust"]})
         with self.db._get_connection() as conn:
@@ -115,6 +129,29 @@ class TestExportEndpoints(unittest.TestCase):
         self.assertEqual(version["version_number"], 1)
         self.assertTrue(version["is_current"])
         self.assertIn("pdf_url", version)
+
+    def test_delete_version_removes_artifacts_and_saved_resume(self):
+        from backend import main
+        resume_id = "a" * 32
+        older_id = "b" * 32
+        self.test_db.save_resume_version(older_id, "job-a", {"skills": ["Python"]})
+        self.test_db.save_resume_version(resume_id, "job-a", {"skills": ["Python", "Go"]})
+        self.test_db.save_tailored_resume("job-a", resume_id, {"skills": ["Python", "Go"]})
+        for extension in ("pdf", "docx", "tex"):
+            (Path(self.tmp.name) / f"{resume_id}.{extension}").write_text("artifact")
+
+        with mock.patch.object(main.resume_generation_svc, "output_dir", Path(self.tmp.name)):
+            response = self.client.delete(f"/api/resumes/versions/{resume_id}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "deleted", "resume_id": resume_id})
+        self.assertEqual(self.test_db.get_tailored_resume("job-a")["resume_id"], older_id)
+        self.assertEqual(self.client.get("/api/resumes/versions").json()["count"], 1)
+        self.assertFalse(any((Path(self.tmp.name) / f"{resume_id}.{ext}").exists() for ext in ("pdf", "docx", "tex")))
+
+    def test_delete_version_returns_not_found_for_unknown_or_malformed_id(self):
+        self.assertEqual(self.client.delete("/api/resumes/versions/not-a-resume-id").status_code, 404)
+        self.assertEqual(self.client.delete(f"/api/resumes/versions/{'c' * 32}").status_code, 404)
 
     def test_export_endpoint(self):
         resp = self.client.post("/api/export", json={

@@ -196,9 +196,10 @@ def _match_tier(score: int) -> str:
 
 
 def _job_skills(job: Dict[str, Any]) -> List[str]:
-    skills = job.get("extracted_skills") or []
-    if not skills:
-        skills = _skill_extractor.extract_skills(f"{job.get('title', '')} {job.get('description', '')}")
+    skills = [
+        *(job.get("extracted_skills") or []),
+        *_skill_extractor.extract_skills(f"{job.get('title', '')} {job.get('description', '')}"),
+    ]
     seen: Set[str] = set()
     ordered = []
     for skill in skills:
@@ -225,10 +226,19 @@ def analyze_profile_for_job(
     profile: Optional[Dict[str, Any]],
     job: Optional[Dict[str, Any]],
     skill_evidence_cache: Optional[Dict[str, Set[str]]] = None,
+    job_description: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Score ``profile`` against ``job`` and return section scores, gaps and suggestions."""
     profile = profile or {}
     job = job or {}
+    if job_description is not None:
+        job = {
+            **job,
+            "description": job_description,
+            "extracted_skills": _skill_extractor.extract_skills(
+                f"{job.get('title') or ''} {job_description}"
+            ),
+        }
 
     job_title = str(job.get("title") or "")
     job_description = str(job.get("description") or "")

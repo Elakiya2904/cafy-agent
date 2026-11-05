@@ -220,7 +220,46 @@ class TestResumeGeneration(unittest.TestCase):
         self.assertIn("Built internal tools with Python.", prompt)
         self.assertEqual(result["resume"]["professional_summary"], rewritten["professional_summary"])
 
+    def test_rewrite_full_falls_back_to_uploaded_facts_when_ai_summary_is_rejected(self):
+        class SkillExtractor:
+            @staticmethod
+            def extract_skills(text):
+                return ["Salesforce"] if "salesforce" in text.casefold() else []
+
+        tailored = {
+            "professional_summary": "",
+            "skills": ["Python"],
+            "experience": [{
+                "title": "Engineer",
+                "description": "Built internal tools with Python.",
+                "bullets": ["Automated deployment checks."],
+            }],
+            "projects": [],
+            "education": [],
+        }
+        rewritten = {
+            "professional_summary": "Salesforce expert with extensive account-management experience.",
+            "experience": [{"index": 0, "description": "", "bullets": ["Automated deployment checks."]}],
+            "projects": [],
+            "education": [],
+        }
+        response = mock.Mock(status_code=200)
+        response.json.return_value = {"choices": [{"message": {"content": json.dumps(rewritten)}}]}
+
+        with mock.patch.dict("os.environ", {"GROQ_API_KEY": "test-key"}), \
+             mock.patch("backend.resume_generation_service.requests.post", return_value=response):
+            result = self.service.rewrite_full(tailored, {"title": "Engineer"}, SkillExtractor())
+
+        summary = result["resume"]["professional_summary"]
+        self.assertIn("Built internal tools with Python.", summary)
+        self.assertNotIn("Salesforce", summary)
+
     def test_generation_surfaces_tailoring_failures_instead_of_returning_untailored_resume(self):
+        class SkillExtractor:
+            @staticmethod
+            def extract_skills(_text):
+                return []
+
         with mock.patch.object(
             self.service, "rewrite_full", side_effect=ResumeGenerationError("AI rewriting is unavailable.")
         ):
@@ -228,8 +267,138 @@ class TestResumeGeneration(unittest.TestCase):
                 self.service.generate(
                     {"summary": "Engineer", "experience": [{"title": "Engineer", "company": "Example"}]},
                     {"title": "Software Engineer"},
-                    skill_extractor=object(),
+                    skill_extractor=SkillExtractor(),
                 )
+
+    def test_generation_automatically_adds_only_job_skills_evidenced_in_source_resume(self):
+        class SkillExtractor:
+            @staticmethod
+            def extract_skills(text):
+                return [
+                    skill for skill in ("Python", "Salesforce", "Accounting")
+                    if skill.casefold() in text.casefold()
+                ]
+
+        def keep_resume_as_is(tailored, *_args, **_kwargs):
+            return {"resume": tailored, "rejected_lines": 0}
+
+        resume = {
+            "summary": "Engineer with experience using Salesforce.",
+            "skills": ["Python"],
+            "experience": [{"title": "Engineer", "bullets": ["Used Salesforce for account records."]}],
+        }
+        job = {
+            "title": "Account Executive",
+            "extracted_skills": ["Salesforce", "Accounting", "Python"],
+        }
+        with mock.patch.object(self.service, "rewrite_full", side_effect=keep_resume_as_is), \
+             mock.patch.object(self.service, "update_artifacts", return_value={}):
+            result = self.service.generate(resume, job, SkillExtractor())
+
+        generated_skills = result["resume"]["skills"]
+        self.assertIn("Salesforce", generated_skills)
+        self.assertIn("Python", generated_skills)
+        self.assertNotIn("Accounting", generated_skills)
+
+    def test_generation_detects_job_keywords_when_stored_job_skills_are_stale(self):
+        class SkillExtractor:
+            @staticmethod
+            def extract_skills(text):
+                return [
+                    skill for skill in ("Python", "Accounting")
+                    if skill.casefold() in text.casefold()
+                ]
+
+        def keep_resume_as_is(tailored, *_args, **_kwargs):
+            return {"resume": tailored, "rejected_lines": 0}
+
+        resume = {
+            "skills": [],
+            "experience": [{"title": "Engineer", "bullets": ["Used Python to automate reports."]}],
+        }
+        job = {
+            "title": "Automation Engineer",
+            "description": "Python experience is required.",
+            "extracted_skills": ["Accounting"],
+        }
+        with mock.patch.object(self.service, "rewrite_full", side_effect=keep_resume_as_is), \
+             mock.patch.object(self.service, "update_artifacts", return_value={}):
+            result = self.service.generate(resume, job, SkillExtractor())
+
+        self.assertIn("Python", result["resume"]["skills"])
+        self.assertNotIn("Accounting", result["resume"]["skills"])
+        from backend.job_match_analysis_service import analyze_profile_for_job
+        before_score = analyze_profile_for_job(resume, job)["job_match_score"]
+        after_score = analyze_profile_for_job(
+            {**resume, "skills": result["resume"]["skills"]},
+            job,
+        )["job_match_score"]
+        self.assertGreater(after_score, before_score)
+
+    def test_generation_keeps_verified_job_skills_beyond_the_old_18_skill_limit(self):
+        source_skills = [f"Skill {index}" for index in range(18)]
+
+        class SkillExtractor:
+            @staticmethod
+            def extract_skills(text):
+                return ["Python"] if "Python" in text else []
+
+        def keep_resume_as_is(tailored, *_args, **_kwargs):
+            return {"resume": tailored, "rejected_lines": 0}
+
+        resume = {
+            "skills": source_skills,
+            "experience": [{"title": "Engineer", "bullets": ["Used Python to automate reports."]}],
+        }
+        with mock.patch.object(self.service, "rewrite_full", side_effect=keep_resume_as_is), \
+             mock.patch.object(self.service, "update_artifacts", return_value={}):
+            result = self.service.generate(
+                resume,
+                {"title": "Automation Engineer", "extracted_skills": ["Python"]},
+                SkillExtractor(),
+            )
+
+        self.assertIn("Python", result["resume"]["skills"])
+        self.assertEqual(len(result["resume"]["skills"]), 19)
+
+    def test_full_rewrite_receives_priority_keywords_and_verified_evidence(self):
+        class SkillExtractor:
+            @staticmethod
+            def extract_skills(text):
+                return ["Salesforce"] if "salesforce" in text.casefold() else []
+
+        tailored = {
+            "professional_summary": "Account professional experienced with Salesforce.",
+            "skills": ["Salesforce"],
+            "experience": [{"title": "Account Executive", "bullets": ["Used Salesforce to manage accounts."]}],
+            "projects": [],
+            "education": [],
+        }
+        rewritten = {
+            "professional_summary": tailored["professional_summary"],
+            "experience": [{"index": 0, "description": "", "bullets": ["Used Salesforce to manage accounts."]}],
+            "projects": [],
+            "education": [],
+        }
+        response = mock.Mock(status_code=200)
+        response.json.return_value = {"choices": [{"message": {"content": json.dumps(rewritten)}}]}
+
+        with mock.patch.dict("os.environ", {"GROQ_API_KEY": "test-key"}), \
+             mock.patch("backend.resume_generation_service.requests.post", return_value=response) as post:
+            self.service.rewrite_full(
+                tailored,
+                {"title": "Account Executive", "extracted_skills": ["Salesforce", "Accounting"]},
+                SkillExtractor(),
+            )
+
+        prompt = post.call_args.kwargs["json"]["messages"][1]["content"]
+        payload = json.loads(prompt)
+        self.assertEqual(payload["job"]["priority_keywords"], ["Salesforce", "Accounting"])
+        self.assertEqual(payload["resume"]["verified_job_keywords"], ["Salesforce"])
+        system_prompt = post.call_args.kwargs["json"]["messages"][0]["content"]
+        self.assertIn('"professional_summary":"text"', system_prompt)
+        self.assertNotIn('"professional_summary": str', system_prompt)
+        self.assertIn('"experience":[{"index":0', system_prompt)
 
     def test_generated_education_does_not_invent_coursework(self):
         normalized = self.service._validate_and_normalize(

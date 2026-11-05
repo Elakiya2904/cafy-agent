@@ -144,10 +144,27 @@ class ResumeService:
         reader = pypdf.PdfReader(io.BytesIO(content_bytes))
         pages_text = []
         for page in reader.pages:
-            page_text = page.extract_text()
+            layout_text = page.extract_text(extraction_mode="layout") or ""
+            plain_text = page.extract_text() or ""
+            if not layout_text:
+                page_text = plain_text
+            elif not plain_text:
+                page_text = layout_text
+            elif self._pdf_line_quality(plain_text) > self._pdf_line_quality(layout_text) + 0.15:
+                page_text = plain_text
+            else:
+                page_text = layout_text
             if page_text:
                 pages_text.append(page_text)
         return "\n".join(pages_text)
+
+    @staticmethod
+    def _pdf_line_quality(text: str) -> float:
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if not lines:
+            return 0.0
+        multiword_lines = sum(len(line.split()) > 1 for line in lines)
+        return multiword_lines / len(lines)
 
     def _read_docx(self, content_bytes: bytes) -> str:
         doc = docx.Document(io.BytesIO(content_bytes))
@@ -197,15 +214,6 @@ class ResumeService:
         # Extract structured sections
         experience = self._parse_experience(sections.get("experience", ""))
         internships = self._parse_experience(sections.get("internships", ""))
-        if not experience and internships:
-            experience = list(internships)
-        elif internships:
-            exp_keys = {(e.get("title", "").lower(), (e.get("company") or e.get("organization") or "").lower()) for e in experience}
-            for item in internships:
-                key = (item.get("title", "").lower(), (item.get("company") or item.get("organization") or "").lower())
-                if key not in exp_keys:
-                    experience.append(item)
-                    exp_keys.add(key)
         target_roles = self._detect_roles(text, experience)
         education = self._parse_education(sections.get("education", ""))
         projects = self._parse_projects(sections.get("projects", ""))
@@ -549,6 +557,14 @@ class ResumeService:
             clean_line = re.sub(r"^[\s\-\*•]+", "", line_str).strip()
 
             if (deg_pat.search(line_str) or "university" in line_str.lower() or "college" in line_str.lower()) and not is_bullet:
+                degree_line = re.sub(r"[^a-z0-9]+", "", line_str.casefold())
+                current_degree = re.sub(
+                    r"[^a-z0-9]+", "", str((current or {}).get("degree") or "").casefold()
+                )
+                if current and current_degree and degree_line.startswith(current_degree):
+                    current["degree"] = clean_line
+                    current["title"] = clean_line
+                    continue
                 if current:
                     entries.append(current)
 
@@ -586,10 +602,17 @@ class ResumeService:
                 }
             elif current:
                 if is_bullet:
-                    current["bullets"].append(clean_line)
+                    degree_words = re.sub(r"[^a-z0-9]+", "", current.get("degree", "").casefold())
+                    bullet_words = re.sub(r"[^a-z0-9]+", "", clean_line.casefold())
+                    if bullet_words and bullet_words not in degree_words:
+                        current["bullets"].append(clean_line)
                 elif not current.get("institution"):
-                    current["institution"] = clean_line
-                    current["organization"] = clean_line
+                    if re.match(r"^(?:in|of|with|for)\b", clean_line, re.I):
+                        current["degree"] = f"{current['degree']} {clean_line}".strip()
+                        current["title"] = current["degree"]
+                    else:
+                        current["institution"] = clean_line
+                        current["organization"] = clean_line
                 else:
                     current["bullets"].append(clean_line)
 
@@ -665,6 +688,15 @@ class ResumeService:
                 "bullets": [],
             }
 
+        project_date_pattern = re.compile(
+            r"(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+)?"
+            r"(?:19|20)\d{2}"
+            r"(?:\s*(?:-|–|—|to)\s*"
+            r"(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+)?"
+            r"(?:(?:19|20)\d{2}|Present|Current))?",
+            re.I,
+        )
+
         lines = text.split("\n")
         for line in lines:
             line_str = line.strip()
@@ -690,8 +722,34 @@ class ResumeService:
                     current["bullets"].append(clean_line)
                 continue
 
+            if (
+                section == "projects"
+                and current
+                and project_date_pattern.fullmatch(clean_line)
+            ):
+                current["dates"] = clean_line
+                continue
+
             split_heading = self._split_entry_heading(clean_line)
-            is_heading = split_heading is not None or self._looks_like_entry_title(clean_line)
+            title_words = re.findall(r"[A-Za-z0-9]+", clean_line)
+            has_project_body = bool(
+                current
+                and (
+                    current.get("bullets")
+                    or re.search(r"[.!?](?:\s|$)", current.get("description") or "")
+                )
+            )
+            is_heading = split_heading is not None or (
+                self._looks_like_entry_title(clean_line)
+                and (
+                    section == "publications"
+                    or section != "projects"
+                    and (not current or bool(current.get("description") or current.get("bullets")))
+                    or section == "projects"
+                    and (not current or has_project_body)
+                )
+                and (section == "publications" or len(title_words) > 1 or current is None)
+            )
             if current is None:
                 if split_heading:
                     title, organization = split_heading

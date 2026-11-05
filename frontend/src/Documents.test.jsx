@@ -41,6 +41,7 @@ describe('compareResumes', () => {
 describe('ResumeVersionHistory', () => {
   beforeEach(() => {
     window.open = vi.fn();
+    window.confirm = vi.fn(() => true);
     global.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ count: 2, versions: [v2, v1] }) });
   });
 
@@ -103,6 +104,38 @@ describe('ResumeVersionHistory', () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ count: 0, versions: [] }) });
     render(<ResumeVersionHistory />);
     expect(await screen.findByText(/No tailored resumes yet/)).toBeInTheDocument();
+  });
+
+  it('deletes a generated version after confirmation and removes it from comparisons', async () => {
+    render(<ResumeVersionHistory />);
+    const rows = await screen.findAllByRole('listitem');
+    fireEvent.click(within(rows[0]).getByRole('button', { name: 'Delete Version 2' }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/resumes/versions/r2'),
+        { method: 'DELETE' }
+      );
+    });
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Delete Version 2'));
+    expect(screen.queryByText(/AI rewrite of Version 1 for:/)).not.toBeInTheDocument();
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+  });
+
+  it('keeps the version and reports the server error when deletion fails', async () => {
+    global.fetch = vi.fn().mockImplementation((url) => Promise.resolve(
+      url.includes('/api/resumes/versions')
+        ? url.endsWith('/r2')
+          ? { ok: false, status: 500, json: () => Promise.resolve({ detail: 'Could not delete version.' }) }
+          : { ok: true, json: () => Promise.resolve({ count: 2, versions: [v2, v1] }) }
+        : { ok: true, json: () => Promise.resolve({ uploaded: null }) }
+    ));
+    render(<ResumeVersionHistory />);
+    const rows = await screen.findAllByRole('listitem');
+    fireEvent.click(within(rows[0]).getByRole('button', { name: 'Delete Version 2' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not delete version.');
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
   });
 });
 

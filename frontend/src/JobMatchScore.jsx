@@ -25,11 +25,15 @@ function scoreTone(score) {
   return "weak";
 }
 
-async function fetchJobMatchAnalysis(jobId, profile) {
+async function fetchJobMatchAnalysis(jobId, profile, jobDescription = null) {
   const resp = await fetch(`${API_BASE}/api/resumes/pre-analysis`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ job_id: jobId, resume_data: profile }),
+    body: JSON.stringify({
+      job_id: jobId,
+      resume_data: profile,
+      ...(jobDescription == null ? {} : { job_description: jobDescription }),
+    }),
   });
   const data = await resp.json();
   if (!resp.ok) throw new Error(data.detail || `Analysis failed (${resp.status})`);
@@ -62,14 +66,14 @@ export function tailoredResumeToProfile(tailored, masterResume) {
  * Scores `profile` against job `jobId`, re-running (debounced) whenever the profile changes.
  * Pass a null jobId to pause. `previousScore` is the overall score before the latest change.
  */
-export function useJobMatchAnalysis(jobId, profile, debounceMs = 0) {
+export function useJobMatchAnalysis(jobId, profile, debounceMs = 0, jobDescription = null) {
   const [analysis, setAnalysis] = useState(null);
   const [previousScore, setPreviousScore] = useState(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState("");
   const lastScoreRef = useRef({ jobId: null, score: null });
   const profileKey = JSON.stringify(profile ?? null);
-  const requestKey = `${jobId || ""}:${profileKey}`;
+  const requestKey = JSON.stringify([jobId || "", profileKey, jobDescription]);
 
   useEffect(() => {
     if (!jobId || !profile) {
@@ -82,7 +86,7 @@ export function useJobMatchAnalysis(jobId, profile, debounceMs = 0) {
     setError("");
     const timer = setTimeout(async () => {
       try {
-        const data = await fetchJobMatchAnalysis(jobId, profile);
+        const data = await fetchJobMatchAnalysis(jobId, profile, jobDescription);
         if (cancelled) return;
         const lastScore = lastScoreRef.current;
         setPreviousScore(lastScore.jobId === jobId ? lastScore.score : null);
@@ -100,7 +104,7 @@ export function useJobMatchAnalysis(jobId, profile, debounceMs = 0) {
     };
     // profileKey captures profile content; the object identity changes on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobId, profileKey, debounceMs, requestKey]);
+  }, [jobId, profileKey, debounceMs, requestKey, jobDescription]);
 
   return {
     analysis: analysis?.key === requestKey ? analysis.data : null,
@@ -185,7 +189,7 @@ export function EditorMatchScore({ analysis, previousScore, isAnalyzing, error, 
         </div>
       )}
       <p className="jms-score-note">
-        AI can improve wording without changing job match. The score rises when the résumé shows verified evidence for this role; missing skills are not added automatically.
+        During generation, job keywords already supported by your résumé are highlighted automatically. Skills without evidence are never added.
       </p>
     </div>
   );

@@ -23,6 +23,8 @@ import requests
 
 logger = logging.getLogger("cafy.resume_generation")
 
+MAX_RESUME_SKILLS = 24
+
 
 # Active model; override with GROQ_MODEL.
 DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
@@ -79,8 +81,26 @@ class ResumeGenerationService:
         if not job:
             raise ResumeGenerationError("The selected job could not be found.")
 
+        detected_job_skills = skill_extractor.extract_skills(
+            f"{job.get('title') or ''} {job.get('description') or ''}"
+        ) if skill_extractor is not None else []
+        job_skills = list(job.get("extracted_skills") or [])
+        seen_job_skills = {str(skill).casefold() for skill in job_skills}
+        for skill in detected_job_skills:
+            if str(skill).casefold() not in seen_job_skills:
+                job_skills.append(skill)
+                seen_job_skills.add(str(skill).casefold())
+        job = {**job, "extracted_skills": job_skills}
+
         # Build from verified profile data, then tailor the writable text using only those facts.
         structured = self._validate_and_normalize({}, resume, job)
+        if skill_extractor is not None:
+            verified_job_skills = self._verified_job_skills(resume, job, skill_extractor)
+            existing_skills = {str(skill).casefold() for skill in structured["skills"]}
+            for skill in verified_job_skills:
+                if skill.casefold() not in existing_skills:
+                    structured["skills"].append(skill)
+                    existing_skills.add(skill.casefold())
         structured["skills"] = self._rank_skills(structured["skills"], job)
         if skill_extractor is not None:
             structured = self.rewrite_full(structured, job, skill_extractor, instructions)["resume"]
@@ -89,11 +109,15 @@ class ResumeGenerationService:
         # The editor renders its own PDF, so the LaTeX PDF is compiled only when it is downloaded.
         artifacts = self.update_artifacts(resume_id, structured, compile_pdf=False)
 
+        # Compute real ATS / match scores against the generated resume.
+        generation_scores = self._score_generated_resume(structured, job, skill_extractor)
+
         return {
             "status": "success",
             "template": "uk-standard",
             "resume": structured,
             **artifacts,
+            "generation_scores": generation_scores,
             "validation": {
                 "ats_friendly": True,
                 "factual_consistency": True,
@@ -103,10 +127,140 @@ class ResumeGenerationService:
         }
 
     @staticmethod
+    def _score_generated_resume(
+        structured: Dict[str, Any], job: Dict[str, Any], skill_extractor
+    ) -> Dict[str, Any]:
+        """Compute real ATS, job-match, skills-match, and content-quality scores
+        for the generated resume against the target job.
+
+        Returns a dict with four scores (0-100) and brief explanations.
+        """
+        try:
+            from .job_match_analysis_service import analyze_profile_for_job
+            from .cv_quality_service import evaluate_cv_quality
+
+            # Build a profile-shaped dict from the generated resume so the
+            # analysis services can consume it.
+            profile = {
+                "candidate_name": (structured.get("personal_info") or {}).get("name") or "",
+                "email": (structured.get("personal_info") or {}).get("email") or "",
+                "summary": structured.get("professional_summary") or "",
+                "skills": structured.get("skills") or [],
+                "experience": structured.get("experience") or [],
+                "education": structured.get("education") or [],
+                "projects": structured.get("projects") or [],
+                "certifications": structured.get("certifications") or [],
+                "internships": structured.get("internships") or [],
+            }
+
+            analysis = analyze_profile_for_job(profile, job)
+            cv = evaluate_cv_quality(profile)
+
+            job_match = analysis.get("job_match_score", 0)
+            sections = analysis.get("sections") or {}
+            skills_section = sections.get("skills") or {}
+            skills_match = skills_section.get("score")
+            if skills_match is None:
+                # Fall back: matched / total job skills
+                matched = len(analysis.get("matched_skills") or [])
+                total = len(analysis.get("job_skills") or [])
+                skills_match = int(round(matched / total * 100)) if total else 0
+
+            # ATS score: penalise for missing contact info, no summary, no bullets.
+            ats_checks = [
+                bool((structured.get("personal_info") or {}).get("name")),
+                bool((structured.get("personal_info") or {}).get("email")),
+                bool(structured.get("professional_summary")),
+                bool(structured.get("skills")),
+                bool(structured.get("experience") or structured.get("internships")),
+                bool(structured.get("education")),
+                any(
+                    (e.get("bullets") or [])
+                    for e in (structured.get("experience") or [])
+                    if isinstance(e, dict)
+                ),
+                bool((structured.get("personal_info") or {}).get("linkedin")
+                     or (structured.get("personal_info") or {}).get("github")),
+            ]
+            ats_score = int(round(sum(ats_checks) / len(ats_checks) * 100))
+
+            content_quality = cv.get("score", 0)
+
+            # Build human-readable explanations.
+            matched_skills = analysis.get("matched_skills") or []
+            missing_skills = analysis.get("missing_skills") or []
+            tier = analysis.get("match_tier", "")
+
+            return {
+                "job_match_score": job_match,
+                "skills_match_score": skills_match,
+                "ats_score": ats_score,
+                "content_quality_score": content_quality,
+                "match_tier": tier,
+                "matched_skills": matched_skills[:10],
+                "missing_skills": missing_skills[:10],
+                "explanations": {
+                    "job_match": (
+                        f"{tier}: resume covers {len(matched_skills)} of "
+                        f"{len(analysis.get('job_skills') or [])} required skills."
+                    ),
+                    "skills_match": (
+                        f"{skills_match}% of the job’s required skills are present in the resume."
+                    ),
+                    "ats": (
+                        f"{ats_score}% ATS readiness: "
+                        + ("all key sections present." if ats_score == 100
+                           else f"{len(ats_checks) - sum(ats_checks)} section(s) could be improved.")
+                    ),
+                    "content_quality": (
+                        f"{content_quality}% content quality: "
+                        + f"{cv.get('passed_checks', 0)} of {cv.get('total_checks', 0)} checks passed."
+                    ),
+                },
+                "suggestions": [
+                    s["text"] for s in (analysis.get("suggestions") or [])[:5]
+                ],
+            }
+        except Exception as exc:  # never let scoring crash generation
+            logger.warning("[ResumeGeneration] Scoring failed: %s", exc)
+            return {}
+
+    @staticmethod
     def _rank_skills(skills: List[str], job: Dict[str, Any]) -> List[str]:
         """Put skills the job asks for first; keep the rest in original order."""
-        wanted = {str(s).casefold() for s in (job.get("matched_skills") or [])}
+        wanted = {
+            str(skill).casefold()
+            for skill in [
+                *(job.get("matched_skills") or []),
+                *(job.get("extracted_skills") or []),
+            ]
+        }
         return sorted(skills, key=lambda s: s.casefold() not in wanted)
+
+    @staticmethod
+    def _verified_job_skills(
+        resume: Dict[str, Any], job: Dict[str, Any], skill_extractor
+    ) -> List[str]:
+        """Return job skills that the uploaded resume itself already evidences."""
+        job_skills = job.get("extracted_skills") or skill_extractor.extract_skills(
+            f"{job.get('title') or ''} {job.get('description') or ''}"
+        )
+        if not isinstance(job_skills, list):
+            job_skills = []
+        resume_text = json.dumps(resume, ensure_ascii=False)
+        evidenced = {
+            str(skill).casefold()
+            for skill in skill_extractor.extract_skills(resume_text)
+        }
+        verified = []
+        seen = set()
+        for skill in job_skills:
+            cleaned = str(skill).strip()
+            key = cleaned.casefold()
+            if cleaned and key in evidenced and key not in seen:
+                verified.append(cleaned)
+                seen.add(key)
+        return verified
 
     @staticmethod
     def pdf_supported() -> bool:
@@ -247,17 +401,31 @@ class ResumeGenerationService:
         r = resume_data or {}
         lines: List[str] = []
         for e in (r.get("experience") or [])[:4]:
+            if not isinstance(e, dict):
+                continue
             role = ", ".join(x for x in (e.get("title"), e.get("organization") or e.get("company")) if x)
             if role:
                 lines.append(f"Role: {role} ({e.get('dates') or 'dates not given'})")
+            if e.get("description"):
+                lines.append(f"- {e['description']}")
             lines.extend(f"- {b}" for b in (e.get("bullets") or [])[:3])
         for e in (r.get("projects") or [])[:2]:
+            if not isinstance(e, dict):
+                continue
             if e.get("title"):
                 lines.append(f"Project: {e['title']}")
+            if e.get("description"):
+                lines.append(f"- {e['description']}")
+            lines.extend(f"- {b}" for b in (e.get("bullets") or [])[:3])
         for e in (r.get("internships") or [])[:2]:
+            if not isinstance(e, dict):
+                continue
             role = ", ".join(x for x in (e.get("title"), e.get("organization") or e.get("company")) if x)
             if role:
                 lines.append(f"Internship: {role}")
+            if e.get("description"):
+                lines.append(f"- {e['description']}")
+            lines.extend(f"- {b}" for b in (e.get("bullets") or [])[:3])
         for e in (r.get("publications") or [])[:2]:
             if e.get("title") or e.get("name"):
                 lines.append(f"Publication: {e.get('title') or e.get('name')}")
@@ -271,6 +439,47 @@ class ResumeGenerationService:
         if r.get("skills"):
             lines.append("Skills: " + ", ".join(str(x) for x in r["skills"][:15]))
         return "\n".join(lines)
+
+    @classmethod
+    def _summary_from_verified_facts(cls, resume_data: Dict[str, Any], max_chars: int = 500) -> str:
+        """Create a concise fallback summary from exact text already present on the resume."""
+        r = resume_data or {}
+        facts: List[str] = []
+        for section in ("experience", "projects", "internships"):
+            for entry in (r.get(section) or []):
+                if isinstance(entry, str):
+                    candidates = [entry]
+                elif isinstance(entry, dict):
+                    candidates = [entry.get("description"), *(entry.get("bullets") or [])]
+                else:
+                    continue
+                for candidate in candidates:
+                    text = cls._clean_text(candidate)
+                    if text and text.casefold() not in {fact.casefold() for fact in facts}:
+                        facts.append(text)
+                    if len(facts) >= 4:
+                        break
+                if len(facts) >= 4:
+                    break
+            if len(facts) >= 4:
+                break
+
+        if not facts:
+            facts = [
+                cls._clean_text(skill)
+                for skill in (r.get("skills") or [])
+                if cls._clean_text(skill)
+            ][:8]
+        if not facts:
+            return ""
+
+        prefix = "Relevant experience includes: " if any(
+            (r.get(section) or []) for section in ("experience", "projects", "internships")
+        ) else "Verified skills include: "
+        summary = prefix + "; ".join(facts)
+        if len(summary) > max_chars:
+            summary = summary[:max_chars].rsplit(" ", 1)[0].rstrip(" ,;.")
+        return summary.rstrip(" ,;.") + "."
 
     # Tokens that would indicate a new factual claim: numbers (metrics, years, counts).
     _NUMBER_PATTERN = re.compile(r"\d+(?:[.,]\d+)?")
@@ -301,12 +510,18 @@ class ResumeGenerationService:
             "job": {
                 "title": job.get("title"),
                 "company": job.get("company"),
-                "description": str(job.get("description") or "")[:1500],
-                "matched_skills": (job.get("matched_skills") or [])[:12],
+                "description": str(job.get("description") or "")[:4000],
+                "priority_keywords": (
+                    job.get("extracted_skills")
+                    or skill_extractor.extract_skills(
+                        f"{job.get('title') or ''} {job.get('description') or ''}"
+                    )
+                )[:20],
             },
             "resume": {
                 "professional_summary": tailored.get("professional_summary") or "",
                 "verified_summary_facts": self._summary_facts(tailored),
+                "verified_job_keywords": self._verified_job_skills(tailored, job, skill_extractor),
                 "experience": entry_payload(tailored.get("experience")),
                 "projects": entry_payload(tailored.get("projects")),
                 "education": [
@@ -325,17 +540,26 @@ class ResumeGenerationService:
         }
         system = (
             "You are an expert resume writer. Write or rewrite the candidate's professional_summary and every experience and "
-            "project description and bullet so they are concise, outcome-focused, start with strong action verbs and "
-            "align with the job. STRICT RULES: use ONLY facts already present in the resume. Never add numbers, metrics, "
-            "percentages, dates, employers, tools, technologies, skills or achievements that are not already in the resume. "
+            "project description and bullet to optimize the resume for the target role. Use the exact priority keywords "
+            "where they accurately describe the supplied experience. Put verified_job_keywords into the skills list "
+            "through the pre-verified profile data and naturally emphasize them in relevant summary and work/project text. "
+            "Aim for a concise 2-4 sentence summary of 250-600 characters when the supplied facts support it. "
+            "STRICT RULES: use ONLY facts already present in the resume. Never add numbers, metrics, percentages, dates, "
+            "employers, tools, technologies, skills or achievements that are not already in the resume. Do not claim "
+            "a priority keyword unless it is in verified_job_keywords or already supported by the resume text. "
             "If professional_summary is empty, draft 2-3 concise sentences using only verified_summary_facts; do not "
             "leave it empty when those facts provide enough information. "
             "For supplied education entries, write a concise description relevant to the stated degree, using only "
             "their supplied degree, institution, dates, location and bullets. Do not invent modules, grades, awards "
             "or other facts. "
             "Never add new bullets beyond the original count for an entry. Keep each entry's index. "
-            "Return JSON only: {\"professional_summary\": str, \"experience\": [{\"index\": int, \"description\": str, "
-            "\"bullets\": [str]}], \"projects\": [same shape], \"education\": [{\"index\": int, \"description\": str}]}."
+            "Return one valid JSON object only, with this exact structure and JSON value types: "
+            "{\"professional_summary\":\"text\","
+            "\"experience\":[{\"index\":0,\"description\":\"text\",\"bullets\":[\"text\"]}],"
+            "\"projects\":[{\"index\":0,\"description\":\"text\",\"bullets\":[\"text\"]}],"
+            "\"education\":[{\"index\":0,\"description\":\"text\"}]}. "
+            "Use empty arrays when a section has no entries and an empty string when no rewrite is appropriate. "
+            "Do not include markdown fences or any text outside the JSON object."
         )
         steer = re.sub(r"\s+", " ", str(instructions or "")).strip()[:500]
         if steer:
@@ -382,10 +606,9 @@ class ResumeGenerationService:
         result = self.merge_rewrite(tailored, rewritten, skill_extractor)
         if (
             not str(tailored.get("professional_summary") or "").strip()
-            and self._summary_facts(tailored)
             and not str(result["resume"].get("professional_summary") or "").strip()
         ):
-            raise ResumeGenerationError("AI could not draft a summary from the supplied resume facts. Please retry.")
+            result["resume"]["professional_summary"] = self._summary_from_verified_facts(tailored)
         return result
 
     @classmethod
@@ -792,8 +1015,8 @@ class ResumeGenerationService:
             data["certifications"] = certs[:4]
 
         skills = data.get("skills", [])
-        if len(skills) > 18:
-            data["skills"] = skills[:18]
+        if len(skills) > MAX_RESUME_SKILLS:
+            data["skills"] = skills[:MAX_RESUME_SKILLS]
 
         return data
 

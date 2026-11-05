@@ -2,11 +2,10 @@
  * Account sign-in, registration, and guest-mode gate for the application.
  * Tracks session changes and decides whether to render auth forms or app content.
  */
-import React, { useEffect, useState } from "react";
-import { Eye, EyeOff, LockKeyhole, Mail, UserRound } from "lucide-react";
+import React, { createContext, useContext, useEffect, useState } from "react";
+import { Eye, EyeOff, LockKeyhole, LogIn, LogOut, Mail, UserRound } from "lucide-react";
 import {
   AuthApiError,
-  getAccessToken,
   installAuthFetch,
   isGuestAvailable,
   isGuestMode,
@@ -199,6 +198,23 @@ function SignIn({ onGuestMode }) {
   );
 }
 
+// Lets the app's sidebar show the account action (Log Out, or Sign In for guests).
+const AccountContext = createContext(null);
+
+export function SidebarAccount() {
+  const account = useContext(AccountContext);
+  if (!account) return null;
+  return (
+    <div className="sidebar-account">
+      {account.guest && <p className="sidebar-account-note">Guest mode: use test data only</p>}
+      <button type="button" className="sidebar-logout" onClick={account.action}>
+        {account.guest ? <LogIn size={18} aria-hidden="true" /> : <LogOut size={18} aria-hidden="true" />}
+        <span>{account.guest ? "Sign In" : "Log Out"}</span>
+      </button>
+    </div>
+  );
+}
+
 export default function AuthGate({ children }) {
   const [session, setSession] = useState(undefined); // undefined = still restoring the session
   const [guestMode, setGuestModeState] = useState(false);
@@ -224,7 +240,9 @@ export default function AuthGate({ children }) {
           <span>Guest mode — use test data only</span>
           <button onClick={() => updateGuestMode(false)}>Sign in</button>
         </div>
-        {children}
+        <AccountContext.Provider value={{ guest: true, action: () => updateGuestMode(false) }}>
+          {children}
+        </AccountContext.Provider>
       </React.Fragment>
     );
   }
@@ -235,16 +253,11 @@ export default function AuthGate({ children }) {
   return (
     <React.Fragment key={session.user.id}>
       <div className="ag-bar">
-        <span>{session.user.email}</span>
-        <button
-          onClick={() => navigator.clipboard?.writeText(getAccessToken() || "")}
-          title="Paste into the extension settings (valid for about 15 minutes)"
-        >
-          Copy extension token
-        </button>
-        <button onClick={signOut}>Sign out</button>
+        <button onClick={signOut}>Logout</button>
       </div>
-      {children}
+      <AccountContext.Provider value={{ guest: false, action: signOut }}>
+        {children}
+      </AccountContext.Provider>
     </React.Fragment>
   );
 }

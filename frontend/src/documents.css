@@ -138,6 +138,16 @@
 
 .doc-btn-secondary:hover:not(:disabled) { background: var(--primary-blue-light); }
 
+.doc-btn-delete {
+  color: #b42318;
+  border-color: #f0c4c0;
+}
+
+.doc-btn-delete:hover:not(:disabled) {
+  background: #fef3f2;
+  border-color: #e7a7a1;
+}
+
 .doc-icon-btn {
   background: none;
   border: none;

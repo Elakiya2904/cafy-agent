@@ -93,6 +93,7 @@ class ResumeGenerationRequest(BaseModel):
 class PreGenerationAnalysisRequest(BaseModel):
     job_id: str
     resume_data: Optional[Dict[str, Any]] = None
+    job_description: Optional[str] = None
 
 
 class ExportApplication(BaseModel):
@@ -550,7 +551,7 @@ def pre_generation_analysis(request: PreGenerationAnalysisRequest):
     job = db.get_job(request.job_id)
     if not job:
         raise HTTPException(status_code=404, detail="The selected job could not be found.")
-    return analyze_profile_for_job(profile, job)
+    return analyze_profile_for_job(profile, job, job_description=request.job_description)
 
 
 @app.post("/api/resume/update")
@@ -615,8 +616,15 @@ def generate_resume(request: ResumeGenerationRequest):
     job = db.get_job(request.job_id)
     if job:
         job = enrich_jobs_with_company_profiles(sponsor_registry.annotate_jobs([job]))[0]
-    if (request.job_description or "").strip():
-        job = {**(job or {}), "description": request.job_description.strip()}
+    if request.job_description is not None:
+        description = request.job_description.strip()
+        job = {
+            **(job or {}),
+            "description": description,
+            "extracted_skills": resume_svc.extract_skills(
+                f"{(job or {}).get('title') or ''} {description}"
+            ),
+        }
     try:
         result = resume_generation_svc.generate(
             resume or {}, job or {}, resume_svc, instructions=request.additional_instructions
@@ -674,6 +682,24 @@ def clear_resume_versions():
     """Clear all stored resume versions."""
     db.clear_resume_versions()
     return {"status": "cleared", "message": "All resume versions cleared."}
+
+
+@app.delete("/api/resumes/versions/{resume_id}")
+def delete_resume_version(resume_id: str):
+    """Delete one owned resume version and its generated artifacts."""
+    if not _RESUME_ID.fullmatch(resume_id):
+        raise HTTPException(status_code=404, detail="Resume was not found.")
+    deleted = db.delete_resume_version(resume_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Resume was not found.")
+
+    for extension in ("pdf", "docx", "tex"):
+        artifact = resume_generation_svc.output_dir / f"{resume_id}.{extension}"
+        try:
+            artifact.unlink(missing_ok=True)
+        except OSError as error:
+            logger.warning("Could not remove deleted resume artifact %s: %s", artifact.name, error)
+    return {"status": "deleted", "resume_id": resume_id}
 
 
 @app.post("/api/export")

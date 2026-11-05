@@ -4,8 +4,27 @@
  */
 import { withToken } from "./auth.js";
 import React, { useEffect, useMemo, useState } from "react";
-import { ArrowRight, Download, Eye, FileText, FileUp, GitCompare, Loader2, Minus, Plus, X } from "lucide-react";
+import {
+  ArrowRight,
+  Building2,
+  CalendarDays,
+  Download,
+  Eye,
+  FileText,
+  FileUp,
+  GitCompare,
+  Layers,
+  Loader2,
+  Minus,
+  Plus,
+  Search,
+  Sparkles,
+  Target,
+  Trash2,
+  X,
+} from "lucide-react";
 import "./documents.css";
+import "./resumeVersions.css";
 
 // Mirrors App.jsx: talk to the FastAPI port directly when served from the Vite dev server.
 const API_BASE =
@@ -197,11 +216,14 @@ export default function ResumeVersionHistory({ PreviewComponent }) {
   const [versions, setVersions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  const [deletingId, setDeletingId] = useState("");
   const [previewing, setPreviewing] = useState(null);
   const [compareA, setCompareA] = useState("");
   const [compareB, setCompareB] = useState("");
   const [comparison, setComparison] = useState(null);
   const [uploaded, setUploaded] = useState(null);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -228,6 +250,27 @@ export default function ResumeVersionHistory({ PreviewComponent }) {
       cancelled = true;
     };
   }, []);
+
+  const deleteVersion = async (version) => {
+    if (!window.confirm(`Delete ${versionLabel(version)} for ${generatedFor(version)}? This cannot be undone.`)) return;
+    setDeletingId(version.resume_id);
+    setDeleteError("");
+    try {
+      const resp = await fetch(`${API_BASE}/api/resumes/versions/${encodeURIComponent(version.resume_id)}`, {
+        method: "DELETE",
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.detail || `Could not delete this version (${resp.status}).`);
+      setVersions((current) => current.filter((item) => item.resume_id !== version.resume_id));
+      setCompareA("");
+      setCompareB("");
+      setComparison(null);
+    } catch (err) {
+      setDeleteError(err.message || "Could not delete this version.");
+    } finally {
+      setDeletingId("");
+    }
+  };
 
   // Everything that can be compared: the uploaded original (oldest) plus every version.
   const UPLOADED_ID = "uploaded";
@@ -260,87 +303,159 @@ export default function ResumeVersionHistory({ PreviewComponent }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [comparable.length]);
 
+  const companies = new Set(versions.map((v) => (v.company || "").toLowerCase()).filter(Boolean));
+  const latest = versions.reduce((max, v) => {
+    const t = new Date(v.updated_at || v.created_at).getTime();
+    return Number.isFinite(t) && t > max ? t : max;
+  }, 0);
+  const shownVersions = versions.filter((v) => {
+    if (!query.trim()) return true;
+    const q = query.toLowerCase();
+    return [v.job_title, v.company].some((x) => (x || "").toLowerCase().includes(q));
+  });
+  const baseSkills = uploaded?.resume?.skills || [];
+  const formats = (v) => [["PDF", v.pdf_url], ["DOCX", v.docx_url], ["LaTeX", v.tex_url]].filter(([, url]) => url).map(([name]) => name);
+
   return (
-    <section className="doc-card" aria-labelledby="doc-version-title">
-      <h2 id="doc-version-title">Document Version History</h2>
-      <p className="doc-muted">Your uploaded resume and every tailored version generated from it.</p>
+    <section className="rv" aria-labelledby="doc-version-title">
+      <header className="rv-head">
+        <div>
+          <h2 id="doc-version-title">Document Version History</h2>
+          <p>Your uploaded resume and every tailored version generated from it.</p>
+        </div>
+        <dl className="rv-stats">
+          <div><dt><Layers size={14} aria-hidden="true" /> Versions</dt><dd>{versions.length + offset}</dd></div>
+          <div><dt><Building2 size={14} aria-hidden="true" /> Companies</dt><dd>{companies.size}</dd></div>
+          <div><dt><CalendarDays size={14} aria-hidden="true" /> Last updated</dt><dd>{latest ? new Date(latest).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "—"}</dd></div>
+        </dl>
+      </header>
 
-      <h3 className="doc-group-title">Uploaded Resume</h3>
+      <div className="rv-section-head">
+        <h3>Base resume</h3>
+        <span>Every tailored version is generated from this original.</span>
+      </div>
       {uploaded ? (
-        <ul className="doc-version-list" data-testid="uploaded-resume">
-          <li className="doc-version-row">
-            <span className="doc-file-icon"><FileUp size={20} aria-hidden="true" /></span>
-            <div className="doc-version-info">
-              <strong>
-                Version 1
-                <span className="doc-pill-uploaded">Uploaded</span>
-              </strong>
-              <span>{uploaded.filename}</span>
-              <span className="doc-muted">{formatDate(uploaded.uploaded_at)}</span>
-            </div>
-            <div className="doc-version-actions">
-              <button
-                type="button"
-                className="doc-btn-secondary"
-                onClick={() => window.open(withToken(`${API_BASE}${uploaded.preview_url}`), "_blank", "noopener")}
-              >
-                <Eye size={14} aria-hidden="true" /> Preview
-              </button>
-              <button
-                type="button"
-                className="doc-btn-secondary"
-                onClick={() => window.open(withToken(`${API_BASE}${uploaded.download_url}`), "_blank", "noopener")}
-              >
-                <Download size={14} aria-hidden="true" /> Download
-              </button>
-            </div>
-          </li>
-        </ul>
+        <div className="rv-base" data-testid="uploaded-resume">
+          <span className="rv-base-icon"><FileUp size={22} aria-hidden="true" /></span>
+          <div className="rv-base-info">
+            <strong className="rv-base-title">
+              Version 1
+              <span className="rv-pill rv-pill-base">Uploaded</span>
+            </strong>
+            <span className="rv-base-file">{uploaded.filename}</span>
+            <span className="rv-meta"><CalendarDays size={13} aria-hidden="true" /> {formatDate(uploaded.uploaded_at)}</span>
+            {baseSkills.length > 0 && (
+              <div className="rv-skills">
+                {baseSkills.slice(0, 6).map((s) => <span key={s} className="rv-skill">{s}</span>)}
+                {baseSkills.length > 6 && <span className="rv-skill more">+{baseSkills.length - 6} more</span>}
+              </div>
+            )}
+          </div>
+          <div className="rv-actions">
+            <button
+              type="button"
+              className="rv-btn"
+              onClick={() => window.open(withToken(`${API_BASE}${uploaded.preview_url}`), "_blank", "noopener")}
+            >
+              <Eye size={15} aria-hidden="true" /> Preview
+            </button>
+            <button
+              type="button"
+              className="rv-btn"
+              onClick={() => window.open(withToken(`${API_BASE}${uploaded.download_url}`), "_blank", "noopener")}
+            >
+              <Download size={15} aria-hidden="true" /> Download
+            </button>
+          </div>
+        </div>
       ) : (
-        <p className="doc-muted">No uploaded file stored. Upload your resume on the Home page to keep the original here.</p>
-      )}
-
-      <h3 className="doc-group-title">AI Versions</h3>
-
-      {isLoading && (
-        <p className="doc-muted"><Loader2 size={14} className="doc-spin" aria-hidden="true" /> Loading versions...</p>
-      )}
-      {error && <div className="pipeline-error" role="alert">{error}</div>}
-      {!isLoading && !error && versions.length === 0 && (
-        <div className="doc-empty">
-          <FileText size={22} aria-hidden="true" />
-          <p>No tailored resumes yet. Apply to a job and generate a tailored resume to start your version history.</p>
+        <div className="rv-base rv-base-empty">
+          <span className="rv-base-icon"><FileUp size={22} aria-hidden="true" /></span>
+          <p>No uploaded file stored. Upload your resume on the Home page to keep the original here.</p>
         </div>
       )}
 
-      {versions.length > 0 && (
-        <ul className="doc-version-list">
-          {versions.map((v) => {
+      <div className="rv-section-head rv-section-split">
+        <div>
+          <h3>AI Versions</h3>
+          <span>Tailored for specific roles, newest first.</span>
+        </div>
+        {versions.length > 1 && (
+          <label className="rv-search">
+            <Search size={15} aria-hidden="true" />
+            <input type="search" placeholder="Filter by role or company" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Filter versions" />
+          </label>
+        )}
+      </div>
+
+      {isLoading && (
+        <p className="rv-loading"><Loader2 size={16} className="doc-spin" aria-hidden="true" /> Loading versions...</p>
+      )}
+      {error && <div className="pipeline-error" role="alert">{error}</div>}
+      {deleteError && <div className="pipeline-error" role="alert">{deleteError}</div>}
+      {!isLoading && !error && versions.length === 0 && (
+        <div className="rv-empty">
+          <span className="rv-empty-icon"><Sparkles size={20} aria-hidden="true" /></span>
+          <strong>Your tailored versions will appear here</strong>
+          <p>No tailored resumes yet. Apply to a job and generate a tailored resume to start your version history.</p>
+        </div>
+      )}
+      {versions.length > 0 && shownVersions.length === 0 && (
+        <div className="rv-empty"><strong>No versions match “{query}”</strong></div>
+      )}
+
+      {shownVersions.length > 0 && (
+        <ul className="rv-list">
+          {shownVersions.map((v) => {
             const download = bestDownload(v);
+            const files = formats(v);
             return (
-              <li key={v.resume_id} className="doc-version-row">
-                <span className="doc-file-icon"><FileText size={20} aria-hidden="true" /></span>
-                <div className="doc-version-info">
-                  <strong>
-                    {versionLabel(v)}
-                    {v.is_current && <span className="doc-pill-current">Current</span>}
-                  </strong>
-                  <span>{`${versionOrigin(v, offset)} for: ${generatedFor(v)}`}</span>
-                  <span className="doc-muted">{formatDate(v.updated_at || v.created_at)}</span>
-                </div>
-                <div className="doc-version-actions">
-                  <button type="button" className="doc-btn-secondary" onClick={() => setPreviewing(v)}>
-                    <Eye size={14} aria-hidden="true" /> Preview
-                  </button>
-                  <button
-                    type="button"
-                    className="doc-btn-secondary"
-                    disabled={!download}
-                    title={download ? "Download this version" : "No file available for this version"}
-                    onClick={() => window.open(withToken(`${API_BASE}${download}`), "_blank", "noopener")}
-                  >
-                    <Download size={14} aria-hidden="true" /> Download
-                  </button>
+              <li key={v.resume_id} className={`rv-item ${v.is_current ? "is-current" : ""}`}>
+                <span className="rv-badge" aria-hidden="true">V{v.version_number + offset}</span>
+                <div className="rv-card">
+                  <div className="rv-card-main">
+                    <strong className="rv-card-label">
+                      {versionLabel(v)}
+                      {v.is_current && <span className="rv-pill rv-pill-current">Current</span>}
+                    </strong>
+                    <h4 className="rv-role">{v.job_title || "Untitled role"}</h4>
+                    <div className="rv-card-meta">
+                      {v.company && <span className="rv-company"><Building2 size={13} aria-hidden="true" /> {v.company}</span>}
+                      <span className="rv-meta"><CalendarDays size={13} aria-hidden="true" /> {formatDate(v.updated_at || v.created_at)}</span>
+                      {files.length > 0 && (
+                        <span className="rv-formats">
+                          {files.map((f) => <span key={f} className="rv-format">{f}</span>)}
+                        </span>
+                      )}
+                    </div>
+                    <span className="rv-origin"><Target size={13} aria-hidden="true" /><span>{`${versionOrigin(v, offset)} for: ${generatedFor(v)}`}</span></span>
+                  </div>
+                  <div className="rv-actions">
+                    <button type="button" className="rv-btn" onClick={() => setPreviewing(v)}>
+                      <Eye size={15} aria-hidden="true" /> Preview
+                    </button>
+                    <button
+                      type="button"
+                      className="rv-btn rv-btn-primary"
+                      disabled={!download}
+                      title={download ? "Download this version" : "No file available for this version"}
+                      onClick={() => window.open(withToken(`${API_BASE}${download}`), "_blank", "noopener")}
+                    >
+                      <Download size={15} aria-hidden="true" /> Download
+                    </button>
+                    <button
+                      type="button"
+                      className="rv-btn rv-btn-icon rv-btn-danger"
+                      disabled={deletingId === v.resume_id}
+                      aria-label={`Delete ${versionLabel(v)}`}
+                      title={`Delete ${versionLabel(v)}`}
+                      onClick={() => deleteVersion(v)}
+                    >
+                      {deletingId === v.resume_id
+                        ? <Loader2 size={15} className="doc-spin" aria-hidden="true" />
+                        : <Trash2 size={15} aria-hidden="true" />}
+                    </button>
+                  </div>
                 </div>
               </li>
             );
@@ -349,27 +464,35 @@ export default function ResumeVersionHistory({ PreviewComponent }) {
       )}
 
       {comparable.length >= 2 && (
-        <div className="doc-compare-bar">
-          <strong>Compare Versions</strong>
-          <select aria-label="First version" value={compareA} onChange={(e) => setCompareA(e.target.value)}>
-            {comparable.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-          </select>
-          <span className="doc-muted">vs</span>
-          <select aria-label="Second version" value={compareB} onChange={(e) => setCompareB(e.target.value)}>
-            {comparable.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-          </select>
-          <button
-            type="button"
-            className="doc-btn-primary"
-            disabled={!compareA || !compareB || compareA === compareB}
-            onClick={() => {
-              // Show older -> newer regardless of selection order.
-              const [x, y] = [byId(compareA), byId(compareB)].sort((p, q) => p.order - q.order);
-              setComparison({ a: x, b: y });
-            }}
-          >
-            <GitCompare size={14} aria-hidden="true" /> Compare
-          </button>
+        <div className="rv-compare">
+          <div className="rv-compare-text">
+            <span className="rv-compare-icon"><GitCompare size={18} aria-hidden="true" /></span>
+            <div>
+              <strong>Compare Versions</strong>
+              <span>See what changed between two versions, page by page.</span>
+            </div>
+          </div>
+          <div className="rv-compare-controls">
+            <select aria-label="First version" value={compareA} onChange={(e) => setCompareA(e.target.value)}>
+              {comparable.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+            </select>
+            <span className="rv-vs">vs</span>
+            <select aria-label="Second version" value={compareB} onChange={(e) => setCompareB(e.target.value)}>
+              {comparable.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+            </select>
+            <button
+              type="button"
+              className="rv-btn rv-btn-primary"
+              disabled={!compareA || !compareB || compareA === compareB}
+              onClick={() => {
+                // Show older -> newer regardless of selection order.
+                const [x, y] = [byId(compareA), byId(compareB)].sort((p, q) => p.order - q.order);
+                setComparison({ a: x, b: y });
+              }}
+            >
+              <GitCompare size={15} aria-hidden="true" /> Compare
+            </button>
+          </div>
         </div>
       )}
 

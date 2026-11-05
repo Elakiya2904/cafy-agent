@@ -160,6 +160,13 @@ class SqliteConnection(sqlite3.Connection):
 
     backend = "sqlite"
 
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            if getattr(self, "_close_on_exit", True):
+                self.close()
+
     def add_column_if_missing(self, table: str, column: str, ddl_type: str) -> None:
         existing = {row[1] for row in self.execute(f"PRAGMA table_info({table})")}
         if column not in existing:
@@ -201,6 +208,7 @@ def connect(db_path: str, default_path: str):
     if not url:
         conn = sqlite3.connect(db_path, timeout=15, factory=SqliteConnection)
         conn.row_factory = sqlite3.Row
+        conn._close_on_exit = db_path != ":memory:"
         return conn
     schema = schema_for(db_path, default_path)
     pool = _pool_for(url)

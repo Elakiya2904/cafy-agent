@@ -137,7 +137,7 @@ function IntegrationCard({ integration, connection, onConnect, onDisconnect, bus
   );
 }
 
-export default function NangoConnectPanel({ onStatusChange }) {
+export default function NangoConnectPanel({ onStatusChange, children }) {
   const [integrations, setIntegrations] = useState(DEFAULT_INTEGRATIONS);
   const [connections, setConnections] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -248,6 +248,7 @@ export default function NangoConnectPanel({ onStatusChange }) {
         <div className="nango-loading">
           <Loader2 size={16} className="nango-spin" /> Loading integrations…
         </div>
+        {children && <div className="nango-cards">{children}</div>}
       </div>
     );
   }
@@ -262,6 +263,7 @@ export default function NangoConnectPanel({ onStatusChange }) {
             <p>Add <code>NANGO_SECRET_KEY</code> to the backend environment to enable Gmail and Calendar connections.</p>
           </div>
         </div>
+        {children && <div className="nango-cards">{children}</div>}
       </div>
     );
   }
@@ -293,6 +295,7 @@ export default function NangoConnectPanel({ onStatusChange }) {
             busy={busy}
           />
         ))}
+        {children}
       </div>
     </div>
   );

@@ -86,7 +86,7 @@ function ScoreCard({ title, score, caption, actionLabel, onAction }) {
 }
 
 export default function ApplicationAnalysis({ job, resume, onResumeUpdated, onImproveProfile, onViewDetails }) {
-  const { analysis, isAnalyzing, error } = useJobMatchAnalysis(job?.id, resume);
+  const { analysis, isAnalyzing, error } = useJobMatchAnalysis(job?.id, resume, 0, job?.description || "");
   const [gapFilter, setGapFilter] = useState("all");
   const [addingSkill, setAddingSkill] = useState("");
   const [addError, setAddError] = useState("");

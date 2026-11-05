@@ -35,7 +35,7 @@ vi.mock("./auth.js", () => ({
   },
 }));
 
-import AuthGate from "./AuthGate.jsx";
+import AuthGate, { SidebarAccount } from "./AuthGate.jsx";
 
 beforeEach(() => {
   authMock.guest = false;
@@ -135,17 +135,36 @@ describe("AuthGate", () => {
 
     act(() => authMock.onChange({ user: { id: "bob", email: "bob@example.com" } }));
 
-    expect(await screen.findByText("bob@example.com")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Logout" })).toBeInTheDocument();
+    expect(screen.queryByText("bob@example.com")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Draft: 0" })).toBeInTheDocument();
   });
 
-  it("signs out from the account bar", async () => {
+  it("shows only a logout action in the signed-in account bar", async () => {
     render(<AuthGate><StatefulChild /></AuthGate>);
     await waitFor(() => expect(authMock.onChange).toBeInstanceOf(Function));
     act(() => authMock.onChange({ user: { id: "alice", email: "alice@example.com" } }));
 
-    fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
+    expect(await screen.findByRole("button", { name: "Logout" })).toBeInTheDocument();
+    expect(screen.queryByText("alice@example.com")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /extension token/i })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Logout" }));
     expect(authMock.signOut).toHaveBeenCalled();
+  });
+
+  it("shows a Log Out button in the sidebar for signed-in users", async () => {
+    render(<AuthGate><SidebarAccount /></AuthGate>);
+    await waitFor(() => expect(authMock.onChange).toBeInstanceOf(Function));
+    act(() => authMock.onChange({ user: { id: "alice", email: "alice@example.com" } }));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Log Out" }));
+    expect(authMock.signOut).toHaveBeenCalled();
+  });
+
+  it("renders nothing in the sidebar outside the auth gate", () => {
+    const { container } = render(<SidebarAccount />);
+    expect(container).toBeEmptyDOMElement();
   });
 
   it("enters and exits guest mode without authenticating", async () => {

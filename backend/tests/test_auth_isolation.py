@@ -160,6 +160,8 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(saved.status_code, 200)
         self.assertEqual(self.client.get("/api/resumes/versions", headers=bearer("alice")).json()["count"], 1)
         self.assertEqual(self.client.get("/api/resumes/versions", headers=bearer("bob")).json()["count"], 0)
+        self.assertEqual(self.client.delete(f"/api/resumes/versions/{rid}", headers=bearer("bob")).status_code, 404)
+        self.assertEqual(self.client.get("/api/resumes/versions", headers=bearer("alice")).json()["count"], 1)
         self.assertEqual(self.client.get("/api/resumes/job/job-1", headers=bearer("bob")).json()["status"], "not_found")
         self.assertEqual(self.client.get(f"/api/resumes/{rid}/docx", headers=bearer("bob")).status_code, 404)
         self.assertEqual(self.client.get(f"/api/resumes/{rid}/latex", headers=bearer("bob")).status_code, 404)

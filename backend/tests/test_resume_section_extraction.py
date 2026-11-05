@@ -137,8 +137,65 @@ Built APIs with Python, Django, PostgreSQL, and Docker.
         self.assertEqual(len(parsed["projects"]), 1)
         self.assertEqual(len(parsed["publications"]), 1)
         self.assertEqual(parsed["publications"][0]["title"], "Forecasting Results")
-        first_page.extract_text.assert_called_once_with()
-        second_page.extract_text.assert_called_once_with()
+        self.assertEqual(
+            first_page.extract_text.call_args_list,
+            [mock.call(extraction_mode="layout"), mock.call()],
+        )
+        self.assertEqual(
+            second_page.extract_text.call_args_list,
+            [mock.call(extraction_mode="layout"), mock.call()],
+        )
+
+    def test_pdf_extraction_prefers_layout_when_its_lines_are_well_formed(self):
+        page = mock.Mock()
+        page.extract_text.return_value = "EDUCATION\nB.Tech. in Artificial Intelligence"
+        reader = mock.Mock(pages=[page])
+        with mock.patch("backend.resume_service.pypdf.PdfReader", return_value=reader):
+            result = self.service._read_pdf(b"pdf bytes")
+
+        self.assertIn("B.Tech. in Artificial Intelligence", result)
+        self.assertEqual(
+            page.extract_text.call_args_list,
+            [mock.call(extraction_mode="layout"), mock.call()],
+        )
+
+    def test_pdf_extraction_uses_plain_text_when_layout_fragments_each_word(self):
+        page = mock.Mock()
+        page.extract_text.side_effect = [
+            "WORK\nEXPERIENCE\nSoftware\nEngineer\nBuilt\nreliable\nAPIs",
+            "WORK EXPERIENCE\nSoftware Engineer\nBuilt reliable APIs",
+        ]
+        reader = mock.Mock(pages=[page])
+        with mock.patch("backend.resume_service.pypdf.PdfReader", return_value=reader):
+            result = self.service._read_pdf(b"pdf bytes")
+
+        self.assertEqual(result, "WORK EXPERIENCE\nSoftware Engineer\nBuilt reliable APIs")
+
+    def test_wrapped_degree_and_project_metadata_do_not_become_separate_entries(self):
+        parsed = self.service.analyze_text(
+            """EDUCATION
+B.Tech.
+in Artificial Intelligence
+B.Tech. in Artificial Intelligence
+• Artificial Intelligence
+PROJECTS
+CloudSense
+Coimbatore, Tamil Nadu
+AI Developer
+Jun 2025 – Apr 2026
+Built a U-Net segmentation model with MobileNetV2 encoder.
+"""
+        )
+
+        self.assertEqual(len(parsed["education"]), 1)
+        self.assertEqual(parsed["education"][0]["degree"], "B.Tech. in Artificial Intelligence")
+        self.assertEqual(parsed["education"][0]["bullets"], [])
+        self.assertEqual(len(parsed["projects"]), 1)
+        self.assertEqual(parsed["projects"][0]["title"], "CloudSense")
+        self.assertEqual(parsed["projects"][0]["dates"], "Jun 2025 – Apr 2026")
+        self.assertIn("Coimbatore, Tamil Nadu", parsed["projects"][0]["description"])
+        self.assertIn("AI Developer", parsed["projects"][0]["description"])
+        self.assertIn("Built a U-Net segmentation model", parsed["projects"][0]["description"])
 
     def test_upload_api_response_and_database_keep_publications_separate(self):
         source = b"""SUMMARY

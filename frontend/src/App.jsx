@@ -9,6 +9,7 @@
 import { withToken } from "./auth.js";
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import logo from "./logo.png";
+import { SidebarAccount } from "./AuthGate.jsx";
 import {
   tailoredResumeToProfile,
   useJobMatchAnalysis,
@@ -21,7 +22,8 @@ import DataExport from "./DataExport.jsx";
 import EmailAgentDashboard from "./EmailAgentDashboard.jsx";
 import MyApplications, { startApplication } from "./MyApplications.jsx";
 import JobIntelligence from "./JobIntelligence.jsx";
-import JobFilterPanel, { EMPTY_JOB_FILTERS, LEVEL_BANDS } from "./JobFilterPanel.jsx";
+import JobFilterPanel, { EMPTY_JOB_FILTERS, LEVEL_BANDS, getEmploymentType } from "./JobFilterPanel.jsx";
+import "./analytics.css";
 import {
   AlertTriangle,
   ArrowRight,
@@ -1142,7 +1144,7 @@ function CareerAnalystPanel({ isOpen, onOpen, onClose, resume, matchedJobs, pipe
 function Sidebar({ activeTab, setActiveTab, totalJobsCount, hasResume, highMatchCount = 0, pipelineCount = 0, platformCount = 0 }) {
   const navItems = [
     {
-      section: "Overview", id: "home", label: "Home", icon: (
+      id: "home", label: "Home", icon: (
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <rect x="3" y="3" width="7" height="7" rx="1.5"></rect>
           <rect x="14" y="3" width="7" height="7" rx="1.5"></rect>
@@ -1152,7 +1154,7 @@ function Sidebar({ activeTab, setActiveTab, totalJobsCount, hasResume, highMatch
       )
     },
     {
-      section: "1. Discover", id: "find-jobs", label: "Find Jobs", badge: hasResume ? highMatchCount : totalJobsCount, icon: (
+      section: "Discover", id: "find-jobs", label: "Find Jobs", badge: hasResume ? highMatchCount : totalJobsCount, icon: (
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <circle cx="11" cy="11" r="8"></circle>
           <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
@@ -1168,7 +1170,7 @@ function Sidebar({ activeTab, setActiveTab, totalJobsCount, hasResume, highMatch
       )
     },
     {
-      section: "2. Apply", label: "Application", id: "my-applications", badge: pipelineCount > 0 ? pipelineCount : undefined, icon: (
+      section: "Apply", label: "Applied To", id: "my-applications", badge: pipelineCount > 0 ? pipelineCount : undefined, icon: (
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M9 11l3 3L22 4"></path>
           <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
@@ -1176,7 +1178,7 @@ function Sidebar({ activeTab, setActiveTab, totalJobsCount, hasResume, highMatch
       )
     },
     {
-      id: "resume", label: "Resume", hasDot: hasResume, icon: (
+      id: "resume", label: "My Resumes", hasDot: hasResume, icon: (
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
           <polyline points="14 2 14 8 20 8"></polyline>
@@ -1186,14 +1188,14 @@ function Sidebar({ activeTab, setActiveTab, totalJobsCount, hasResume, highMatch
       )
     },
     {
-      id: "files", label: "Files", icon: (
+      id: "files", label: "My Files", icon: (
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
         </svg>
       )
     },
     {
-      section: "3 · Follow up", id: "follow-ups", label: "Email Agent", icon: (
+      section: "Follow Up", id: "follow-ups", label: "Email Agent", icon: (
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <line x1="22" y1="2" x2="11" y2="13"></line>
           <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
@@ -1201,7 +1203,7 @@ function Sidebar({ activeTab, setActiveTab, totalJobsCount, hasResume, highMatch
       )
     },
     {
-      section: "Account", id: "insights", label: "Analytics", icon: (
+      section: "Other", id: "insights", label: "Analytics", icon: (
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <line x1="18" y1="20" x2="18" y2="10"></line>
           <line x1="12" y1="20" x2="12" y2="4"></line>
@@ -1210,7 +1212,7 @@ function Sidebar({ activeTab, setActiveTab, totalJobsCount, hasResume, highMatch
       )
     },
     {
-      id: "settings", label: "Settings", icon: (
+      section: "Settings", id: "settings", label: "Account", icon: (
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <circle cx="12" cy="12" r="3"></circle>
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
@@ -1250,6 +1252,7 @@ function Sidebar({ activeTab, setActiveTab, totalJobsCount, hasResume, highMatch
         ))}
       </nav>
 
+      <SidebarAccount />
     </aside>
   );
 }
@@ -2053,7 +2056,7 @@ export function normalizeClientResume(raw, masterResume, job) {
     bullets: (e.bullets || []).slice(0, 2),
   }));
   const certs = parseEntries(rawCerts, "certifications").slice(0, 4);
-  const skillsList = (rawSkills.length ? rawSkills : masterSkills).slice(0, 18);
+  const skillsList = (rawSkills.length ? rawSkills : masterSkills).slice(0, 24);
 
   return {
     personal_info: {
@@ -2452,6 +2455,38 @@ function SuggestionsPanel({ job, resume, tailoredResume, onRewriteSummary, isRew
   );
 }
 
+function GenerationScoresBanner({ scores }) {
+  if (!scores || scores.job_match_score === undefined) return null;
+  const items = [
+    { label: "Job Match", score: scores.job_match_score, tip: scores.explanations?.job_match },
+    { label: "Skills Match", score: scores.skills_match_score, tip: scores.explanations?.skills_match },
+    { label: "ATS Readiness", score: scores.ats_score, tip: scores.explanations?.ats },
+    { label: "Content Quality", score: scores.content_quality_score, tip: scores.explanations?.content_quality },
+  ].filter(item => item.score !== undefined && item.score !== null);
+
+  const color = (s) => s >= 75 ? "#059669" : s >= 50 ? "#d97706" : "#dc2626";
+  const bg    = (s) => s >= 75 ? "#ecfdf5" : s >= 50 ? "#fffbeb" : "#fef2f2";
+  const border= (s) => s >= 75 ? "#a7f3d0" : s >= 50 ? "#fde68a" : "#fecaca";
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(${items.length}, 1fr)`, gap: 8, marginBottom: 14 }}>
+      {items.map(({ label, score, tip }) => (
+        <div
+          key={label}
+          title={tip || ""}
+          style={{
+            background: bg(score), border: `1px solid ${border(score)}`,
+            borderRadius: 10, padding: "10px 12px", textAlign: "center", cursor: tip ? "help" : "default",
+          }}
+        >
+          <div style={{ fontSize: "1.25rem", fontWeight: 800, color: color(score), lineHeight: 1 }}>{score}%</div>
+          <div style={{ fontSize: "0.68rem", fontWeight: 700, color: color(score), marginTop: 3, textTransform: "uppercase", letterSpacing: "0.04em" }}>{label}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline, inPipeline, fullPage = false, resumeOnly = false, autoGenerate = false }) {
   const [activeTab, setActiveTab] = useState("application");
   const [workspaceTab, setWorkspaceTab] = useState("editor");
@@ -2479,6 +2514,8 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
   const [savedSnapshot, setSavedSnapshot] = useState(null);
   // Outcome of the last full "Rewrite with AI": lines kept unchanged + skills to consider adding.
   const [rewriteResult, setRewriteResult] = useState(null);
+  // Scores returned by the last generation run.
+  const [generationScores, setGenerationScores] = useState(null);
   // Tailor flow inputs (Screen 2): the job description is pre-filled from the job and can be edited.
   const [tailorJobDescription, setTailorJobDescription] = useState(() => sanitizeDisplayText(job?.description || ""));
   const [additionalInstructions, setAdditionalInstructions] = useState("");
@@ -2493,7 +2530,8 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
   const editorScoring = useJobMatchAnalysis(
     resumeReady && workspaceTab !== "scenarios" ? job.id : null,
     editorProfile,
-    600
+    600,
+    tailorJobDescription
   );
 
   const existingSkillsLower = new Set((tailoredResume?.skills || []).map((s) => String(s).trim().toLowerCase()));
@@ -2570,12 +2608,13 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
       const rawGen = data.resume || data.tailored_resume || {};
       const normalized = normalizeClientResume(rawGen, resume, job);
       setGeneratedOutput(data);
+      setGenerationScores(data.generation_scores || null);
       setTailoredResume(normalized);
       setSavedSnapshot(normalized);
       setResumeReady(true);
       setApplicationStatus("Tailored resume ready");
       setDraftSaved(false);
-      // Land straight in the Resume Editor, scrolled to the top.
+      // Go straight to the editor — no section-by-section approval step.
       setActiveTab("application");
       setWorkspaceTab("editor");
       setEditorOpen(true);
@@ -3089,6 +3128,11 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
                 <div>
                   {resumeError && <div className="pipeline-error" style={{ marginBottom: 12 }}>{resumeError}</div>}
 
+                  {/* Generation scores banner */}
+                  {generationScores && generationScores.job_match_score !== undefined && (
+                    <GenerationScoresBanner scores={generationScores} />
+                  )}
+
                   {/* The editor owns its workspace tabs so switching views preserves the live draft. */}
                   {workspaceTab !== "scenarios" && (
                     <ResumeEditor
@@ -3382,7 +3426,8 @@ function DirectoryView({
         if (salaryMin !== null && Math.max(...amounts) < salaryMin) return false;
         if (salaryMax !== null && Math.min(...amounts) > salaryMax) return false;
       }
-      if (f.equityOnly && !/\b(equity|stock options?|share options?|rsus?|esop|employee stock)\b/i.test(jobText)) return false;
+      if (f.workModes?.length && !f.workModes.includes(getJobWorkMode(j).toLowerCase())) return false;
+      if (f.jobTypes?.length && !f.jobTypes.includes(getEmploymentType(j))) return false;
 
       if (tech.length) {
         const ok = f.techMode === "and"
@@ -4598,74 +4643,225 @@ function ResumeProfileView({ resume, onUploadNew, onUpdateResume }) {
   );
 }
 
-function InsightsView({ platforms = [] }) {
-  const [stats, setStats] = useState(null);
-  const [error, setError] = useState("");
+const INSIGHT_SKILL_GROUPS = {
+  "Tech & Data": /\b(software|programming|developer|development|data|analytics|sql|python|java|javascript|typescript|react|node|cloud|aws|azure|gcp|machine learning|ai|artificial intelligence|devops|cyber|database|api|engineering|technology|technical|computer|linux|kubernetes|docker|excel|power bi|tableau)\b/i,
+};
 
-  useEffect(() => {
-    fetch(`${API_BASE}/api/stats`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`Could not load statistics (${r.status})`);
-        return r.json();
-      })
-      .then(setStats)
-      .catch((err) => setError(err.message || "Could not load statistics."));
+function platformLabel(platform) {
+  return String(platform || "").replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatRunDuration(seconds) {
+  const duration = Number(seconds) || 0;
+  if (duration < 60) return `${duration.toFixed(1)}s`;
+  const minutes = Math.floor(duration / 60);
+  const remainingSeconds = Math.round(duration % 60);
+  return remainingSeconds ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+}
+
+export function InsightsView({ platforms = [] }) {
+  const [stats, setStats] = useState(null);
+  const [platformSnapshot, setPlatformSnapshot] = useState(platforms);
+  const [error, setError] = useState("");
+  const [skillGroup, setSkillGroup] = useState("All Skills");
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState("");
+  const [exporting, setExporting] = useState(false);
+
+  const loadStats = useCallback(async () => {
+    const [statsResponse, platformsResponse] = await Promise.all([
+      fetch(`${API_BASE}/api/stats`),
+      fetch(`${API_BASE}/api/platforms`),
+    ]);
+    if (!statsResponse.ok) throw new Error(`Could not load statistics (${statsResponse.status})`);
+    if (!platformsResponse.ok) throw new Error(`Could not load platform statistics (${platformsResponse.status})`);
+    const [nextStats, nextPlatforms] = await Promise.all([statsResponse.json(), platformsResponse.json()]);
+    setStats(nextStats);
+    setPlatformSnapshot(nextPlatforms.platforms || []);
+    setError("");
   }, []);
 
-  if (error) return <div className="content-container"><div className="pipeline-error">{error}</div></div>;
-  if (!stats) return <div className="content-container">Loading analytics...</div>;
+  useEffect(() => {
+    loadStats().catch((err) => setError(err.message || "Could not load statistics."));
+  }, [loadStats]);
 
-  // A platform counts as active when it has jobs stored from a real scrape.
-  const activePlatforms = platforms.filter((p) => (p.stored_jobs_count || 0) > 0);
+  useEffect(() => setPlatformSnapshot(platforms), [platforms]);
+
+  const activePlatforms = platformSnapshot.filter((platform) => (platform.stored_jobs_count || 0) > 0);
+  const byPlatform = stats?.by_platform || {};
+  const platformRows = platformSnapshot.map((platform) => ({
+    id: platform.id,
+    name: platform.name || platformLabel(platform.id),
+    count: byPlatform[platform.id] ?? platform.stored_jobs_count ?? 0,
+    color: platform.color || "#2563eb",
+  })).sort((a, b) => b.count - a.count);
+  const maxPlatformJobs = Math.max(...platformRows.map((platform) => platform.count), 1);
+  const allSkills = stats?.top_skills || [];
+  const skills = allSkills.filter(({ skill }) => skillGroup === "All Skills" || INSIGHT_SKILL_GROUPS[skillGroup].test(skill));
+  const topSkill = allSkills[0];
+  const maxSkillMentions = Math.max(...skills.map((item) => item.count), 1);
+  const latestRun = stats?.recent_runs?.[0];
+
+  const syncCrawlers = async () => {
+    setSyncing(true);
+    setSyncMessage("");
+    try {
+      const response = await fetch(`${API_BASE}/api/scrape?platform=all`, { method: "POST" });
+      if (!response.ok) throw new Error(`Could not start crawler sync (${response.status})`);
+      const result = await response.json();
+      setSyncMessage(result.message || "Crawler sync started. Analytics will update as listings are collected.");
+      window.setTimeout(() => {
+        loadStats().catch((err) => setError(err.message || "Could not refresh statistics."));
+      }, 3000);
+    } catch (err) {
+      setSyncMessage(err.message || "Could not start crawler sync.");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const exportInsights = () => {
+    if (!stats) return;
+    setExporting(true);
+    try {
+      const rows = [
+        ["Cafy Agent — Job Market & Skill Insights"],
+        ["Generated", new Date().toLocaleString()],
+        ["Active job listings", stats.total_active_jobs || 0],
+        ["Active platforms", `${activePlatforms.length}/${platformSnapshot.length}`],
+        [],
+        ["Platform", "Stored jobs", "Share of listings"],
+        ...platformRows.map(({ name, count }) => [name, count, `${stats.total_active_jobs ? Math.round((count / stats.total_active_jobs) * 100) : 0}%`]),
+        [],
+        ["Rank", "Skill", "Job mentions", "Share of listings"],
+        ...allSkills.map((item, index) => [
+          index + 1,
+          item.skill,
+          item.count,
+          `${stats.total_active_jobs ? Math.round((item.count / stats.total_active_jobs) * 100) : 0}%`,
+        ]),
+      ];
+      const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
+      const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "cafy-job-market-insights.csv";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
-    <div className="content-container">
-      <h1 className="page-title">Job Market & Skill Insights</h1>
-      <p className="page-subtitle">Stats from the jobs stored in the local database.</p>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "20px", margin: "24px 0" }}>
-        <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: "16px", padding: "24px" }}>
-          <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "#64748B" }}>TOTAL STORED LIVE JOBS</span>
-          <h2 style={{ fontSize: "2.2rem", fontWeight: 800, color: "#2563EB", marginTop: "6px" }}>
-            {stats.total_active_jobs}
-          </h2>
-          <p style={{ fontSize: "0.78rem", color: "#10B981", marginTop: "4px" }}><Check size={13} aria-hidden="true" /> Stored in local database</p>
-        </div>
-
-        <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: "16px", padding: "24px" }}>
-          <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "#64748B" }}>ACTIVE PLATFORMS</span>
-          <h2 style={{ fontSize: "2.2rem", fontWeight: 800, color: "#0F172A", marginTop: "6px" }}>
-            {activePlatforms.length} / {platforms.length}
-          </h2>
-          <p style={{ fontSize: "0.78rem", color: "#64748B", marginTop: "4px" }}>
-            {activePlatforms.length > 0
-              ? activePlatforms.map((p) => p.name || p.id).join(", ")
-              : "No platform has stored jobs yet."}
-          </p>
-        </div>
-      </div>
-
-      <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: "16px", padding: "24px" }}>
-        <h3 style={{ fontSize: "1.1rem", fontWeight: 800, color: "#0F172A", marginBottom: "16px" }}>
-          Most In-Demand Skills Across Stored Jobs
-        </h3>
-        {(stats.top_skills || []).map((item, idx) => (
-          <div
-            key={idx}
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              padding: "10px 0",
-              borderBottom: "1px solid #F1F5F9"
-            }}
-          >
-            <span style={{ fontWeight: 600, fontSize: "0.88rem", color: "#1E293B" }}>
-              #{idx + 1} {item.skill}
-            </span>
-            <span className="badge-pill">{item.count} mentions</span>
+    <div className="content-container analytics-page">
+      <header className="analytics-header">
+        <div>
+          <div className="analytics-breadcrumb">Enterprise Workspace <span>›</span> Analytics &amp; Intelligence</div>
+          <div className="analytics-title-row">
+            <h1 className="page-title">Job Market &amp; Skill Insights</h1>
+            <span className="analytics-live"><span /> Live Sync: Local DB Active</span>
           </div>
-        ))}
+        </div>
+        <div className="analytics-header-actions">
+          <button type="button" className="analytics-button" onClick={exportInsights} disabled={!stats || exporting}>
+            <Download size={14} /> {exporting ? "Exporting…" : "Export Intel"}
+          </button>
+          <button type="button" className="analytics-button analytics-button-primary" onClick={syncCrawlers} disabled={syncing}>
+            <RefreshCw size={14} className={syncing ? "analytics-spin" : ""} /> {syncing ? "Syncing…" : "Sync All Crawlers"}
+          </button>
+        </div>
+      </header>
+
+      <div className="analytics-intro">
+        <p>Continuous telemetry aggregated across live ATS job listings stored in your local database.</p>
+        <span>{latestRun?.finished_at ? `Last crawler run · ${new Date(latestRun.finished_at).toLocaleString()}` : "Analytics reflect the latest stored snapshot."}</span>
       </div>
+
+      {error && <div className="pipeline-error" role="alert">{error}</div>}
+      {syncMessage && <div className={`analytics-message ${syncMessage.startsWith("Could not") ? "is-error" : ""}`} role="status">{syncMessage}</div>}
+      {!stats ? (
+        <div className="analytics-loading">Loading live market insights…</div>
+      ) : (
+        <>
+          <section className="analytics-metrics" aria-label="Market summary">
+            <article className="analytics-metric">
+              <div className="analytics-metric-label"><span>Total stored<br />live jobs</span><span className="analytics-tag analytics-tag-green">Live</span></div>
+              <div className="analytics-metric-value">{(stats.total_active_jobs || 0).toLocaleString()} <span>active roles</span></div>
+              <div className="analytics-metric-note"><Check size={12} /> Stored in local database</div>
+              <div className="analytics-meter"><span style={{ width: stats.total_active_jobs ? "100%" : "0%" }} /></div>
+            </article>
+            <article className="analytics-metric">
+              <div className="analytics-metric-label"><span>Active<br />platforms</span><span className="analytics-tag analytics-tag-blue">{activePlatforms.length} Online</span></div>
+              <div className="analytics-metric-value">{activePlatforms.length} <span>/ {platformSnapshot.length} connectors</span></div>
+              <div className="analytics-metric-note">{activePlatforms.length ? activePlatforms.map((platform) => platform.name || platformLabel(platform.id)).join(", ") : "No active listing sources yet."}</div>
+              <div className="analytics-meter"><span style={{ width: `${platformSnapshot.length ? Math.min((activePlatforms.length / platformSnapshot.length) * 100, 100) : 0}%` }} /></div>
+            </article>
+            <article className="analytics-metric">
+              <div className="analytics-metric-label"><span>Latest scrape<br />results</span><span className="analytics-tag analytics-tag-purple">{latestRun?.status ? platformLabel(latestRun.status) : "Awaiting run"}</span></div>
+              <div className="analytics-metric-value">+{(latestRun?.jobs_found || 0).toLocaleString()} <span>jobs in latest run</span></div>
+              <div className="analytics-metric-note">{latestRun ? `${platformLabel(latestRun.platform)} · ${formatRunDuration(latestRun.duration_seconds)}` : "Sync crawlers to collect new listings."}</div>
+              <div className="analytics-meter analytics-meter-purple"><span style={{ width: `${Math.min(((latestRun?.jobs_found || 0) / Math.max(stats.total_active_jobs || 1, 1)) * 100, 100)}%` }} /></div>
+            </article>
+            <article className="analytics-metric">
+              <div className="analytics-metric-label"><span>Top frequency<br />skill</span><span className="analytics-tag analytics-tag-amber">{topSkill ? "#1 Ranked" : "No data"}</span></div>
+              <div className="analytics-metric-value analytics-top-skill">{topSkill?.skill || "No skills yet"} <span>{topSkill ? `${topSkill.count.toLocaleString()} mentions` : "—"}</span></div>
+              <div className="analytics-metric-note">{topSkill && stats.total_active_jobs ? `Found in ${((topSkill.count / stats.total_active_jobs) * 100).toFixed(1)}% of stored listings.` : "Skills appear when active jobs include parsed skill data."}</div>
+              <div className="analytics-meter analytics-meter-amber"><span style={{ width: `${topSkill ? Math.min((topSkill.count / Math.max(stats.total_active_jobs || 1, 1)) * 100, 100) : 0}%` }} /></div>
+            </article>
+          </section>
+
+          <section className="analytics-details">
+            <article className="analytics-panel analytics-skills-panel">
+              <div className="analytics-panel-heading">
+                <div>
+                  <h2>Most In-Demand Skills Across Stored Jobs</h2>
+                  <p>Ranked frequency index extracted from stored job listings.</p>
+                </div>
+                <div className="analytics-filter" role="group" aria-label="Filter skills">
+                  {["All Skills", "Tech & Data"].map((group) => (
+                    <button type="button" key={group} className={skillGroup === group ? "is-active" : ""} aria-pressed={skillGroup === group} onClick={() => setSkillGroup(group)}>{group}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="analytics-skill-list">
+                {skills.length ? skills.map((item, index) => {
+                  const share = stats.total_active_jobs ? (item.count / stats.total_active_jobs) * 100 : 0;
+                  return (
+                    <div className="analytics-skill-row" key={item.skill}>
+                      <span className={`analytics-rank ${index === 0 ? "is-top" : ""}`}>#{index + 1}</span>
+                      <div className="analytics-skill-name"><strong>{item.skill}</strong><span>{INSIGHT_SKILL_GROUPS["Tech & Data"].test(item.skill) ? "Technology & data" : "Business & operations"}</span></div>
+                      <div className="analytics-skill-penetration"><span>Penetration</span><div className="analytics-meter"><span style={{ width: `${Math.min((item.count / maxSkillMentions) * 100, 100)}%` }} /></div></div>
+                      <span className="analytics-skill-share">{share.toFixed(1)}%</span>
+                      <span className="analytics-skill-growth">{index === 0 ? "Top" : `#${index + 1}`}</span>
+                      <span className="analytics-mentions">{item.count.toLocaleString()} mentions</span>
+                    </div>
+                  );
+                }) : <div className="analytics-empty">No skills in this category yet.</div>}
+              </div>
+            </article>
+
+            <article className="analytics-panel analytics-platform-panel">
+              <div className="analytics-panel-heading">
+                <div><h2>Platform Distribution</h2><p>{platformRows.length} ATS nodes</p></div>
+              </div>
+              <div className="analytics-platform-list">
+                {platformRows.length ? platformRows.map((platform) => {
+                  const share = stats.total_active_jobs ? Math.round((platform.count / stats.total_active_jobs) * 100) : 0;
+                  return (
+                    <div className="analytics-platform-row" key={platform.id}>
+                      <div><span className="analytics-platform-name"><i style={{ background: platform.color }} />{platform.name}</span><span className="analytics-platform-count">{platform.count.toLocaleString()} jobs <b>({share}%)</b></span></div>
+                      <div className="analytics-meter"><span style={{ width: `${(platform.count / maxPlatformJobs) * 100}%`, background: platform.color }} /></div>
+                    </div>
+                  );
+                }) : <div className="analytics-empty">No ATS platforms are configured.</div>}
+              </div>
+            </article>
+          </section>
+        </>
+      )}
     </div>
   );
 }

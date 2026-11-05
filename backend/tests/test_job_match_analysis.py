@@ -68,6 +68,35 @@ class TestJobMatchAnalysis(unittest.TestCase):
         self.assertIn("Terraform", result["sections"]["skills"]["evidenced_elsewhere"])
         self.assertTrue(any("Terraform" in s["text"] for s in result["suggestions"]))
 
+    def test_description_keywords_are_scored_even_when_stored_skills_are_stale(self):
+        edited_job = {
+            **JOB,
+            "extracted_skills": ["Kubernetes"],
+            "description": "This role requires AWS and Python.",
+        }
+        profile = {**PROFILE, "skills": ["AWS", "Python"]}
+
+        result = analyze_profile_for_job(profile, edited_job)
+
+        self.assertIn("AWS", result["job_skills"])
+        self.assertIn("Python", result["matched_skills"])
+        self.assertIn("Kubernetes", result["job_skills"])
+
+    def test_custom_description_replaces_stale_extracted_keywords(self):
+        edited_job = {
+            **JOB,
+            "extracted_skills": ["Kubernetes"],
+        }
+
+        result = analyze_profile_for_job(
+            PROFILE,
+            edited_job,
+            job_description="This role requires Python.",
+        )
+
+        self.assertIn("Python", result["job_skills"])
+        self.assertNotIn("Kubernetes", result["job_skills"])
+
     def test_missing_certification_flagged_when_job_asks(self):
         result = analyze_profile_for_job(PROFILE, JOB)
         self.assertTrue(result["sections"]["certifications"]["missing"])

@@ -520,6 +520,36 @@ describe('Cafy Agent job application drawer', () => {
     expect(screen.queryByRole('button', { name: /Continue to Application/i })).not.toBeInTheDocument();
   });
 
+  it('uses the edited job description for generation and the live match score', async () => {
+    const editedDescription = 'Build Python services and analyze data with pandas.';
+    render(
+      <JobDetailModal
+        job={job}
+        resume={resume}
+        onClose={() => {}}
+        onTogglePipeline={() => {}}
+        inPipeline={false}
+        resumeOnly
+      />
+    );
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Job description' }), {
+      target: { value: editedDescription },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Generate Tailored Resume/i }));
+    await screen.findByRole('navigation', { name: 'Structured editor sections' }, { timeout: 3000 });
+
+    const generationRequest = global.fetch.mock.calls.find(([url]) => url.includes('/api/resumes/generate'));
+    expect(JSON.parse(generationRequest[1].body).job_description).toBe(editedDescription);
+
+    await waitFor(() => {
+      const analysisRequests = global.fetch.mock.calls
+        .filter(([url]) => url.includes('/api/resumes/pre-analysis'))
+        .map(([, options]) => JSON.parse(options.body));
+      expect(analysisRequests.some((request) => request.job_description === editedDescription)).toBe(true);
+    });
+  });
+
   it('uses the PDF renderer in the full-width Preview & Test tab', async () => {
     render(
       <JobDetailModal
