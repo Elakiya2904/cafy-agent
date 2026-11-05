@@ -27,6 +27,7 @@ from .auth_service import (
     guest_mode_enabled,
     is_production,
     secret_problem,
+    shared_guest_header_allowed,
     verify_access_token,
     sqlite_guest_fallback_enabled,
 )
@@ -141,7 +142,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 logger.error("JWT_SECRET_KEY is missing or weak; refusing authenticated request.")
                 return JSONResponse({"detail": "Authentication is not configured on the server."}, status_code=503)
             marker = context.set_candidate(claims["sub"])
-        elif request.headers.get("x-cafy-guest", "").strip().lower() == "true" and guest_mode_enabled():
+        elif request.headers.get("x-cafy-guest", "").strip().lower() == "true" and shared_guest_header_allowed():
             marker = context.set_candidate(context.GUEST_CANDIDATE)
         else:
             return _unauthorized("Sign in required.")

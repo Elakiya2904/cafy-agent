@@ -11,6 +11,7 @@ import {
   isGuestMode,
   setGuestMode,
   signIn,
+  signInAsGuest,
   signOut,
   signUp,
   trackSession,
@@ -66,6 +67,7 @@ function SignIn({ onGuestMode }) {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [guestBusy, setGuestBusy] = useState(false);
   const [error, setError] = useState(null);
   const isSignUp = mode === "signup";
 
@@ -166,9 +168,21 @@ function SignIn({ onGuestMode }) {
             <div className="ag-divider">
               <span>or</span>
             </div>
-            <button className="ag-guest-btn" type="button" onClick={onGuestMode}>
+            <button
+              className="ag-guest-btn"
+              type="button"
+              disabled={guestBusy}
+              onClick={async () => {
+                setGuestBusy(true);
+                try {
+                  await onGuestMode();
+                } finally {
+                  setGuestBusy(false);
+                }
+              }}
+            >
               <UserRound size={17} aria-hidden="true" />
-              <span>Continue as Guest</span>
+              <span>{guestBusy ? "Starting guest session…" : "Continue as Guest"}</span>
             </button>
           </div>
         )}
@@ -247,7 +261,28 @@ export default function AuthGate({ children }) {
     );
   }
   if (!session) {
-    return <SignIn onGuestMode={() => updateGuestMode(true)} />;
+    const startGuest = async () => {
+      try {
+        await signInAsGuest(); // a private, temporary guest account (trackSession reports the new session)
+      } catch {
+        updateGuestMode(true); // server without the guest-token endpoint: fall back to the shared local guest
+      }
+    };
+    return <SignIn onGuestMode={startGuest} />;
+  }
+
+  if (session.user?.guest) {
+    return (
+      <React.Fragment key={session.user.id}>
+        <div className="ag-bar">
+          <span>Guest mode — use test data only</span>
+          <button onClick={signOut}>Sign in</button>
+        </div>
+        <AccountContext.Provider value={{ guest: true, action: signOut }}>
+          {children}
+        </AccountContext.Provider>
+      </React.Fragment>
+    );
   }
 
   return (

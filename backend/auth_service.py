@@ -140,11 +140,21 @@ def signing_secret() -> str:
 
 
 def guest_mode_enabled() -> bool:
-    """Guest login is for testing only: on by default in development, off with ``ENABLE_GUEST_MODE=false``,
-    and never available in production. All guests share one anonymous account, so never keep real data in it."""
+    """Whether "Continue as Guest" is offered.
+
+    Development: on by default, off with ``ENABLE_GUEST_MODE=false``.
+    Production: off unless ``ENABLE_GUEST_MODE=true`` is set explicitly. Production guests always get their
+    own short-lived signed token (``POST /api/auth/guest``), never the shared development guest account.
+    """
     if is_production():
-        return sqlite_guest_fallback_enabled()
+        return (os.getenv("ENABLE_GUEST_MODE") or "").strip().lower() in {"1", "true", "yes", "on"}
     return (os.getenv("ENABLE_GUEST_MODE") or "true").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def shared_guest_header_allowed() -> bool:
+    """The ``X-Cafy-Guest`` header maps every caller to one shared account; only acceptable outside production
+    (or the throw-away Vercel SQLite fallback, where no data is durable anyway)."""
+    return guest_mode_enabled() and (not is_production() or sqlite_guest_fallback_enabled())
 
 
 # --------------------------------------------------------------------------- validation

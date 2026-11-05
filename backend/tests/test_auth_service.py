@@ -112,11 +112,16 @@ class TestPasswordsAndTokens(AuthTestCase):
         with mock.patch.dict(os.environ, {"JWT_SECRET_KEY": "replace-with-a-long-random-secret"}):
             self.assertNotEqual(svc.signing_secret(), "replace-with-a-long-random-secret")
 
-    def test_guest_mode_is_never_enabled_in_production(self):
+    def test_production_guests_need_explicit_opt_in_and_never_share_an_account(self):
         with mock.patch.dict(os.environ, {"ENABLE_GUEST_MODE": "true", "APP_ENV": "production"}):
+            self.assertTrue(svc.guest_mode_enabled())
+            # The shared X-Cafy-Guest account stays a development-only shortcut.
+            self.assertFalse(svc.shared_guest_header_allowed())
+        with mock.patch.dict(os.environ, {"ENABLE_GUEST_MODE": "false", "APP_ENV": "production"}):
             self.assertFalse(svc.guest_mode_enabled())
         with mock.patch.dict(os.environ, {"ENABLE_GUEST_MODE": "true", "APP_ENV": "development"}):
             self.assertTrue(svc.guest_mode_enabled())
+            self.assertTrue(svc.shared_guest_header_allowed())
 
     def test_guest_mode_defaults_on_in_development_and_can_be_turned_off(self):
         with mock.patch.dict(os.environ, {"APP_ENV": "development"}):
@@ -306,7 +311,11 @@ class TestHttpContract(AuthTestCase):
     def test_config_tells_the_ui_whether_guests_are_allowed(self):
         with mock.patch.dict(os.environ, {"ENABLE_GUEST_MODE": "true"}):
             self.assertEqual(self.client.get("/api/auth/config").json(), {"guest_mode": True})
+        # Production offers guests only when explicitly enabled (each guest gets a private account).
         with mock.patch.dict(os.environ, {"ENABLE_GUEST_MODE": "true", "APP_ENV": "production"}):
+            self.assertEqual(self.client.get("/api/auth/config").json(), {"guest_mode": True})
+        with mock.patch.dict(os.environ, {"APP_ENV": "production"}):
+            os.environ.pop("ENABLE_GUEST_MODE", None)
             self.assertEqual(self.client.get("/api/auth/config").json(), {"guest_mode": False})
         with mock.patch.dict(os.environ, {"ENABLE_GUEST_MODE": "false"}):
             self.assertEqual(self.client.get("/api/auth/config").json(), {"guest_mode": False})

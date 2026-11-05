@@ -10,6 +10,8 @@ const CLIENT_HEADER = { "X-Cafy-Client": "web" };
 const RENEW_BEFORE_EXPIRY_MS = 60_000;
 const MIN_RENEW_DELAY_MS = 5_000;
 const GUEST_KEY = "cafy_guest_mode";
+// A guest's signed token is kept for this browser tab only, so reloading does not start a new, empty guest account.
+const GUEST_SESSION_KEY = "cafy_guest_session";
 // In development the pages are served by Vite but API calls go straight to the backend.
 const DEV_API_ORIGIN = "http://127.0.0.1:8000";
 
@@ -109,6 +111,7 @@ function applySession(payload) {
     expiresAt: Date.now() + payload.expires_in * 1000,
     user: payload.user,
   };
+  saveGuestSession(session.user?.guest ? session : null);
   bootstrapped = true; // we now know the session state; no need to probe the refresh cookie again
   scheduleRenewal();
   notify();
@@ -117,14 +120,38 @@ function applySession(payload) {
 function clearSession() {
   clearTimeout(renewTimer);
   renewTimer = null;
+  saveGuestSession(null);
   if (!session) return;
   session = null;
   notify();
 }
 
+function saveGuestSession(value) {
+  try {
+    if (value) window.sessionStorage?.setItem(GUEST_SESSION_KEY, JSON.stringify(value));
+    else window.sessionStorage?.removeItem(GUEST_SESSION_KEY);
+  } catch {
+    /* storage unavailable: the guest session lasts for this page view only */
+  }
+}
+
+function readGuestSession() {
+  try {
+    const saved = JSON.parse(window.sessionStorage?.getItem(GUEST_SESSION_KEY) || "null");
+    return saved?.accessToken && saved.user?.guest && saved.expiresAt > Date.now() + RENEW_BEFORE_EXPIRY_MS ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
 function scheduleRenewal() {
   clearTimeout(renewTimer);
   if (!session) return;
+  if (session.user?.guest) {
+    // Guest tokens cannot be refreshed; the guest session simply ends when the token expires.
+    renewTimer = setTimeout(clearSession, Math.max(0, session.expiresAt - Date.now()));
+    return;
+  }
   const delay = Math.max(MIN_RENEW_DELAY_MS, session.expiresAt - Date.now() - RENEW_BEFORE_EXPIRY_MS);
   renewTimer = setTimeout(() => { refreshSession(); }, delay);
 }
@@ -163,6 +190,17 @@ export async function signIn({ email, password }) {
   setGuestMode(false);
 }
 
+/** Start a temporary guest account of your own (no email or password). The server must offer guest access. */
+export async function signInAsGuest() {
+  const payload = await authRequest("/guest");
+  applySession({
+    ...payload,
+    expires_in: Number(payload?.expires_in) || 12 * 60 * 60,
+    user: { ...(payload?.user || {}), guest: true },
+  });
+  setGuestMode(false);
+}
+
 export async function signOut() {
   try {
     await authRequest("/logout");
@@ -179,7 +217,16 @@ export function trackSession(onChange) {
   if (bootstrapped) {
     onChange(publicSession());
   } else if (!refreshInFlight) {
-    Promise.all([refreshSession(), loadConfig()]).finally(() => {
+    const savedGuest = readGuestSession();
+    const restore = savedGuest
+      ? Promise.resolve().then(() => {
+        session = savedGuest;
+        scheduleRenewal();
+        notify();
+        return true;
+      })
+      : refreshSession();
+    Promise.all([restore, loadConfig()]).finally(() => {
       bootstrapped = true;
       // refreshSession already notified on success; on failure there was no session, so announce "signed out".
       if (!session) listeners.forEach((listener) => listener(null));
@@ -226,7 +273,10 @@ export function installAuthFetch() {
 
     const hadToken = Boolean(session);
     let response = await attempt();
-    if (response.status === 401 && hadToken && (await refreshSession())) response = await attempt();
+    if (response.status === 401 && hadToken) {
+      if (session?.user?.guest) clearSession(); // an expired or rejected guest token cannot be refreshed
+      else if (await refreshSession()) response = await attempt();
+    }
     return response;
   };
 

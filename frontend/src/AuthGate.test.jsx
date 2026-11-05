@@ -15,7 +15,10 @@ const authMock = vi.hoisted(() => {
       this.retryAfter = retryAfter;
     }
   }
-  return { onChange: null, guest: false, setGuestMode: vi.fn(), signIn: vi.fn(), signUp: vi.fn(), signOut: vi.fn(), AuthApiError };
+  return {
+    onChange: null, guest: false, setGuestMode: vi.fn(), signIn: vi.fn(), signUp: vi.fn(), signOut: vi.fn(),
+    signInAsGuest: vi.fn(), AuthApiError,
+  };
 });
 
 vi.mock("./auth.js", () => ({
@@ -26,6 +29,7 @@ vi.mock("./auth.js", () => ({
   isGuestMode: () => authMock.guest,
   setGuestMode: (enabled) => { authMock.guest = enabled; authMock.setGuestMode(enabled); },
   signIn: authMock.signIn,
+  signInAsGuest: authMock.signInAsGuest,
   signUp: authMock.signUp,
   signOut: authMock.signOut,
   trackSession: (onChange) => {
@@ -167,7 +171,25 @@ describe("AuthGate", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("enters and exits guest mode without authenticating", async () => {
+  it("starts a private guest session from Continue as Guest and leaves it with Sign in", async () => {
+    authMock.signInAsGuest.mockImplementation(async () => {
+      authMock.onChange({ user: { id: "guest_abc", full_name: "Guest", guest: true } });
+    });
+    render(<AuthGate><StatefulChild /><SidebarAccount /></AuthGate>);
+    await screen.findByRole("heading", { name: "Create Account" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue as Guest" }));
+    expect(await screen.findByText("Guest mode — use test data only")).toBeInTheDocument();
+    expect(authMock.signInAsGuest).toHaveBeenCalled();
+    expect(authMock.setGuestMode).not.toHaveBeenCalledWith(true); // not the shared local guest
+    expect(screen.getByRole("button", { name: "Draft: 0" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Sign In" }).at(-1)); // sidebar button
+    expect(authMock.signOut).toHaveBeenCalled();
+  });
+
+  it("falls back to local guest mode when the server cannot issue a guest session", async () => {
+    authMock.signInAsGuest.mockRejectedValue(new Error("Not Found"));
     render(<AuthGate><StatefulChild /></AuthGate>);
     await screen.findByRole("heading", { name: "Create Account" });
 

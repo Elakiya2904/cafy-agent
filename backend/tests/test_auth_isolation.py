@@ -76,6 +76,30 @@ class AuthTests(unittest.TestCase):
             response = self.client.get("/api/resume/current", headers={"X-Cafy-Guest": "true"})
         self.assertEqual(response.status_code, 401)
 
+    def test_production_with_postgres_issues_private_guest_accounts_when_opted_in(self):
+        env = {"APP_ENV": "production", "ENABLE_GUEST_MODE": "true", "JWT_SECRET_KEY": SECRET}
+        with mock.patch.dict(os.environ, env):
+            self.assertTrue(self.client.get("/api/auth/config").json()["guest_mode"])
+            first = self.client.post("/api/auth/guest")
+            second = self.client.post("/api/auth/guest")
+            self.assertEqual(first.status_code, 200)
+            body = first.json()
+            self.assertTrue(body["user"]["guest"])
+            self.assertGreater(body["expires_in"], 0)
+            first_sub = auth.verify_token(body["access_token"])["sub"]
+            second_sub = auth.verify_token(second.json()["access_token"])["sub"]
+            self.assertTrue(first_sub.startswith("guest_"))
+            self.assertNotEqual(first_sub, second_sub)
+            ok = self.client.get("/api/resume/current", headers={"Authorization": f"Bearer {body['access_token']}"})
+            self.assertEqual(ok.status_code, 200)
+            # The shared header guest is still refused in production.
+            self.assertEqual(self.client.get("/api/resume/current", headers={"X-Cafy-Guest": "true"}).status_code, 401)
+
+    def test_guest_accounts_are_refused_when_guest_mode_is_off(self):
+        with mock.patch.dict(os.environ, {"APP_ENV": "production", "ENABLE_GUEST_MODE": "false", "JWT_SECRET_KEY": SECRET}):
+            self.assertEqual(self.client.post("/api/auth/guest").status_code, 403)
+            self.assertFalse(self.client.get("/api/auth/config").json()["guest_mode"])
+
     def test_health_and_oauth_callback_are_public(self):
         self.assertEqual(self.client.get("/api/health").status_code, 200)
         r = self.client.get("/api/email-agent/oauth/gmail/callback?error=access_denied", follow_redirects=False)
