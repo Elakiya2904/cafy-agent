@@ -186,7 +186,33 @@ docker push "$user/cafy-agent-db:latest"
 
 Use it on a new machine by setting `DB_IMAGE=yourdockerhubuser/cafy-agent-db:1.0.0` in `.env` before the first
 `docker compose up -d`. The seed only runs when the `pgdata` volume is empty, so an existing database is never
-changed. Your own accounts and resumes move between machines with backups (sections 3 and 5), never via images.
+changed.
+
+### Full database image (private)
+
+A second variant contains **everything** in the `public` schema: users (Argon2id password hashes), sign-in
+tokens (stored as SHA-256 hashes, not usable to sign in), profiles, uploaded and tailored resumes, applications,
+email data (OAuth tokens stay encrypted; the key is in `.env`, not in the image) and job listings.
+
+```powershell
+.\docker\postgres\build-seed.ps1 -Full               # -> docker\postgres\initdb-full (git-ignored)
+docker build --build-arg SEED_DIR=initdb-full --build-arg SEED_KIND=full-private -t cafy-agent-db:full docker\postgres
+```
+
+It holds personal data, so:
+- Publish it only to a **private** repository with its own name (Docker Hub privacy is per repository, not per
+  tag). Create `cafy-agent-db-private` as *Private* on Docker Hub **before** pushing:
+
+  ```powershell
+  docker tag cafy-agent-db:full "$user/cafy-agent-db-private:1.0.0"
+  docker push "$user/cafy-agent-db-private:1.0.0"
+  ```
+
+- Never push it to the public `cafy-agent-db` repository.
+- Anyone who can pull it can read every resume and account in it. Prefer backups (sections 3 and 5) for moving
+  your own data when possible.
+- Users can sign in with their existing passwords on any server that uses the image; existing browser sessions
+  do not carry over.
 
 ## 8. Connect the Vercel frontend to this backend
 

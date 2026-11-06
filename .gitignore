@@ -52,3 +52,5 @@ docker/certs/*.crt
 docker/certs/*.pem
 # Generated database seed for the cafy-agent-db image (docker/postgres/build-seed.ps1)
 docker/postgres/initdb/
+# Full database seed with personal data (build-seed.ps1 -Full) - never commit
+docker/postgres/initdb-full/

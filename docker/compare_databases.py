@@ -31,7 +31,7 @@ def _redact(url: str) -> str:
     return (head.split(":")[0] + ":" + head.split(":")[1] + ":****@" + tail) if tail else url
 
 
-def snapshot(url: str) -> dict:
+def snapshot(url: str, only_schema: str | None = None) -> dict:
     with psycopg.connect(_plain(url), connect_timeout=10) as conn:
         conn.read_only = True
         cur = conn.cursor()
@@ -42,7 +42,7 @@ def snapshot(url: str) -> dict:
         cur.execute("""select table_schema, table_name from information_schema.tables
                        where table_type = 'BASE TABLE' and table_schema not in ('pg_catalog', 'information_schema')
                        order by 1, 2""")
-        tables = cur.fetchall()
+        tables = [t for t in cur.fetchall() if only_schema is None or t[0] == only_schema]
         counts, checksums = {}, {}
         for schema, name in tables:
             ident = f'"{schema}"."{name}"'
@@ -73,6 +73,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--source", default=env.get("DATABASE_URL") or "")
     parser.add_argument("--target", default=default_target)
+    parser.add_argument("--schema", default=None, help="compare only this schema (e.g. public)")
     args = parser.parse_args()
     if not args.source:
         print("No source database: set DATABASE_URL in .env or pass --source.")
@@ -80,7 +81,7 @@ def main() -> int:
 
     print("source:", _redact(_plain(args.source)))
     print("target:", _redact(_plain(args.target)))
-    src, dst = snapshot(args.source), snapshot(args.target)
+    src, dst = snapshot(args.source, args.schema), snapshot(args.target, args.schema)
 
     problems = []
     if src["revision"] != dst["revision"]:
