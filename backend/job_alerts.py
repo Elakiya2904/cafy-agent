@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from .auth import require_cron_secret
 from .context import current_candidate
+from .recommendation_service import MIN_MATCH_SCORE
 
 logger = logging.getLogger("cafy.job_alerts")
 
@@ -246,7 +247,7 @@ class JobAlertsService:
         jobs = self.db.get_jobs(limit=10000)
         if preferences["sponsorship_only"]:
             jobs = self.annotate_jobs(jobs)
-        ranked = self.recommendations.recommend_jobs(resume, jobs, min_score=85)
+        ranked = self.recommendations.recommend_jobs(resume, jobs, min_score=MIN_MATCH_SCORE)
         filtered = [job for job in ranked if self._matches_preferences(job, preferences)]
         now = self.now().astimezone(timezone.utc).isoformat()
         new_matches: List[Dict[str, Any]] = []

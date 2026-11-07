@@ -26,9 +26,9 @@ const resume = (text) => ({ professional_summary: text });
 beforeEach(() => { renders.length = 0; });
 
 describe('PDF auto-fit', () => {
-  it('steps down in half points to 8.5 pt, then tries compact spacing', () => {
+  it('steps down in half points to 9.5 pt (still readable), then tries compact spacing', () => {
     expect(fitSteps(settings).map((s) => `${s.size}/${s.density}`)).toEqual([
-      '10/normal', '9.5/normal', '9/normal', '8.5/normal', '8.5/compact',
+      '10/normal', '9.5/normal', '9.5/compact',
     ]);
   });
 
@@ -40,21 +40,21 @@ describe('PDF auto-fit', () => {
   });
 
   it('resumes from the last fitted size instead of starting from the top', async () => {
-    fitsAt = 9;
+    fitsAt = 9.5;
     const memo = {};
-    expect((await renderFitted(resume('long text'), settings, memo)).size).toBe(9);
-    expect(renders).toHaveLength(3);
+    expect((await renderFitted(resume('long text'), settings, memo)).size).toBe(9.5);
+    expect(renders).toHaveLength(2);
 
-    // The text grew but still fits at 9 pt: a single render.
+    // The text grew but still fits at 9.5 pt: a single render.
     renders.length = 0;
-    expect((await renderFitted(resume('long text, longer'), settings, memo)).size).toBe(9);
-    expect(renders).toEqual(['9/normal']);
+    expect((await renderFitted(resume('long text, longer'), settings, memo)).size).toBe(9.5);
+    expect(renders).toEqual(['9.5/normal']);
 
     // The text got shorter and now fits at 10 pt: it climbs back up.
     fitsAt = 10;
     renders.length = 0;
     expect((await renderFitted(resume('short'), settings, memo)).size).toBe(10);
-    expect(renders).toEqual(['9/normal', '9.5/normal', '10/normal']);
+    expect(renders).toEqual(['9.5/normal', '10/normal']);
   });
 
   it('stops a stale search as soon as a newer edit arrives', async () => {

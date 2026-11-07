@@ -55,10 +55,15 @@ export function tailoredResumeToProfile(tailored, masterResume) {
     portfolio: p.portfolio || masterResume?.portfolio,
     summary: t.professional_summary || "",
     skills: t.skills || [],
+    // Every section of the tailored resume is scored - internships included - so the editor's
+    // score matches the score the server reports for the same resume.
     experience: (t.experience || []).map((e) => ({ ...e, company: e.company || e.organization })),
+    internships: (t.internships || []).map((e) => ({ ...e, company: e.company || e.organization })),
     education: t.education || [],
     projects: t.projects || [],
     certifications: t.certifications || [],
+    publications: t.publications || [],
+    achievements: t.achievements || [],
   };
 }
 
@@ -146,12 +151,18 @@ export function EditorMatchScore({ analysis, previousScore, isAnalyzing, error, 
     );
   }
   const delta = previousScore === null ? 0 : analysis.job_match_score - previousScore;
+  // Same section keys and weights the server uses; "Experience" covers jobs and internships.
   const metricSections = [
+    ["skills", "Skills"],
+    ["experience", "Experience"],
+    ["education", "Education"],
+    ["projects", "Projects"],
     ["summary", "Summary"],
-    ["experience", "Work Exp"],
-    ["skills", "Core Tech"],
-    ["keywords", "Keywords"],
   ];
+  const requirements = analysis.requirements || analysis.sections?.skills?.requirements || [];
+  const partial = requirements.filter((r) => r.status === "partial");
+  const missing = requirements.filter((r) => r.status === "missing");
+  const matched = requirements.filter((r) => r.status === "matched");
   return (
     <div className={`jms-editor-score tone-${scoreTone(analysis.job_match_score)}`} data-testid="editor-match-score">
       <div className="jms-editor-score-main">
@@ -175,17 +186,29 @@ export function EditorMatchScore({ analysis, previousScore, isAnalyzing, error, 
         {metricSections.map(([key, label]) => {
           const sec = analysis.sections[key];
           if (!sec) return null;
+          const detail = sec.score == null
+            ? `${sec.name}: not counted for this job`
+            : `${sec.name}: ${sec.score}% (weight ${sec.weight})`
+              + (key === "experience" && sec.internship_roles ? ` · ${sec.internship_roles} internship(s) counted` : "");
           return (
-            <span key={key} className={`jms-editor-chip jms-metric tone-${sec.score == null ? "na" : scoreTone(sec.score)}`}>
+            <span key={key} title={detail} className={`jms-editor-chip jms-metric tone-${sec.score == null ? "na" : scoreTone(sec.score)}`}>
               <small>{label}</small><b>{sec.score == null ? "N/A" : `${sec.score}%`}</b>
             </span>
           );
         })}
       </div>
-      {(analysis.missing_skills || []).length > 0 && (
-        <div className="jms-missing">
-          <span className="jms-missing-label">Missing high-impact tags:</span>
-          {(analysis.missing_skills || []).slice(0, 4).map((skill) => <code key={skill}>+ {skill}</code>)}
+      {requirements.length > 0 && (
+        <div className="jms-missing" data-testid="requirement-summary">
+          <span className="jms-missing-label">Job requirements: {matched.length} matched{partial.length ? `, ${partial.length} partial` : ""}, {missing.length} missing</span>
+          {matched.slice(0, 4).map((r) => (
+            <code key={r.skill} title={`Found in: ${r.evidence.map((e) => e.source).join("; ")}`}>✓ {r.skill}</code>
+          ))}
+          {partial.slice(0, 2).map((r) => (
+            <code key={r.skill} title={r.evidence.map((e) => e.source).join("; ")}>≈ {r.skill}</code>
+          ))}
+          {missing.slice(0, 4).map((r) => (
+            <code key={r.skill} title={r.importance === "mandatory" ? "Required by the job" : "Preferred by the job"}>+ {r.skill}</code>
+          ))}
         </div>
       )}
       <p className="jms-score-note">

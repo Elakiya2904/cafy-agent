@@ -172,7 +172,8 @@ export default function JobFilterPanel({
   salaryStats,
   skillSuggestions = [],
 }) {
-  const [open, setOpen] = useState(true);
+  // Closed until the user clicks "Filters"; active filters still show as chips.
+  const [open, setOpen] = useState(false);
   const set = (key, value) => onChange((current) => ({ ...current, [key]: value }));
   const [rolesText, setRolesText] = useTermsText(filters.roles, (list) => set("roles", list));
 

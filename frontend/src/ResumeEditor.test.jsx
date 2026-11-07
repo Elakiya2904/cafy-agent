@@ -123,7 +123,7 @@ describe("ResumeEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Show all" }));
     fireEvent.click(screen.getByRole("button", { name: /Review skills/ }));
     expect(screen.getByRole("navigation", { name: "Structured editor sections" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Technical Skills" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Skills" })).toBeInTheDocument();
     expect(screen.queryByText("Unrelated extracted term")).not.toBeInTheDocument();
   });
 

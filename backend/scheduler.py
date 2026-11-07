@@ -71,7 +71,7 @@ class ScrapingScheduler:
     def run_now(self) -> dict:
         """Executes an immediate manual scrape run and stores results in DB."""
         logger.info("[Scheduler] Triggering manual full scrape...")
-        started_at = datetime.utcnow().isoformat()
+        started_at = datetime.now(timezone.utc).isoformat()
         start_time = time.time()
 
         scrape_result = self.scraper_manager.scrape_all()
@@ -85,7 +85,7 @@ class ScrapingScheduler:
             self.database.record_scraper_run(
                 platform=p_key,
                 started_at=started_at,
-                finished_at=datetime.utcnow().isoformat(),
+                finished_at=datetime.now(timezone.utc).isoformat(),
                 duration=p_res.get("duration_seconds", 0.0),
                 jobs_found=p_res.get("jobs_count", 0),
                 new_jobs=db_stats.get("new", 0),
@@ -104,35 +104,73 @@ class ScrapingScheduler:
             "timestamp": started_at
         }
 
-    def _run_loop(self):
-        # Initial scrape on launch if database is empty
-        stats = self.database.get_stats()
-        if stats["total_active_jobs"] == 0:
-            logger.info("[Scheduler] Database is empty, performing initial indexing...")
-            try:
-                self.run_now()
-            except Exception as e:
-                logger.error(f"[Scheduler] Initial indexing error: {e}")
+    # How often the loop wakes to check whether a scrape is due. Short enough that a laptop
+    # waking from sleep, or a backend started late, catches up within minutes.
+    CHECK_INTERVAL_SECONDS = 15 * 60
+    # After a run that crashed before recording anything, wait this long before trying again.
+    RETRY_AFTER_FAILURE_SECONDS = 60 * 60
 
+    def latest_slot(self, now: Optional[datetime] = None) -> datetime:
+        """The most recent scheduled time that has already passed (today's, or yesterday's)."""
+        local_now = (now or datetime.now(timezone.utc)).astimezone(self.schedule_timezone)
+        slot = local_now.replace(hour=self.schedule_hour, minute=self.schedule_minute, second=0, microsecond=0)
+        if slot > local_now:
+            slot -= timedelta(days=1)
+        return slot
+
+    def next_slot(self, now: Optional[datetime] = None) -> datetime:
+        return self.latest_slot(now) + timedelta(days=1)
+
+    @staticmethod
+    def _parse_time(value) -> Optional[datetime]:
+        if not value:
+            return None
+        if isinstance(value, datetime):
+            parsed = value
+        else:
+            try:
+                parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            except ValueError:
+                return None
+        # Runs were recorded with naive UTC timestamps.
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+    def is_scrape_due(self, now: Optional[datetime] = None) -> bool:
+        """True when no scrape has started since the most recent scheduled time.
+
+        This makes up for missed runs: if the backend was off (or asleep) at the scheduled
+        time, the scrape runs as soon as it is back instead of skipping the whole day.
+        """
+        last = self._parse_time(self.database.last_scrape_started_at())
+        return last is None or last < self.latest_slot(now)
+
+    def _run_loop(self):
+        last_failed_attempt: Optional[datetime] = None
+        logged_next: Optional[datetime] = None
         while not self._stop_event.is_set():
             now = datetime.now(timezone.utc)
-            local_now = now.astimezone(self.schedule_timezone)
-            next_run = local_now.replace(
-                hour=self.schedule_hour,
-                minute=self.schedule_minute,
-                second=0,
-                microsecond=0,
-            )
-            if next_run <= local_now:
-                next_run += timedelta(days=1)
-            wait_seconds = max(1, (next_run.astimezone(timezone.utc) - now).total_seconds())
-            logger.info("[Scheduler] Next daily scrape at %s", next_run.isoformat())
-            interrupted = self._stop_event.wait(wait_seconds)
-            if interrupted:
-                break
-
-            logger.info("[Scheduler] Scheduled periodic scrape triggered...")
             try:
-                self.run_now()
+                # A fresh database has no runs recorded, so it is due straight away too.
+                due = self.is_scrape_due(now)
             except Exception as e:
-                logger.error(f"[Scheduler] Periodic scrape error: {e}")
+                logger.error(f"[Scheduler] Could not read scrape history: {e}")
+                due = False
+            recently_failed = last_failed_attempt and (now - last_failed_attempt).total_seconds() < self.RETRY_AFTER_FAILURE_SECONDS
+            if due and not recently_failed:
+                missed = self.latest_slot(now)
+                logger.info("[Scheduler] Scrape due (no run since %s); starting now.", missed.isoformat())
+                try:
+                    self.run_now()
+                    last_failed_attempt = None
+                except Exception as e:
+                    last_failed_attempt = now
+                    logger.error(f"[Scheduler] Scheduled scrape error: {e}")
+                continue
+
+            next_run = self.next_slot(datetime.now(timezone.utc))
+            wait_seconds = (next_run.astimezone(timezone.utc) - datetime.now(timezone.utc)).total_seconds()
+            if next_run != logged_next:
+                logger.info("[Scheduler] Next daily scrape at %s", next_run.isoformat())
+                logged_next = next_run
+            if self._stop_event.wait(max(1, min(wait_seconds, self.CHECK_INTERVAL_SECONDS))):
+                break

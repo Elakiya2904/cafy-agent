@@ -8,10 +8,11 @@ import ResumePdf from "./ResumePdf.jsx";
 import { countPdfPages } from "./pdfUtils.js";
 
 const RENDER_DEBOUNCE_MS = 350;
-const MIN_FONT_SIZE = 8.5;
+// Auto-fit never shrinks text below 9.5 pt; a longer resume runs onto a second page instead.
+const MIN_FONT_SIZE = 9.5;
 
 // Auto-fit tries these (font size, spacing) steps in order: the chosen size, smaller sizes in
-// half-point steps down to 8.5 pt, then compact spacing at the smallest size.
+// half-point steps down to 9.5 pt, then compact spacing at the smallest size.
 export function fitSteps(settings) {
   const steps = [];
   let size = settings.fontSize;

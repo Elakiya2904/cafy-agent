@@ -1,7 +1,7 @@
 """One-time migration: fix user_profiles and user_resume_files tables in PostgreSQL.
 
 Run with:
-    py -3.13 scripts/fix_user_tables.py
+    uv run backend/scripts/fix_user_tables.py
 
 This is safe to run multiple times (all operations are idempotent).
 """

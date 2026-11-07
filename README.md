@@ -79,23 +79,35 @@ interviews and follow-ups.
 ## Getting started (local)
 
 ### Prerequisites
-- Python 3.13 (3.10+ works)
+Works on **macOS** and **Windows** (and Linux).
+- [uv](https://docs.astral.sh/uv/) for Python. It installs the right Python version (3.13, from `.python-version`)
+  and all packages from `uv.lock`; you do not need pip or a separate Python install.
+  - macOS: `brew install uv` or `curl -LsSf https://astral.sh/uv/install.sh | sh`
+  - Windows: `winget install astral-sh.uv` or `powershell -c "irm https://astral.sh/uv/install.ps1 | iex"`
 - Node.js 18+ and npm
 - PostgreSQL (recommended) or nothing at all for a local SQLite file
 - A Groq API key (`GROQ_API_KEY`) for AI tailoring and the chat
-- Optional: LaTeX (`pdflatex` or `xelatex`) for server-side PDF compilation
+- Optional: LaTeX (`pdflatex`) for server-side PDF compilation (the editor's PDF export does not need it)
+  - macOS: `brew install --cask basictex`, then `sudo tlmgr update --self && sudo tlmgr install titlesec enumitem lm`
+  - Windows: `winget install MiKTeX.MiKTeX`, then `initexmf --set-config-value=[MPM]AutoInstall=1`
 
 ### 1. Clone and install
-```powershell
+The same commands work in the macOS Terminal and in Windows PowerShell:
+```bash
 git clone https://github.com/Elakiya2904/cafy-agent.git
 cd cafy-agent
 
-python -m venv .venv
-.\.venv\Scripts\activate          # macOS/Linux: source .venv/bin/activate
-pip install -r requirements.txt
-
+uv sync                          # creates .venv with Python 3.13 and installs uv.lock (plus dev tools)
 npm --prefix frontend install
 ```
+
+Dependencies live in `pyproject.toml` and are pinned in `uv.lock`; never edit `requirements.txt` by hand.
+- Add a package: `uv add <package>` (or `uv add --dev <package>` for test tools).
+- After any change, regenerate the file Vercel installs from:
+  `uv export --no-dev --no-hashes --no-emit-project --format requirements-txt -o requirements.txt`
+
+If uv reports `invalid peer certificate: UnknownIssuer`, antivirus HTTPS scanning or a corporate proxy is
+re-signing traffic. Add `--system-certs` (e.g. `uv sync --system-certs`) or set `UV_SYSTEM_CERTS=1`.
 
 ### 2. Configure `.env`
 Copy `.env.example` to `.env` and fill in at least:
@@ -104,7 +116,7 @@ Copy `.env.example` to `.env` and fill in at least:
 GROQ_API_KEY=gsk_...
 APP_ENV=development
 DATABASE_URL=postgresql+psycopg://postgres:<password>@localhost:5432/cafy_agent   # omit for local SQLite
-JWT_SECRET_KEY=          # required in production; python -c "import secrets; print(secrets.token_urlsafe(48))"
+JWT_SECRET_KEY=          # required in production; uv run python -c "import secrets; print(secrets.token_urlsafe(48))"
 ENABLE_GUEST_MODE=true
 ```
 
@@ -113,17 +125,26 @@ Integrations are optional: `NANGO_SECRET_KEY` (Gmail and Google Calendar), `GOOG
 every setting.
 
 With PostgreSQL, create the `cafy_agent` database and apply migrations:
-```powershell
-.\.venv\Scripts\python.exe -m alembic -c backend/alembic.ini upgrade head
+```bash
+uv run alembic -c backend/alembic.ini upgrade head
 ```
 
 ### 3. Run
-```powershell
+```bash
 # Backend API + built frontend on one port
-.\.venv\Scripts\python.exe backend\run.py        # http://127.0.0.1:8000  (API docs: /docs)
+uv run backend/run.py                            # http://127.0.0.1:8000  (API docs: /docs)
 
 # Optional: frontend with hot reload, in a second terminal
 npm --prefix frontend run dev                    # http://localhost:5173
+```
+
+Or start both at once with the launcher for your system:
+- macOS / Linux: `./backend/start.sh` (run `chmod +x backend/start.sh` once if needed)
+- Windows: `backend\start.bat`
+
+Re-scrape all job boards now (no running backend needed):
+```bash
+uv run python -c "from dotenv import load_dotenv; load_dotenv('.env'); from backend.scheduler import ScrapingScheduler; from backend.scrapers.scraper_manager import ScraperManager; from backend.database import JobDatabase; print(ScrapingScheduler(ScraperManager(), JobDatabase()).run_now())"
 ```
 
 ### Docker (backend + PostgreSQL)
@@ -148,9 +169,9 @@ backend and database images to Docker Hub, and connecting the Vercel frontend.
 
 ## Testing
 ```powershell
-.\.venv\Scripts\python.exe -m pytest backend/tests     # backend: parsing, matching, tailoring guardrails, auth isolation, email agent, scrapers
+uv run pytest                                          # backend: parsing, matching, tailoring guardrails, auth isolation, email agent, scrapers
 npm --prefix frontend test                             # frontend: Vitest + Testing Library
-.\.venv\Scripts\python.exe docker\smoke_test.py        # end-to-end check against a running backend
+uv run docker/smoke_test.py                            # end-to-end check against a running backend
 ```
 
 ---
@@ -186,7 +207,8 @@ cafy-agent/
 ├── docs/                             # DOCKER.md, handoff notes, feature and backend PDFs
 ├── Dockerfile, docker-compose.yml    # Container setup
 ├── vercel.json                       # Vercel build and routing
-└── requirements.txt                  # Python dependencies
+├── pyproject.toml / uv.lock          # Python dependencies (managed with uv)
+└── requirements.txt                  # generated from uv.lock for Vercel
 ```
 
 ## Documentation

@@ -53,7 +53,8 @@ class TestJobMatchAnalysis(unittest.TestCase):
         )
         self.assertTrue(0 <= result["job_match_score"] <= 100)
         for section in result["sections"].values():
-            self.assertTrue(0 <= section["score"] <= 100)
+            # None = not applicable (e.g. projects for a candidate with full-time roles).
+            self.assertTrue(section["score"] is None or 0 <= section["score"] <= 100)
 
     def test_job_match_is_distinct_from_profile_completeness(self):
         result = analyze_profile_for_job(PROFILE, JOB)
@@ -63,9 +64,14 @@ class TestJobMatchAnalysis(unittest.TestCase):
     def test_matched_and_missing_skills(self):
         result = analyze_profile_for_job(PROFILE, JOB)
         self.assertIn("Kubernetes", result["matched_skills"])
-        self.assertIn("Terraform", result["missing_skills"])
-        # Terraform and Python appear in experience bullets but not in the skills list
+        # Terraform is not in the Skills list but the experience bullets evidence it, so it
+        # counts as matched (skills come from the whole resume) and is flagged to list it.
+        self.assertIn("Terraform", result["matched_skills"])
+        self.assertIn("Grafana", result["missing_skills"])
         self.assertIn("Terraform", result["sections"]["skills"]["evidenced_elsewhere"])
+        requirement = next(r for r in result["requirements"] if r["skill"] == "Terraform")
+        self.assertEqual(requirement["status"], "matched")
+        self.assertIn("experience", {e["section"] for e in requirement["evidence"]})
         self.assertTrue(any("Terraform" in s["text"] for s in result["suggestions"]))
 
     def test_description_keywords_are_scored_even_when_stored_skills_are_stale(self):
@@ -110,7 +116,9 @@ class TestJobMatchAnalysis(unittest.TestCase):
         after = analyze_profile_for_job(edited, JOB)
         self.assertGreater(after["job_match_score"], before["job_match_score"])
         self.assertGreater(after["sections"]["skills"]["score"], before["sections"]["skills"]["score"])
-        self.assertGreater(after["sections"]["projects"]["score"], before["sections"]["projects"]["score"])
+        # No projects is not penalised for a candidate with full-time roles (not applicable).
+        self.assertIsNone(before["sections"]["projects"]["score"])
+        self.assertGreater(after["sections"]["projects"]["score"], 0)
 
     def test_gap_analysis(self):
         result = analyze_profile_for_job(PROFILE, JOB)
@@ -118,7 +126,7 @@ class TestJobMatchAnalysis(unittest.TestCase):
         # Terraform is in the experience bullets, Grafana appears nowhere
         self.assertEqual(by_title["Terraform"]["type"], "missing_from_profile")
         self.assertIn("experience", by_title["Terraform"]["detail"])
-        self.assertEqual(by_title["Grafana"]["detail"], "Skill not found in your profile")
+        self.assertEqual(by_title["Grafana"]["detail"], "Not found anywhere in your resume")
         quals = [g for g in result["gaps"] if g["type"] == "missing_qualification"]
         self.assertTrue(any(g["section"] == "certifications" for g in quals))
 

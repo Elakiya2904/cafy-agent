@@ -1,0 +1,109 @@
+{
+  "personal_info": {
+    "name": "Priya Raman",
+    "email": "priya.raman@example.ac.uk",
+    "phone": "+44 7700 900123",
+    "linkedin": "priya-raman",
+    "github": "",
+    "portfolio": "",
+    "location": "London, UK"
+  },
+  "target_role": "Graduate Trading Operations Analyst",
+  "company": "Example Bank",
+  "professional_summary": "Final-year Economics and Finance student targeting a Graduate Trading Operations Analyst role, with trade support and operations internships at Barclays and HSBC covering trade reconciliation, settlement monitoring and Excel, SQL and VBA reporting.",
+  "education": [
+    {
+      "title": "BSc Economics and Finance",
+      "organization": "University of Warwick",
+      "company": "University of Warwick",
+      "institution": "University of Warwick",
+      "degree": "BSc Economics and Finance",
+      "name": "BSc Economics and Finance",
+      "dates": "Sep 2022 – Jun 2025",
+      "location": "",
+      "description": "",
+      "bullets": [
+        "First Class Honours (predicted)"
+      ]
+    }
+  ],
+  "experience": [
+    {
+      "title": "Retail Assistant",
+      "organization": "Tesco",
+      "company": "Tesco",
+      "institution": "Tesco",
+      "degree": "",
+      "name": "Retail Assistant",
+      "dates": "2021 – 2022",
+      "location": "Coventry",
+      "description": "",
+      "bullets": [
+        "Handled cash reconciliation at the end of each shift."
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "title": "Portfolio Risk Dashboard",
+      "organization": "",
+      "company": "",
+      "institution": "",
+      "degree": "",
+      "name": "Portfolio Risk Dashboard",
+      "dates": "2024",
+      "location": "",
+      "description": "",
+      "bullets": [
+        "Built a Python and Pandas dashboard to track value at risk for a mock portfolio."
+      ]
+    }
+  ],
+  "internships": [
+    {
+      "title": "Trade Support Intern",
+      "organization": "Barclays",
+      "company": "Barclays",
+      "institution": "Barclays",
+      "degree": "",
+      "name": "Trade Support Intern",
+      "dates": "Jun 2024 – Aug 2024",
+      "location": "London",
+      "description": "",
+      "bullets": [
+        "Reconciled daily equity trade breaks using Excel and SQL, clearing 95% within T+1.",
+        "Built a VBA macro to automate settlement status reports."
+      ]
+    },
+    {
+      "title": "Operations Intern",
+      "organization": "HSBC",
+      "company": "HSBC",
+      "institution": "HSBC",
+      "degree": "",
+      "name": "Operations Intern",
+      "dates": "Jul 2023 – Sep 2023",
+      "location": "London",
+      "description": "",
+      "bullets": [
+        "Monitored trade settlement queues and escalated failed trades to counterparties."
+      ]
+    }
+  ],
+  "publications": [],
+  "certifications": [],
+  "achievements": [],
+  "activities": [],
+  "leadership": [],
+  "awards": [],
+  "skills": [
+    "Communication",
+    "Excel",
+    "Python",
+    "Reconciliation",
+    "SQL",
+    "VBA",
+    "Attention to Detail",
+    "Teamwork"
+  ]
+}

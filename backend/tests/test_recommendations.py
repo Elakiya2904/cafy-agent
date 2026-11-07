@@ -77,12 +77,16 @@ class TestRecommendations(unittest.TestCase):
         }
 
         self.assertGreaterEqual(scores["job-1"], 85)
-        self.assertGreaterEqual(scores["job-2"], 85)
-        self.assertNotEqual(scores["job-1"], scores["job-2"])
+        # job-2 requires PostgreSQL, which the resume does not show: a missing essential skill
+        # keeps it out of the top band.
+        self.assertLess(scores["job-2"], 85)
+        self.assertGreater(scores["job-1"], scores["job-2"])
 
     def test_skill_overlap_changes_the_legacy_card_score(self):
         before_profile = copy.deepcopy(PROFILE)
         before_profile["skills"].remove("Terraform")
+        # Skills are read from the whole resume, so the skill must leave the bullets too.
+        before_profile["experience"][0]["bullets"][0] = "Managed Kubernetes clusters on AWS"
 
         before = self.service.recommend_jobs(before_profile, [JOB], min_score=0)[0]["match_score"]
         after = self.service.recommend_jobs(PROFILE, [JOB], min_score=0)[0]["match_score"]

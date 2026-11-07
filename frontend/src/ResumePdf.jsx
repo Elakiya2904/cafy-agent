@@ -5,17 +5,18 @@
 import React from "react";
 import { Document, Page, Text, View, Link, StyleSheet } from "@react-pdf/renderer";
 import { DEFAULT_PDF_SETTINGS } from "./pdfSettings.js";
+import { renderSections } from "./resumeSections.js";
 
 // One-column, ATS-friendly template. Only built-in PDF fonts are used, so rendering is instant,
 // works offline and the text stays selectable for applicant tracking systems.
+// `headingKeep`: points of following content a heading needs on its page, or it moves to the next.
 const SPACING = {
-  compact: { page: 28, section: 7, entry: 4 },
-  normal: { page: 36, section: 10, entry: 6 },
-  relaxed: { page: 44, section: 14, entry: 9 },
+  compact: { page: 30, section: 8, entry: 5, headingKeep: 28 },
+  normal: { page: 40, section: 11, entry: 7, headingKeep: 34 },
+  relaxed: { page: 48, section: 14, entry: 9, headingKeep: 40 },
 };
 
 const bold = (font) => (font === "Times-Roman" ? "Times-Bold" : `${font}-Bold`);
-const italic = (font) => (font === "Times-Roman" ? "Times-Italic" : font === "Courier" ? "Courier-Oblique" : "Helvetica-Oblique");
 
 const stripScheme = (v) => String(v || "").trim().replace(/^https?:\/\/(www\.)?/i, "").replace(/\/$/, "");
 export const normalizePdfText = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
@@ -41,26 +42,27 @@ export default function ResumePdf({ resume, settings = DEFAULT_PDF_SETTINGS }) {
   const s = { ...DEFAULT_PDF_SETTINGS, ...settings };
   const sp = SPACING[s.density] || SPACING.normal;
   const fs = s.fontSize;
+  // UK template: centred bold name, role, "phone | email | location"; a full-width rule
+  // before every section; entries are "Organisation | dates" then the bold role; 3-column skills.
   const styles = StyleSheet.create({
-    page: { padding: sp.page, paddingBottom: sp.page - 4, fontFamily: s.font, fontSize: fs, color: "#111827", lineHeight: 1.3 },
-    name: { fontFamily: bold(s.font), fontSize: fs * 2, textAlign: "center", color: s.accent, letterSpacing: 1 },
-    role: { textAlign: "center", fontSize: fs * 1.1, color: "#475569", marginTop: 10 },
-    contact: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", marginTop: 7, fontSize: fs * 0.9, color: "#334155" },
-    sep: { marginHorizontal: 4, color: "#94a3b8" },
-    link: { color: "#334155", textDecoration: "none" },
-    section: { width: "100%", marginTop: sp.section },
-    sectionTitle: { width: "100%", fontFamily: bold(s.font), fontSize: fs * 1.05, color: s.accent, textTransform: "uppercase", letterSpacing: 0.8, borderBottomWidth: 0.8, borderBottomColor: s.accent, paddingBottom: 1.5, marginBottom: 4 },
+    page: { paddingHorizontal: sp.page, paddingTop: sp.page - 4, paddingBottom: sp.page - 4, fontFamily: s.font, fontSize: fs, color: "#111111", lineHeight: 1.35 },
+    // Explicit line heights: the page's 1.35 line height made the large name overlap the role line.
+    name: { fontFamily: bold(s.font), fontSize: fs * 2.6, lineHeight: 1.2, textAlign: "center", color: s.accent, letterSpacing: 0.5, marginBottom: fs * 0.5 },
+    role: { textAlign: "center", fontSize: fs * 1.45, lineHeight: 1.25, marginTop: 0 },
+    contact: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", marginTop: 7, fontSize: fs * 1.0 },
+    sep: { marginHorizontal: 9 },
+    link: { color: "#111111", textDecoration: "none" },
+    section: { width: "100%", marginTop: sp.section, paddingTop: sp.section, borderTopWidth: 1, borderTopColor: s.accent },
+    sectionTitle: { width: "100%", fontFamily: bold(s.font), fontSize: fs * 1.5, color: s.accent, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 },
     entry: { width: "100%", marginBottom: sp.entry },
-    row: { width: "100%", flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
-    strong: { flex: 1, fontFamily: bold(s.font) },
-    em: { width: "100%", fontFamily: italic(s.font), color: "#334155" },
-    dates: { flexShrink: 0, fontSize: fs * 0.92, color: "#475569", marginLeft: 8 },
-    bullet: { width: "100%", flexDirection: "row", marginTop: 1.5, paddingLeft: 6 },
-    dot: { width: 9 },
+    meta: { width: "100%" },
+    strong: { width: "100%", fontFamily: bold(s.font) },
+    bullet: { width: "100%", flexDirection: "row", marginTop: 2, paddingLeft: 6 },
+    dot: { width: 10 },
     bulletText: { width: "100%", flex: 1, textAlign: "left" },
-    para: { width: "100%", textAlign: "left" },
-    skillsGrid: { width: "100%", flexDirection: "row", flexWrap: "wrap" },
-    skillItem: { width: "33.333%", paddingRight: 8, marginBottom: 2 },
+    para: { width: "100%", textAlign: "left", marginTop: 1 },
+    skillGrid: { width: "100%", flexDirection: "row" },
+    skillCol: { flex: 1 },
   });
 
   const r = resume || {};
@@ -75,32 +77,35 @@ export default function ResumePdf({ resume, settings = DEFAULT_PDF_SETTINGS }) {
       </View>
     ));
 
-  const tidy = (v) => normalizePdfText(v).replace(/[,\s|;–-]+$/, "");
-  const Entry = (props) => {
-    // With no company/institution, the role takes the bold line instead of leaving it blank.
-    let left = tidy(props.left);
-    let sub = tidy(props.sub);
-    if (!left && sub) [left, sub] = [sub, ""];
-    return <EntryView {...props} left={left} sub={sub} />;
-  };
-  const EntryView = ({ left, sub, dates, bullets, description }) => {
-    const entryLength = normalizePdfText(
-      [left, sub, dates, description, ...(Array.isArray(bullets) ? bullets : [])].join(" ")
-    ).length;
+  // Lines come from renderSections (shared with the preview and the DOCX/LaTeX exports):
+  // "Organisation, Location | dates", then the bold role/degree, then description and bullets.
+  // An entry may break across pages between bullets, but its title lines stay together and
+  // stay with the first line that follows them.
+  const EntryView = ({ heading, meta, description, bullets }) => (
+    <View style={styles.entry}>
+      <View wrap={false} minPresenceAhead={sp.headingKeep}>
+        {meta ? <Text style={styles.meta}>{meta}</Text> : null}
+        {heading ? <Text style={styles.strong}>{heading}</Text> : null}
+      </View>
+      {description ? <Text style={styles.para}>{description}</Text> : null}
+      <Bullets items={bullets} />
+    </View>
+  );
+
+  // Three columns filled top-to-bottom, like the template.
+  const SkillGrid = ({ skills }) => {
+    const rows = Math.ceil(skills.length / 3);
+    const cols = [0, 1, 2].map((c) => skills.slice(c * rows, (c + 1) * rows));
     return (
-      <View style={styles.entry} wrap={entryLength > 2400}>
-        <View style={styles.row} wrap={false}>
-          <Text style={styles.strong}>{normalizePdfText(left)}</Text>
-          {dates ? <Text style={styles.dates}>{normalizePdfText(dates)}</Text> : null}
-        </View>
-        {sub ? <Text style={styles.em}>{normalizePdfText(sub)}</Text> : null}
-        {normalizePdfText(description) ? <Text style={styles.para}>{normalizePdfText(description)}</Text> : null}
-        <Bullets items={bullets} />
+      <View style={styles.skillGrid}>
+        {cols.map((col, c) => (
+          <View style={styles.skillCol} key={c}>
+            <Bullets items={col} />
+          </View>
+        ))}
       </View>
     );
   };
-
-  const join = (...parts) => parts.map(normalizePdfText).filter(Boolean).join(" | ");
 
   return (
     <Document title={`${r.personal_info?.name || "Resume"}${role ? ` - ${role}` : ""}`} author={r.personal_info?.name || undefined}>
@@ -118,51 +123,17 @@ export default function ResumePdf({ resume, settings = DEFAULT_PDF_SETTINGS }) {
           </View>
         )}
 
-        {normalizePdfText(r.professional_summary) ? (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>About Me</Text>
-            <Text style={styles.para}>{normalizePdfText(r.professional_summary)}</Text>
+        {renderSections(r).map((section) => (
+          <View style={styles.section} key={section.key}>
+            {/* Keep the heading on the same page as at least the first lines under it. */}
+            <Text style={styles.sectionTitle} minPresenceAhead={sp.headingKeep}>{section.title}</Text>
+            {section.kind === "entries"
+              ? section.entries.map((e, i) => <EntryView key={i} {...e} />)
+              : section.kind === "skills"
+                ? <SkillGrid skills={section.skills} />
+                : <Text style={styles.para}>{section.text}</Text>}
           </View>
-        ) : null}
-
-        {(r.education || []).length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Education</Text>
-            {r.education.map((e, i) => (
-              <Entry key={i} left={join(e.institution || e.organization, e.location)} sub={e.degree || e.title} dates={e.dates} bullets={e.bullets} description={e.description} />
-            ))}
-          </View>
-        )}
-
-        {(r.experience || []).length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Work Experience</Text>
-            {r.experience.map((e, i) => (
-              <Entry key={i} left={join(e.organization || e.company, e.location)} sub={e.title} dates={e.dates} bullets={e.bullets} description={e.description} />
-            ))}
-          </View>
-        )}
-
-        {(r.projects || []).length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Projects</Text>
-            {r.projects.map((p, i) => (
-              <Entry key={i} left={join(p.title, p.organization)} dates={p.dates} bullets={p.bullets} description={p.description} />
-            ))}
-          </View>
-        )}
-
-        {(r.skills || []).length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Skills</Text>
-            <View style={styles.skillsGrid}>
-              {r.skills.map((skill, i) => (
-                <Text key={i} style={styles.skillItem}>• {normalizePdfText(skill)}</Text>
-              ))}
-            </View>
-          </View>
-        )}
-
+        ))}
       </Page>
     </Document>
   );

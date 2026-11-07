@@ -11,11 +11,11 @@ How it works
   5. Merge boards that have UK jobs into backend/scrapers/sources.yaml.
 
 Usage
-  pip install aiohttp pyyaml truststore
-  python discover_employers.py                       # full register, 1000 requests/sec, resumable
-  python discover_employers.py --rate 400            # gentler if you see lots of 429s
-  python discover_employers.py --limit 500 --no-merge   # quick smoke test
-  python discover_employers.py --merge-only          # just merge results found so far
+  uv sync                                            # from the project root: installs aiohttp, pyyaml, truststore
+  uv run backend/scripts/discover_employers.py                       # full register, 1000 requests/sec, resumable
+  uv run backend/scripts/discover_employers.py --rate 400            # gentler if you see lots of 429s
+  uv run backend/scripts/discover_employers.py --limit 500 --no-merge   # quick smoke test
+  uv run backend/scripts/discover_employers.py --merge-only          # just merge results found so far
 
 Results land in discovery_output/ (hits.jsonl, state.json, summary.json). Re-running resumes
 where it stopped. Ctrl-C is safe: progress is flushed first.

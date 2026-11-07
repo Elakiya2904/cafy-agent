@@ -30,7 +30,7 @@ Uploaded resumes are stored inside PostgreSQL; generated resume files live in th
 
 - Docker Desktop (WSL 2 engine). Start it and wait until `docker info` works.
 - PostgreSQL client tools for the backup step (installed with PostgreSQL, e.g. `C:\Program Files\PostgreSQL\18\bin`).
-- The project's Python environment (`.venv`) for the verification scripts.
+- [uv](https://docs.astral.sh/uv/) (`uv sync` once) for the verification scripts.
 
 **Antivirus / proxy that inspects HTTPS (AVG, Avast, Kaspersky, corporate proxy).** If `docker compose build`
 fails with `CERTIFICATE_VERIFY_FAILED`, export that root certificate into `docker\certs\` (see
@@ -40,9 +40,9 @@ fails with `CERTIFICATE_VERIFY_FAILED`, export that root certificate into `docke
 
 Copy `.env.example` to `.env` if you don't have one, then make sure the Docker section is filled in:
 
-```powershell
+```bash
 # A password with letters and digits only (it is used inside a connection URL)
-.\.venv\Scripts\python.exe -c "import secrets; print(secrets.token_hex(24))"
+uv run python -c "import secrets; print(secrets.token_hex(24))"
 ```
 
 ```ini
@@ -63,16 +63,24 @@ The container ignores `DATABASE_URL` from `.env` and connects to the `db` contai
 
 Run from the project folder. Your original database is only ever read.
 
-```powershell
-# 1) Back up the existing database (pg_dump, custom format) -> backups\cafy_agent_<timestamp>.dump (+ .sha256)
-.\docker\backup-local-db.ps1
+macOS / Linux (needs the PostgreSQL client tools, e.g. `brew install libpq`; set `PG_BIN` if they are not on PATH):
+```bash
+# 1) Back up the existing database (pg_dump, custom format) -> backups/cafy_agent_<timestamp>.dump (+ .sha256)
+./docker/backup-local-db.sh
 
 # 2) Start PostgreSQL in Docker and restore the newest backup into it.
 #    Refuses to run if the Docker database already has tables; the restore is a single transaction.
-.\docker\restore-into-docker.ps1
+./docker/restore-into-docker.sh
 
 # 3) Verify: every table's row count, the alembic revision, and exact content of every public table
-.\.venv\Scripts\python.exe docker\compare_databases.py
+uv run docker/compare_databases.py
+```
+
+Windows (PowerShell):
+```powershell
+.\docker\backup-local-db.ps1          # 1) back up (use -PgBin "C:\Program Files\PostgreSQL\<version>\bin" if needed)
+.\docker\restore-into-docker.ps1      # 2) restore into Docker
+uv run docker/compare_databases.py    # 3) verify
 ```
 
 Expected end of step 3: `All tables match (row counts, and exact content for every public table).`
@@ -83,11 +91,11 @@ Starting without existing data? Skip this section: on first start the container 
 
 ## 4. Run
 
-```powershell
+```bash
 docker compose up -d                 # build (first time) and start db + api
 docker compose ps                    # both should show (healthy)
 docker compose logs -f api           # follow backend logs (Ctrl+C to stop following)
-.\.venv\Scripts\python.exe docker\smoke_test.py   # health, DB, auth, resume upload, matching, jobs, Nango
+uv run docker/smoke_test.py          # health, DB, auth, resume upload, matching, jobs, Nango
 ```
 
 - API: http://localhost:8000/api/health
@@ -96,7 +104,7 @@ docker compose logs -f api           # follow backend logs (Ctrl+C to stop follo
 
 Everyday commands:
 
-```powershell
+```bash
 docker compose restart api                          # after changing .env
 docker compose up -d --build                        # after changing code
 docker compose down                                 # stop; data stays in the volumes
@@ -107,6 +115,16 @@ docker compose exec db psql -U cafy -d cafy_agent   # SQL shell
 
 ## 5. Backing up the Docker database
 
+macOS / Linux:
+```bash
+mkdir -p backups
+stamp=$(date +%Y%m%d_%H%M%S)
+docker compose exec -T db sh -c 'pg_dump -Fc -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f /tmp/backup.dump'
+docker compose cp db:/tmp/backup.dump "backups/docker_cafy_agent_$stamp.dump"
+docker compose exec -T db rm -f /tmp/backup.dump
+```
+
+Windows (PowerShell):
 ```powershell
 New-Item -ItemType Directory -Force backups | Out-Null
 $stamp = Get-Date -Format yyyyMMdd_HHmmss
@@ -119,23 +137,30 @@ docker compose exec -T db rm -f /tmp/backup.dump
 
 The original database was never modified, so rolling back only means using it again:
 
-```powershell
+```bash
 docker compose down                  # stop the containers (volumes are kept)
-.\.venv\Scripts\python.exe backend\run.py   # local backend; .env DATABASE_URL still points at localhost:5432
+uv run backend/run.py                # local backend; .env DATABASE_URL still points at localhost:5432
 ```
 
 To restart the Docker migration from scratch later, back up the Docker database first (section 5), then remove
 only its volume deliberately and repeat section 3:
 
-```powershell
+```bash
 docker compose down
 docker volume rm cafy-agent_pgdata   # deletes the Docker copy only, never your original database
-.\docker\restore-into-docker.ps1
+./docker/restore-into-docker.sh      # Windows: .\docker\restore-into-docker.ps1
 ```
 
 If something goes wrong with your original database itself, it can be restored from the step-3 backup into a
 new, empty database:
 
+macOS / Linux:
+```bash
+createdb -U postgres cafy_agent_restored
+pg_restore -U postgres -d cafy_agent_restored --no-owner backups/cafy_agent_<timestamp>.dump
+```
+
+Windows (PowerShell):
 ```powershell
 & "C:\Program Files\PostgreSQL\18\bin\createdb.exe" -U postgres cafy_agent_restored
 & "C:\Program Files\PostgreSQL\18\bin\pg_restore.exe" -U postgres -d cafy_agent_restored --no-owner backups\cafy_agent_<timestamp>.dump
@@ -143,10 +168,13 @@ new, empty database:
 
 ## 7. Publish the backend image to Docker Hub
 
-```powershell
+These commands work in PowerShell and in a macOS/Linux shell. Only the two variable lines differ: on
+macOS/Linux write `user=yourdockerhubuser` and `version=1.0.0`.
+
+```bash
 docker login                                        # your Docker Hub account
-$user = "yourdockerhubuser"                         # replace
-$version = "1.0.0"
+$user = "yourdockerhubuser"                         # replace (macOS/Linux: user=yourdockerhubuser)
+$version = "1.0.0"                                  # (macOS/Linux: version=1.0.0)
 
 docker build --build-arg VERSION=$version -t cafy-agent-backend:$version .
 docker tag cafy-agent-backend:$version "$user/cafy-agent-backend:$version"
@@ -161,7 +189,7 @@ without it, move the `.crt` files out of `docker\certs\` and rebuild.
 
 On another machine, pull and run with the same compose file:
 
-```powershell
+```bash
 docker pull yourdockerhubuser/cafy-agent-backend:1.0.0
 # in .env:  BACKEND_IMAGE=yourdockerhubuser/cafy-agent-backend:1.0.0
 docker compose up -d --no-build
@@ -175,9 +203,9 @@ That machine needs its own `.env` (copy `.env.example`); secrets never travel in
 schema and the scraped job listings. It contains **no** users, sign-in tokens, profiles, resumes,
 applications or email data, so it is safe to publish.
 
-```powershell
-.\docker\postgres\build-seed.ps1                     # regenerate the seed from your database (read-only)
-docker build -t cafy-agent-db:1.0.0 docker\postgres
+```bash
+./docker/postgres/build-seed.sh                      # regenerate the seed (read-only); Windows: .\docker\postgres\build-seed.ps1
+docker build -t cafy-agent-db:1.0.0 docker/postgres
 docker tag cafy-agent-db:1.0.0 "$user/cafy-agent-db:1.0.0"
 docker tag cafy-agent-db:1.0.0 "$user/cafy-agent-db:latest"
 docker push "$user/cafy-agent-db:1.0.0"
@@ -194,16 +222,16 @@ A second variant contains **everything** in the `public` schema: users (Argon2id
 tokens (stored as SHA-256 hashes, not usable to sign in), profiles, uploaded and tailored resumes, applications,
 email data (OAuth tokens stay encrypted; the key is in `.env`, not in the image) and job listings.
 
-```powershell
-.\docker\postgres\build-seed.ps1 -Full               # -> docker\postgres\initdb-full (git-ignored)
-docker build --build-arg SEED_DIR=initdb-full --build-arg SEED_KIND=full-private -t cafy-agent-db:full docker\postgres
+```bash
+./docker/postgres/build-seed.sh --full               # -> docker/postgres/initdb-full (git-ignored); Windows: .\docker\postgres\build-seed.ps1 -Full
+docker build --build-arg SEED_DIR=initdb-full --build-arg SEED_KIND=full-private -t cafy-agent-db:full docker/postgres
 ```
 
 It holds personal data, so:
 - Publish it only to a **private** repository with its own name (Docker Hub privacy is per repository, not per
   tag). Create `cafy-agent-db-private` as *Private* on Docker Hub **before** pushing:
 
-  ```powershell
+  ```bash
   docker tag cafy-agent-db:full "$user/cafy-agent-db-private:1.0.0"
   docker push "$user/cafy-agent-db-private:1.0.0"
   ```

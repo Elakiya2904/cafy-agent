@@ -1,7 +1,7 @@
 # Extra trusted root certificates (optional)
 
 Put PEM-encoded root CA certificates here (`*.crt`) when something on your network re-signs HTTPS
-traffic: antivirus web scanning (AVG, Avast, Kaspersky...) or a corporate proxy. Without them, `pip install`
+traffic: antivirus web scanning (AVG, Avast, Kaspersky...) or a corporate proxy. Without them, `uv sync`
 during `docker build`, and the API's own HTTPS calls (Groq, Nango, job boards), fail with
 `CERTIFICATE_VERIFY_FAILED`.
 

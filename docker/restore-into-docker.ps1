@@ -53,7 +53,7 @@ try {
   $code = $LASTEXITCODE
   docker compose exec -T db rm -f /tmp/restore.dump | Out-Null
   if ($code -ne 0) { throw "pg_restore failed (exit $code). The Docker database was left unchanged." }
-  Write-Host "Restore complete. Verify with: .\.venv\Scripts\python.exe docker\compare_databases.py"
+  Write-Host "Restore complete. Verify with: uv run docker/compare_databases.py"
 } finally {
   Pop-Location
 }

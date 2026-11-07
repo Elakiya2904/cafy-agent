@@ -135,8 +135,14 @@ class GmailProvider(BaseProvider):
         return {**super()._auth_params(redirect_uri, state), "access_type": "offline", "prompt": "consent"}
 
     def fetch_profile(self, token):
-        info = self._call("GET", "https://openidconnect.googleapis.com/v1/userinfo", token)
-        return {"email": info.get("email"), "display_name": info.get("name")}
+        try:
+            info = self._call("GET", "https://openidconnect.googleapis.com/v1/userinfo", token)
+            if info.get("email"):
+                return {"email": info.get("email"), "display_name": info.get("name")}
+        except ProviderError:
+            pass  # e.g. a Nango connection granted Gmail scopes without openid/email
+        profile = self._call("GET", f"{self.api}/profile", token)
+        return {"email": profile.get("emailAddress"), "display_name": None}
 
     def revoke(self, token):
         try:

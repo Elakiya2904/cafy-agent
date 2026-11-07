@@ -672,6 +672,14 @@ class JobDatabase:
             conn.commit()
             return run_id
 
+    def last_scrape_started_at(self) -> Optional[str]:
+        """Start time (ISO text) of the most recent recorded scrape run, or None if none ran."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT started_at FROM scraper_runs ORDER BY id DESC LIMIT 1")
+            row = cursor.fetchone()
+            return row[0] if row else None
+
     def get_stats(self) -> Dict[str, Any]:
         """Aggregate stats across all platforms and listings."""
         with self._get_connection() as conn:

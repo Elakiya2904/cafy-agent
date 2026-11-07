@@ -23,6 +23,8 @@ import EmailAgentDashboard from "./EmailAgentDashboard.jsx";
 import MyApplications, { startApplication } from "./MyApplications.jsx";
 import JobIntelligence from "./JobIntelligence.jsx";
 import JobFilterPanel, { EMPTY_JOB_FILTERS, LEVEL_BANDS, getEmploymentType } from "./JobFilterPanel.jsx";
+import { dedupeEntries, renderSections, sameRecord } from "./resumeSections.js";
+import MatchBreakdown from "./MatchBreakdown.jsx";
 import "./analytics.css";
 import {
   AlertTriangle,
@@ -373,6 +375,8 @@ function App() {
             pipelineJobIds={pipelineJobIds}
             allJobs={allJobs}
             onSelectJob={openJob}
+            onCustomizeResume={openJobForResume}
+            resume={currentResume}
           />
         )}
 
@@ -1981,7 +1985,8 @@ export function normalizeClientResume(raw, masterResume, job) {
   const masterSkills = Array.isArray(masterResume?.skills) ? masterResume.skills : [];
   const rawSkills = Array.isArray(raw.skills) ? raw.skills : parseBullets(raw.skills);
 
-  const trimmedSummary = [
+  // The summary is kept whole; length is a matter for the writer, not something to cut silently.
+  const finalSummary = [
     raw.professional_summary,
     raw.summary,
     masterResume?.professional_summary,
@@ -1989,74 +1994,27 @@ export function normalizeClientResume(raw, masterResume, job) {
   ]
     .map((summary) => String(summary || "").trim())
     .find(Boolean) || "";
-  const summarySentences = trimmedSummary.split(/(?<=[.!?])\s+/);
-  const finalSummary = trimmedSummary.length > 450 && summarySentences.length >= 3
-    ? summarySentences.slice(0, 3).join(" ")
-    : trimmedSummary;
 
+  // A saved tailored resume's own sections win, even when empty (the user removed them);
+  // only a section the saved copy does not have at all falls back to the master profile.
   const entriesFrom = (key) => {
     const saved = raw[key];
     if (Array.isArray(saved)) return saved;
     if (saved) return saved;
     return masterResume?.[key] || [];
   };
-  const rawExp = entriesFrom("experience");
-  const rawInternships = entriesFrom("internships");
-  const rawProj = entriesFrom("projects");
-  const rawPublications = entriesFrom("publications");
-  const rawAchievements = entriesFrom("achievements");
-  const rawEdu = entriesFrom("education");
-  const rawCerts = entriesFrom("certifications");
 
-  let exps = parseEntries(rawExp, "experience").slice(0, 3).map((e) => ({
-    ...e,
-    bullets: (e.bullets || []).slice(0, 3),
-  }));
-
-  const internships = parseEntries(rawInternships, "internships");
-  if (exps.length === 0 && internships.length > 0) {
-    exps = internships.slice(0, 3).map((e) => ({
-      ...e,
-      bullets: (e.bullets || []).slice(0, 3),
-    }));
-  } else if (internships.length > 0 && exps.length < 3) {
-    const existingKeys = new Set(exps.map((e) => `${(e.title || "").toLowerCase()}|${(e.company || "").toLowerCase()}`));
-    for (const intern of internships) {
-      if (exps.length >= 3) break;
-      const key = `${(intern.title || "").toLowerCase()}|${(intern.company || "").toLowerCase()}`;
-      if (!existingKeys.has(key)) {
-        exps.push({
-          ...intern,
-          bullets: (intern.bullets || []).slice(0, 3),
-        });
-        existingKeys.add(key);
-      }
-    }
-  }
-  let projs = parseEntries(rawProj, "projects").map((p) => ({
-    ...p,
-    bullets: (p.bullets || []).slice(0, 3),
-  }));
-  const publications = parseEntries(rawPublications, "publications");
-  const achievements = parseEntries(rawAchievements, "achievements");
-
-  let totalBullets = exps.reduce((acc, e) => acc + (e.bullets?.length || 0), 0) +
-    projs.reduce((acc, p) => acc + (p.bullets?.length || 0), 0);
-  if (totalBullets > 12) {
-    projs = projs.map((p) => ({ ...p, bullets: (p.bullets || []).slice(0, 2) }));
-    totalBullets = exps.reduce((acc, e) => acc + (e.bullets?.length || 0), 0) +
-      projs.reduce((acc, p) => acc + (p.bullets?.length || 0), 0);
-    if (totalBullets > 12) {
-      exps = exps.map((e) => ({ ...e, bullets: (e.bullets || []).slice(0, 2) }));
-    }
-  }
-
-  const edus = parseEntries(rawEdu, "education").slice(0, 3).map((e) => ({
-    ...e,
-    bullets: (e.bullets || []).slice(0, 2),
-  }));
-  const certs = parseEntries(rawCerts, "certifications").slice(0, 4);
-  const skillsList = (rawSkills.length ? rawSkills : masterSkills).slice(0, 24);
+  // Every entry and bullet is kept: no count limits and no merging of internships into work
+  // experience. A long resume runs onto a second page. Repeated records are merged once.
+  const internships = dedupeEntries(parseEntries(entriesFrom("internships"), "internships"), "internships");
+  const exps = dedupeEntries(parseEntries(entriesFrom("experience"), "experience"), "experience")
+    .filter((e) => !internships.some((intern) => sameRecord(intern, e, "internships")));
+  const projs = dedupeEntries(parseEntries(entriesFrom("projects"), "projects"), "projects");
+  const publications = dedupeEntries(parseEntries(entriesFrom("publications"), "publications"), "publications");
+  const achievements = dedupeEntries(parseEntries(entriesFrom("achievements"), "achievements"), "achievements");
+  const edus = dedupeEntries(parseEntries(entriesFrom("education"), "education"), "education");
+  const certs = dedupeEntries(parseEntries(entriesFrom("certifications"), "certifications"), "certifications");
+  const skillsList = rawSkills.length || Array.isArray(raw.skills) ? rawSkills : masterSkills;
 
   return {
     personal_info: {
@@ -2203,180 +2161,36 @@ function ResumeDocumentPreview({ resume, job, resumeReady, isGeneratingResume })
               </span>
             )}
           </div>
-          <hr className="paper-header-hr" />
-
-          {/* 2. Professional Summary / About Me */}
-          {resume.professional_summary && (
-            <div className="paper-section">
-              <div className="paper-section-title">Professional Summary</div>
-              <p className="paper-summary" style={{ textAlign: "justify" }}>{resume.professional_summary}</p>
+          {/* Sections, order and entry lines are shared with the PDF, DOCX and LaTeX exports.
+              UK template: a rule before every section; "Organisation | dates" then the bold role. */}
+          {renderSections(resume).map((section) => (
+            <div className="paper-section" key={section.key}>
               <hr className="paper-section-hr" />
-            </div>
-          )}
-
-          {/* 3. Work Experience */}
-          {resume.experience && resume.experience.length > 0 && (
-            <div className="paper-section">
-              <div className="paper-section-title">Work Experience</div>
-              {resume.experience.map((exp, idx) => (
-                <div className="paper-entry" key={`exp-${idx}`} style={{ marginBottom: 10 }}>
-                  <div className="paper-entry-meta">
-                    <span className="paper-entry-company">
-                      {exp.organization || exp.company || ""}
-                      {exp.location ? ` | ${exp.location}` : ""}
-                    </span>
-                    {exp.dates && <span className="paper-entry-dates">{exp.dates}</span>}
-                  </div>
-                  {exp.title && <div className="paper-entry-title">{exp.title}</div>}
-                  {exp.description && <p className="paper-summary">{exp.description}</p>}
-                  {exp.bullets && exp.bullets.length > 0 && (
+              <div className="paper-section-title">{section.title}</div>
+              {section.kind === "text" && (
+                <p className="paper-summary" style={{ textAlign: "justify" }}>{section.text}</p>
+              )}
+              {section.kind === "skills" && (
+                <ul className="paper-skill-columns">
+                  {section.skills.map((skill, i) => <li key={i}>{skill}</li>)}
+                </ul>
+              )}
+              {section.kind === "entries" && section.entries.map((entry, idx) => (
+                <div className="paper-entry" key={`${section.key}-${idx}`} style={{ marginBottom: 10 }}>
+                  {entry.meta && <div className="paper-entry-org">{entry.meta}</div>}
+                  {entry.heading && <div className="paper-entry-role">{entry.heading}</div>}
+                  {entry.description && <p className="paper-summary"><LinkifiedText text={entry.description} /></p>}
+                  {entry.bullets.length > 0 && (
                     <ul className="paper-bullets">
-                      {exp.bullets.map((b, bIdx) => (
-                        <li key={`exp-${idx}-b-${bIdx}`}><LinkifiedText text={b} /></li>
+                      {entry.bullets.map((b, bIdx) => (
+                        <li key={`${section.key}-${idx}-b-${bIdx}`}><LinkifiedText text={b} /></li>
                       ))}
                     </ul>
                   )}
                 </div>
               ))}
-              <hr className="paper-section-hr" />
             </div>
-          )}
-
-          {resume.internships && resume.internships.length > 0 && (
-            <div className="paper-section">
-              <div className="paper-section-title">Internships</div>
-              {resume.internships.map((item, idx) => (
-                <div className="paper-entry" key={`internship-${idx}`} style={{ marginBottom: 10 }}>
-                  <div className="paper-entry-meta">
-                    <span className="paper-entry-company">{item.organization || item.company || ""}{item.location ? ` | ${item.location}` : ""}</span>
-                    {item.dates && <span className="paper-entry-dates">{item.dates}</span>}
-                  </div>
-                  {item.title && <div className="paper-entry-title">{item.title}</div>}
-                  {item.description && <p className="paper-summary"><LinkifiedText text={item.description} /></p>}
-                  {item.bullets?.length > 0 && <ul className="paper-bullets">{item.bullets.map((bullet, bulletIdx) => <li key={`internship-${idx}-b-${bulletIdx}`}><LinkifiedText text={bullet} /></li>)}</ul>}
-                </div>
-              ))}
-              <hr className="paper-section-hr" />
-            </div>
-          )}
-
-          {/* 4. Projects */}
-          {resume.projects && resume.projects.length > 0 && (
-            <div className="paper-section">
-              <div className="paper-section-title">Projects</div>
-              {resume.projects.map((proj, idx) => (
-                <div className="paper-entry" key={`proj-${idx}`} style={{ marginBottom: 10 }}>
-                  <div className="paper-entry-meta">
-                    <span className="paper-entry-company">
-                      {proj.title || ""}
-                      {proj.organization ? ` | ${proj.organization}` : ""}
-                    </span>
-                    {proj.dates && <span className="paper-entry-dates">{proj.dates}</span>}
-                  </div>
-                  {proj.description && <p className="paper-summary"><LinkifiedText text={proj.description} /></p>}
-                  {proj.bullets && proj.bullets.length > 0 && (
-                    <ul className="paper-bullets">
-                      {proj.bullets.map((b, bIdx) => (
-                        <li key={`proj-${idx}-b-${bIdx}`}><LinkifiedText text={b} /></li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              ))}
-              <hr className="paper-section-hr" />
-            </div>
-          )}
-
-          {resume.publications && resume.publications.length > 0 && (
-            <div className="paper-section">
-              <div className="paper-section-title">Publications</div>
-              {resume.publications.map((item, idx) => (
-                <div className="paper-entry" key={`publication-${idx}`} style={{ marginBottom: 8 }}>
-                  <div className="paper-entry-meta">
-                    <span className="paper-entry-title">{item.title || item.name || ""}</span>
-                    {item.dates && <span className="paper-entry-dates">{item.dates}</span>}
-                  </div>
-                  {item.organization && <div className="paper-entry-loc">{item.organization}</div>}
-                  {item.description && <p className="paper-summary"><LinkifiedText text={item.description} /></p>}
-                </div>
-              ))}
-              <hr className="paper-section-hr" />
-            </div>
-          )}
-
-          {/* 5. Education */}
-          {resume.education && resume.education.length > 0 && (
-            <div className="paper-section">
-              <div className="paper-section-title">Education</div>
-              {resume.education.map((edu, idx) => (
-                <div className="paper-entry" key={`edu-${idx}`} style={{ marginBottom: 8 }}>
-                  <div className="paper-entry-meta">
-                    <span className="paper-entry-company">
-                      {edu.institution || edu.organization || edu.school || ""}
-                      {edu.location ? ` | ${edu.location}` : ""}
-                    </span>
-                    {edu.dates && <span className="paper-entry-dates">{edu.dates}</span>}
-                  </div>
-                  {(edu.degree || edu.title) && <div className="paper-entry-title">{edu.degree || edu.title}</div>}
-                  {edu.description && <p className="paper-summary"><LinkifiedText text={edu.description} /></p>}
-                  {edu.bullets && edu.bullets.length > 0 && (
-                    <ul className="paper-bullets">
-                      {edu.bullets.map((b, bIdx) => (
-                        <li key={`edu-${idx}-b-${bIdx}`}><LinkifiedText text={b} /></li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              ))}
-              <hr className="paper-section-hr" />
-            </div>
-          )}
-
-          {/* 6. Skills in 3-column bulleted grid matching Sebastian Bennett image */}
-          {resume.skills && resume.skills.length > 0 && (
-            <div className="paper-section">
-              <div className="paper-section-title">Core Skills</div>
-              <div className="paper-skills-grid">
-                {resume.skills.map((skill, sIdx) => (
-                  <div className="paper-skill-item" key={`sk-${sIdx}`}>
-                    <span className="paper-bullet-dot">•</span> {skill}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 7. Certifications if any */}
-          {resume.certifications && resume.certifications.length > 0 && (
-            <div className="paper-section" style={{ marginTop: 8 }}>
-              <hr className="paper-section-hr" />
-              <div className="paper-section-title">Certifications</div>
-              {resume.certifications.map((cert, idx) => (
-                <div className="paper-entry" key={`cert-${idx}`} style={{ marginBottom: 4 }}>
-                  <div className="paper-entry-meta">
-                    <span className="paper-entry-title">{cert.name || cert.title || ""}</span>
-                    {cert.dates && <span className="paper-entry-dates">{cert.dates}</span>}
-                  </div>
-                  {cert.issuer && <div className="paper-entry-loc">{cert.issuer}</div>}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {resume.achievements && resume.achievements.length > 0 && (
-            <div className="paper-section">
-              <div className="paper-section-title">Achievements</div>
-              {resume.achievements.map((item, idx) => (
-                <div className="paper-entry" key={`achievement-${idx}`} style={{ marginBottom: 6 }}>
-                  <div className="paper-entry-meta">
-                    <span className="paper-entry-title">{item.title || item.name || ""}</span>
-                    {item.dates && <span className="paper-entry-dates">{item.dates}</span>}
-                  </div>
-                  {item.description && <p className="paper-summary"><LinkifiedText text={item.description} /></p>}
-                </div>
-              ))}
-            </div>
-          )}
+          ))}
         </div>
       </div>
     </div>
@@ -2932,6 +2746,7 @@ function JobDetailModal({ job, onClose, resume, onUpdateResume, onTogglePipeline
                       <strong>Skills to highlight:</strong> {job.missing_skills.join(", ")}
                     </p>
                   )}
+                  <MatchBreakdown breakdown={job.match_breakdown} />
                 </div>
               )}
 
@@ -3519,13 +3334,13 @@ function DirectoryView({
                 >
                   {allVisibleInPipeline ? "All saved" : "Save all"}
                 </button>
+                {resume && (
+                  <button type="button" className="jd-remove-resume" onClick={onRemoveResume} title="Remove your résumé and go back to all jobs">
+                    <X size={14} aria-hidden="true" /> Remove résumé
+                  </button>
+                )}
               </div>
             </div>
-            {resume && (
-              <button type="button" className="jd-remove-resume" style={{ alignSelf: "flex-end", margin: "6px 14px 0" }} onClick={onRemoveResume}>
-                Remove résumé
-              </button>
-            )}
             {visibleJobs.length === 0 ? (
               <div className="empty-results-box">
                 <h4>No roles match your filter criteria</h4>
@@ -5021,12 +4836,269 @@ function AddCompanyModal({ onClose, onSuccess }) {
   );
 }
 
+// Closes a modal on Escape while it is open.
+function useEscapeToClose(onClose) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+}
+
+function JobDescriptionBlocks({ job }) {
+  const blocks = useMemo(() => parseJobDescription(job?.description), [job?.id, job?.description]);
+  if (!blocks.length) {
+    return (
+      <p className="jd-muted">
+        The full description is on the employer's site.
+        {job?.url && <> <a href={job.url} target="_blank" rel="noopener noreferrer">Read the full job advert <ExternalLink size={12} aria-hidden="true" /></a></>}
+      </p>
+    );
+  }
+  return blocks.map((b, i) => (
+    b.type === "h" ? <h4 key={i}>{b.text}</h4>
+      : b.type === "li" ? <p key={i} className="jd-li"><CheckCircle2 size={15} aria-hidden="true" /><span>{b.text}</span></p>
+        : <p key={i}>{b.text}</p>
+  ));
+}
+
+// The four headline facts shown on both application modals.
+function getJobFacts(job) {
+  const salary = formatSalaryRange(job);
+  const visa = getVisaState(job);
+  const posted = formatJobAge(job.posted_at || job.created_at);
+  return [
+    { icon: CalendarDays, label: "Posted", value: posted || "Not listed", sub: job.employment_type || "" },
+    { icon: Clock, label: "Work mode", value: getJobWorkMode(job) || "Not listed", sub: job.location || "" },
+    { icon: Banknote, label: "Compensation", value: salary || "Not listed", sub: salary ? "Advertised range" : "See employer site", tone: salary ? "ok" : "" },
+    { icon: Globe, label: "Work visa", value: visa?.title || "Not listed", sub: visa?.detail || "", tone: visa?.tone === "ok" ? "ok" : "" },
+  ];
+}
+
+function ApplicationReviewModal({ job, status, statusOptions, onStatusChange, onClose, onEditResume, onViewPosting, masterResume }) {
+  useEscapeToClose(onClose);
+  const [saved, setSaved] = useState({ loading: true, data: null, error: "" });
+  const [draftStatus, setDraftStatus] = useState(status);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSaved({ loading: true, data: null, error: "" });
+    fetch(`${API_BASE}/api/resumes/job/${encodeURIComponent(job.id)}`)
+      .then(async (res) => {
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(typeof body.detail === "string" ? body.detail : `Could not load the resume (${res.status}).`);
+        if (!cancelled) setSaved({ loading: false, data: body.status === "found" ? body : null, error: "" });
+      })
+      .catch((err) => { if (!cancelled) setSaved({ loading: false, data: null, error: err.message }); });
+    return () => { cancelled = true; };
+  }, [job.id]);
+
+  const tailored = useMemo(
+    () => (saved.data?.tailored_resume ? normalizeClientResume(saved.data.tailored_resume, masterResume, job) : null),
+    [saved.data, masterResume, job]
+  );
+  const score = Number(job.match_score);
+  const hasScore = job.match_score !== null && job.match_score !== undefined && Number.isFinite(score);
+  const downloadPath = saved.data?.pdf_url || saved.data?.docx_url;
+  const downloadLabel = saved.data?.pdf_url ? "Download Tailored Resume (PDF)" : "Download Tailored Resume (DOCX)";
+  const facts = getJobFacts(job).slice(1);
+  const mode = getJobWorkMode(job);
+  const updated = saved.data?.updated_at ? formatJobAge(saved.data.updated_at) : "";
+
+  const copyText = async () => {
+    const node = document.getElementById("resume-printable-doc");
+    if (!node) return;
+    try {
+      await navigator.clipboard.writeText(node.innerText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* clipboard blocked */ }
+  };
+
+  return (
+    <div className="app-modal-overlay" onClick={onClose} role="presentation">
+      <div className="app-modal app-review-modal" role="dialog" aria-modal="true" aria-label={`Application: ${job.title}`} onClick={(e) => e.stopPropagation()}>
+        <header className="app-modal-head">
+          <div className="app-modal-logo">{(job.company || "?").charAt(0).toUpperCase()}</div>
+          <div className="app-modal-titles">
+            <div className="app-modal-titleline">
+              <h2>{job.title}</h2>
+              <span className="app-chip blue">● {status}</span>
+            </div>
+            <p>
+              <strong>{job.company || "Company not listed"}</strong>
+              {job.location && <> · <MapPin size={12} aria-hidden="true" /> {job.location}</>}
+              {mode && <> · {mode}</>}
+              <> · <span className="app-link-text">ATS: {job.ats_platform || "Cafy"}</span></>
+            </p>
+          </div>
+          <div className="app-modal-actions">
+            <button type="button" className="app-btn secondary" onClick={onEditResume}><PenLine size={14} aria-hidden="true" /> {tailored ? "Edit Resume" : "Create Resume"}</button>
+            {downloadPath && (
+              <button type="button" className="app-btn primary" onClick={() => window.open(withToken(`${API_BASE}${downloadPath}`), "_blank", "noopener")}>
+                <Download size={14} aria-hidden="true" /> {downloadLabel}
+              </button>
+            )}
+            {job.url && (
+              <a className="app-icon-btn" href={job.url} target="_blank" rel="noopener noreferrer" aria-label="Open job advert"><ExternalLink size={15} /></a>
+            )}
+            <button type="button" className="app-icon-btn" onClick={onClose} aria-label="Close"><X size={16} /></button>
+          </div>
+        </header>
+
+        <div className="app-review-split">
+          <section className="app-review-pane">
+            <div className="app-pane-head">
+              <span><FileText size={15} aria-hidden="true" /> <strong>Tailored Resume</strong></span>
+              {updated && <span className="app-muted">Updated {updated}</span>}
+              {hasScore && <span className="app-chip green"><CheckCircle2 size={12} aria-hidden="true" /> {Math.round(score)}% ATS Match</span>}
+              {masterResume?.candidate_name && <span className="app-muted">Profile: <strong>{masterResume.candidate_name}</strong></span>}
+            </div>
+            <div className="app-pane-body app-resume-scroll">
+              {saved.loading ? (
+                <div className="applications-empty">Loading tailored resume…</div>
+              ) : saved.error ? (
+                <div className="applications-empty">{saved.error}</div>
+              ) : tailored ? (
+                <ResumeDocumentPreview resume={tailored} job={job} resumeReady isGeneratingResume={false} />
+              ) : (
+                <div className="app-empty-resume">
+                  <Sparkles size={26} aria-hidden="true" />
+                  <strong>No tailored resume yet</strong>
+                  <p>Create a version of your resume targeted at this role.</p>
+                  <button type="button" className="app-btn primary" onClick={onEditResume}>Create Resume</button>
+                </div>
+              )}
+            </div>
+            {tailored && (
+              <div className="app-pane-foot">
+                <button type="button" className="app-link-btn" onClick={copyText}><ScrollText size={13} aria-hidden="true" /> {copied ? "Copied" : "Copy full text"}</button>
+              </div>
+            )}
+          </section>
+
+          <section className="app-review-pane">
+            <div className="app-pane-head">
+              <span><Briefcase size={15} aria-hidden="true" /> <strong>Job Description &amp; Specification</strong></span>
+              <button type="button" className="app-link-btn" onClick={onViewPosting}>View full posting</button>
+            </div>
+            <div className="app-pane-body">
+              <div className="app-card">
+                <div className="app-card-title"><h3>Role Overview</h3>{job.industry && <span className="app-chip blue">{job.industry}</span>}</div>
+                <div className="jd-detail-body app-jd-text"><JobDescriptionBlocks job={job} /></div>
+              </div>
+              <div className="app-facts three">
+                {facts.map(({ icon: Icon, label, value, sub, tone }) => (
+                  <div key={label} className="app-fact">
+                    <span className="app-fact-label"><Icon size={13} aria-hidden="true" /> {label}</span>
+                    <strong className={tone === "ok" ? "ok" : ""}>{value}</strong>
+                    {sub && <small>{sub}</small>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <footer className="app-modal-foot">
+          <label className="app-status-select">
+            <span>PIPELINE STATUS:</span>
+            <select value={draftStatus} onChange={(e) => setDraftStatus(e.target.value)}>
+              {statusOptions.map((s) => <option key={s}>{s}</option>)}
+            </select>
+          </label>
+          <div className="app-foot-actions">
+            <button type="button" className="app-btn ghost" onClick={onClose}>Close</button>
+            <button type="button" className="app-btn primary" onClick={() => { onStatusChange(draftStatus); onClose(); }}>
+              <Save size={14} aria-hidden="true" /> Update Status
+            </button>
+          </div>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+function JobPostingModal({ job, onClose, onCustomizeResume, onReviewApplication }) {
+  useEscapeToClose(onClose);
+  const facts = getJobFacts(job);
+  const mode = getJobWorkMode(job);
+  const level = EXPERIENCE_LEVELS.find(([value]) => value === getExperienceLevel(job));
+  const initials = (job.company || "?").split(/\s+/).filter(Boolean).slice(0, 3).map((w) => w[0]).join("").toUpperCase();
+
+  return (
+    <div className="app-modal-overlay" onClick={onClose} role="presentation">
+      <div className="app-modal app-posting-modal" role="dialog" aria-modal="true" aria-label={`Job posting: ${job.title}`} onClick={(e) => e.stopPropagation()}>
+        <header className="app-modal-head">
+          <div className="app-modal-logo large">{initials}</div>
+          <div className="app-modal-titles">
+            <div className="app-chip-row">
+              <span className="app-chip blue">ATS: {job.ats_platform || "Cafy"}</span>
+              {job.employment_type && <span className="app-chip grey">{job.employment_type}</span>}
+              {level && <span className="app-chip green">{level[1]}</span>}
+            </div>
+            <h2>{job.title}</h2>
+            <p>
+              <strong>{job.company || "Company not listed"}</strong>
+              {job.location && <> · <MapPin size={12} aria-hidden="true" /> {job.location}{mode ? ` (${mode})` : ""}</>}
+            </p>
+          </div>
+          <div className="app-modal-actions">
+            {job.url && (
+              <a className="app-icon-btn" href={job.url} target="_blank" rel="noopener noreferrer" aria-label="Open job advert"><ExternalLink size={15} /></a>
+            )}
+            <button type="button" className="app-icon-btn" onClick={onClose} aria-label="Close"><X size={16} /></button>
+          </div>
+        </header>
+
+        <div className="app-pane-body app-posting-body">
+          <div className="app-facts four">
+            {facts.map(({ label, value, sub, tone }) => (
+              <div key={label} className="app-fact">
+                <span className="app-fact-label upper">{label}</span>
+                <strong className={tone === "ok" ? "ok" : ""}>{value}</strong>
+                {sub && <small>{sub}</small>}
+              </div>
+            ))}
+          </div>
+
+          {(job.company_description) && (
+            <div className="app-card">
+              <div className="app-card-title"><h3><Building2 size={16} aria-hidden="true" /> About {job.company}</h3></div>
+              <p className="app-jd-text">{sanitizeDisplayText(job.company_description)}</p>
+            </div>
+          )}
+
+          <div className="app-card">
+            <div className="app-card-title"><h3><Briefcase size={16} aria-hidden="true" /> What You Will Work On</h3></div>
+            <div className="jd-detail-body app-jd-text"><JobDescriptionBlocks job={job} /></div>
+          </div>
+        </div>
+
+        <footer className="app-modal-foot">
+          <button type="button" className="app-btn ghost" onClick={onClose}>Close</button>
+          <div className="app-foot-actions">
+            <button type="button" className="app-btn soft" onClick={onCustomizeResume}><Sparkles size={14} aria-hidden="true" /> Customize Resume for this Job</button>
+            <button type="button" className="app-btn primary" onClick={onReviewApplication}>Review Application <ArrowRight size={14} aria-hidden="true" /></button>
+          </div>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
 function ApplicationTrackingView({
   pipelineJobIds,
   allJobs,
   onSelectJob,
+  onCustomizeResume,
+  resume,
 }) {
   const [filter, setFilter] = useState("all");
+  // Which application modal is open: { kind: "review" | "posting", job }.
+  const [modal, setModal] = useState(null);
+  const closeModal = useCallback(() => setModal(null), []);
   // Statuses the user sets here; every job starts as "In pipeline".
   const [statusMap, setStatusMap] = useState({});
 
@@ -5090,8 +5162,8 @@ function ApplicationTrackingView({
             <div className="approval-card-actions">
               <span className="approval-document">▣ Customized resume ready</span>
               <span className="approval-document">◎ Targeted for {job.title}</span>
-              <button type="button" className="applications-secondary" onClick={() => onSelectJob(job)}>View Posting</button>
-              <button type="button" className="applications-primary" onClick={() => onSelectJob(job)}>Review Application</button>
+              <button type="button" className="applications-secondary" onClick={() => setModal({ kind: "posting", job })}>View Posting</button>
+              <button type="button" className="applications-primary" onClick={() => setModal({ kind: "review", job })}>Review Application</button>
             </div>
           </div>
         ))}
@@ -5150,7 +5222,7 @@ function ApplicationTrackingView({
                     >
                       {currentStatus} <ChevronDown size={12} aria-hidden="true" />
                     </button>
-                    <button type="button" className="btn-tracking-view" onClick={() => onSelectJob(job)}>
+                    <button type="button" className="btn-tracking-view" onClick={() => setModal({ kind: "review", job })}>
                       View
                     </button>
                   </div>
@@ -5161,6 +5233,29 @@ function ApplicationTrackingView({
         </div>
         <div className="applications-footer">Tracking {filteredJobs.length} of {pipelineJobs.length} active job opportunities <span>Last synchronized just now</span></div>
       </section>
+
+      {modal?.kind === "review" && (
+        <ApplicationReviewModal
+          key={modal.job.id}
+          job={modal.job}
+          masterResume={resume}
+          status={getStatus(modal.job)}
+          statusOptions={STATUS_FLOW}
+          onStatusChange={(next) => setStatusMap((prev) => ({ ...prev, [modal.job.id]: next }))}
+          onClose={closeModal}
+          onEditResume={() => { const job = modal.job; setModal(null); onSelectJob(job); }}
+          onViewPosting={() => setModal({ kind: "posting", job: modal.job })}
+        />
+      )}
+      {modal?.kind === "posting" && (
+        <JobPostingModal
+          key={modal.job.id}
+          job={modal.job}
+          onClose={closeModal}
+          onCustomizeResume={() => { const job = modal.job; setModal(null); (onCustomizeResume || onSelectJob)(job); }}
+          onReviewApplication={() => setModal({ kind: "review", job: modal.job })}
+        />
+      )}
     </div>
   );
 }

@@ -37,20 +37,24 @@ import {
   X,
 } from "lucide-react";
 import { EditorMatchScore, SectionScoreBadge } from "./JobMatchScore.jsx";
-import { loadPdfSettings, PDF_ACCENTS, PDF_FONTS } from "./pdfSettings.js";
+import { loadPdfSettings, PDF_ACCENTS, PDF_FONTS, PDF_SETTINGS_KEY } from "./pdfSettings.js";
 import "./resumeEditor.css";
 
 // The PDF renderer is large, so it loads only when the editor opens.
 const PdfPreview = lazy(() => import("./PdfPreview.jsx"));
 
 // [key, short tab label, section heading, helper line]
+// Only the sections the UK template prints. Internships are edited on their own tab and print
+// under Work Experience. Certifications, publications and achievements are kept in the data
+// (never deleted) but are not shown, because the template does not print them.
 export const EDITOR_SECTIONS = [
   ["personal", "Personal", "Personal Information", "How recruiters reach you. Keep links short and current."],
-  ["summary", "Summary", "Professional Summary", "Lead with quantifiable impact: your core strengths, the systems you build, and the role you want next."],
+  ["summary", "About Me", "About Me", "Two to four sentences aimed at this role: who you are, what you have done, what you bring."],
+  ["education", "Education", "Education", "Degree, institution, dates, and anything that strengthens this application."],
   ["experience", "Experience", "Work Experience", "Most recent first. Start each bullet with an action verb and end with a measurable result."],
-  ["skills", "Skills", "Technical Skills", "List the tools you have actually used. Match the wording the job description uses."],
+  ["internships", "Internships", "Internships", "Printed under Work Experience. Roles, organisations and key contributions."],
   ["projects", "Projects", "Projects", "Show what you built, the stack you used, and what changed because of it."],
-  ["education", "Education", "Education", "Degree, institution, dates and anything that strengthens this application."],
+  ["skills", "Skills", "Skills", "List the tools you have actually used. Match the wording the job description uses."],
 ];
 
 const FONT_LABELS = { Helvetica: "Helvetica (Sans)", "Times-Roman": "Times (Serif)", Courier: "Courier (Mono)" };
@@ -434,7 +438,7 @@ export default function ResumeEditor({
 
   useEffect(() => {
     try {
-      localStorage.setItem("cafy.resumePdfSettings", JSON.stringify(settings));
+      localStorage.setItem(PDF_SETTINGS_KEY, JSON.stringify(settings));
     } catch {
       /* private mode: settings just won't persist */
     }
@@ -618,7 +622,15 @@ export default function ResumeEditor({
   const tipText = tip ? (typeof tip === "string" ? tip : tip.text) : "";
   const h = history.current;
 
-  const fileBase = [info.name, job?.company].filter(Boolean).join(" - ").replace(/[^\w\- ]+/g, "").trim() || "resume";
+  const candidateName = (info.name || "").trim().replace(/\s+/g, "_");
+  const targetRole = (resume.target_role || job?.title || "").trim().replace(/\s+/g, "_");
+  const companyName = (job?.company || "").trim().replace(/\s+/g, "_");
+  const fileBase = [candidateName, targetRole, companyName, "Resume"]
+    .filter(Boolean)
+    .join("_")
+    .replace(/[^\w\-]+/g, "")
+    .replace(/_+/g, "_")
+    .trim() || "Resume";
   const downloadPdf = () => saveBlob(render.blob, `${fileBase}.pdf`);
   // The DOCX is built on the server from the last save, so unsaved edits are saved first.
   // Fetched (not linked) so the app's auth headers are sent; guest sessions have no URL token.

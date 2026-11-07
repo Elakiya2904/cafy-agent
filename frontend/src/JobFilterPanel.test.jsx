@@ -20,8 +20,19 @@ function Harness({ suggestions = [] }) {
   );
 }
 
+// The panel starts closed; tests open it the way a user does.
+const openFilters = () => fireEvent.click(screen.getByRole("button", { name: /^Filters/ }));
+
 describe("JobFilterPanel", () => {
   afterEach(cleanup);
+
+  it("starts with the filter panel closed until the user clicks Filters", () => {
+    render(<Harness />);
+    expect(screen.queryByLabelText("Include skills")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Filters/ })).toHaveAttribute("aria-expanded", "false");
+    openFilters();
+    expect(screen.getByLabelText("Include skills")).toBeInTheDocument();
+  });
 
   it("keeps a typed comma in the role box while filtering on the finished terms", () => {
     render(<Harness />);
@@ -33,6 +44,7 @@ describe("JobFilterPanel", () => {
 
   it("adds skills as tags, shows them as removable chips, and switches Any/All", () => {
     render(<Harness suggestions={["Docker"]} />);
+    openFilters();
     const include = screen.getByLabelText("Include skills");
     fireEvent.change(include, { target: { value: "Python" } });
     fireEvent.keyDown(include, { key: "Enter" });
@@ -52,6 +64,7 @@ describe("JobFilterPanel", () => {
 
   it("clears every filter and the search text with Clear all", () => {
     render(<Harness />);
+    openFilters();
     fireEvent.change(screen.getByRole("searchbox", { name: "Job role" }), { target: { value: "Designer" } });
     fireEvent.click(screen.getByRole("button", { name: "Senior" }));
     expect(screen.getByText("1 active")).toBeInTheDocument();
@@ -63,6 +76,7 @@ describe("JobFilterPanel", () => {
 
   it("sets work mode and job type filters", () => {
     render(<Harness />);
+    openFilters();
     fireEvent.click(screen.getByRole("button", { name: "Remote" }));
     fireEvent.click(screen.getByRole("button", { name: "Contract" }));
     expect(latest.workModes).toEqual(["remote"]);

@@ -201,6 +201,7 @@ describe('Find Jobs posted date filter', () => {
       />
     );
 
+    fireEvent.click(screen.getByRole('button', { name: /^Filters/ }));
     fireEvent.change(screen.getByLabelText('Posted within'), { target: { value: '7' } });
 
     expect(screen.getByRole('heading', { name: '1 active job' })).toBeInTheDocument();
@@ -235,6 +236,7 @@ describe('Find Jobs browse layout', () => {
 
     expect(screen.getByRole('searchbox', { name: 'Job role' })).toBeInTheDocument();
     expect(screen.getByRole('searchbox', { name: 'Company or location' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^Filters/ }));
     expect(screen.getByLabelText('Posted within')).toHaveValue('0');
     expect(screen.getByRole('group', { name: 'Experience level' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '1 active job' })).toBeInTheDocument();

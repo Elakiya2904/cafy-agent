@@ -16,6 +16,11 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional
 
+try:
+    from .resume_structure import full_time_years, split_internships
+except ImportError:  # imported as a top-level module by older scripts
+    from resume_structure import full_time_years, split_internships
+
 
 METRIC_PATTERN = re.compile(
     r"(?:\d+(?:\.\d+)?%|\$\s*\d+|\b\d+\s*(?:k|m|million|billion|users|clients|teams|services|microservices|servers|qps|rps|ms|percent|x)\b|"
@@ -96,51 +101,75 @@ def evaluate_profile_strength(resume: Optional[Dict[str, Any]]) -> Dict[str, Any
     basics_score = min(100, basics_score)
 
     # 2. Evaluate Technical Skills (25% weight)
-    skills = resume.get("skills") or []
+    skills = resume.get("skills") or resume.get("all_skills") or []
     categorized = resume.get("categorized_skills") or {}
     skills_score = 0
     skills_notes = []
 
     count = len(skills)
-    if count >= 16:
-        skills_score += 60
-    elif count >= 12:
-        skills_score += 50
-    elif count >= 8:
-        skills_score += 40
+    if count >= 12:
+        skills_score += 55
+    elif count >= 6:
+        skills_score += 45
     elif count >= 4:
-        skills_score += 25
+        skills_score += 35
+    elif count >= 2:
+        skills_score += 20
     elif count >= 1:
         skills_score += 10
     else:
         skills_notes.append("List your key professional skills")
 
+    if not categorized and skills:
+        # Profiles edited by hand have no categories yet; group them the way the parser does.
+        from .resume_service import SKILL_TAXONOMY  # local import: resume_service imports this module
+        lowered = {str(s).lower() for s in skills}
+        categorized = {
+            cat: [s for s in cat_skills if s.lower() in lowered]
+            for cat, cat_skills in SKILL_TAXONOMY.items()
+        }
+        uncategorized = lowered - {s.lower() for sks in categorized.values() for s in sks}
+        if uncategorized:
+            categorized["Other Skills"] = sorted(uncategorized)
     num_cats = len([c for c, sks in categorized.items() if len(sks) > 0])
     if num_cats >= 4:
-        skills_score += 40
+        skills_score += 45
     elif num_cats >= 3:
-        skills_score += 30
+        skills_score += 35
     elif num_cats >= 2:
-        skills_score += 20
+        skills_score += 25
     elif num_cats >= 1:
-        skills_score += 10
+        skills_score += 15
 
-    if count < 10:
-        skills_notes.append(f"Add {10 - count} more relevant skills across domains")
+    if count < 6:
+        skills_notes.append(f"Add {6 - count} more relevant skills across domains")
 
     skills_score = min(100, skills_score)
 
     # 3. Evaluate Work Experience (25% weight)
-    experience = resume.get("experience") or resume.get("internships") or []
+    raw_exp = resume.get("experience") or []
+    raw_internships = resume.get("internships") or []
+    # Full-time roles and internships both earn credit here; each role is counted once and
+    # internships are never relabelled as full-time roles.
+    full_time, internships = split_internships(
+        [e for e in raw_exp if isinstance(e, dict)] if isinstance(raw_exp, list) else [],
+        [e for e in raw_internships if isinstance(e, dict)] if isinstance(raw_internships, list) else [],
+    )
+    experience = full_time + internships
     raw_text = resume.get("raw_text") or ""
     exp_score = 0
     exp_notes = []
 
     # If experience array is empty, check if raw_text indicates experience
-    years = resume.get("years_of_experience") or 0
+    try:
+        years = float(resume.get("years_of_experience") or 0)
+    except (TypeError, ValueError):
+        years = 0.0
+    # No stated figure: use the dates on full-time roles (internships never add years).
+    years = years or full_time_years(full_time)
     has_raw_exp = bool(re.search(r"\b(?:experience|employment|work history|internship|internships)\b", raw_text, re.I))
 
-    if experience and isinstance(experience, list):
+    if experience and isinstance(experience, list) and len(experience) > 0:
         role_count = len(experience)
         if role_count >= 3:
             exp_score += 40
@@ -229,11 +258,12 @@ def evaluate_profile_strength(resume: Optional[Dict[str, Any]]) -> Dict[str, Any
 
     edu_score = min(100, edu_score)
 
-    # 5. Evaluate Projects (10% weight)
+    # 5. Evaluate Projects (10% standard weight)
     projects = resume.get("projects") or []
     proj_score = 0
     proj_notes = []
     has_raw_proj = bool(re.search(r"\b(?:projects|portfolio projects|key projects)\b", raw_text, re.I))
+    is_senior = (years >= 5) or any(k in str(resume.get("seniority_level") or "").lower() for k in ["senior", "lead", "principal"])
 
     if projects and isinstance(projects, list) and len(projects) > 0:
         proj_count = len(projects)
@@ -252,12 +282,12 @@ def evaluate_profile_strength(resume: Optional[Dict[str, Any]]) -> Dict[str, Any
     elif has_raw_proj:
         proj_score = 35
         proj_notes.append("Format projects with titles, technologies used, and outcomes")
-    else:
+    elif not is_senior:
         proj_notes.append("Add 1-2 highlight projects with tools used and links")
 
     proj_score = min(100, proj_score)
 
-    # 6. Evaluate Certifications (10% weight)
+    # 6. Evaluate Certifications (10% standard weight)
     certs = resume.get("certifications") or []
     certs_score = 0
     certs_notes = []
@@ -268,12 +298,12 @@ def evaluate_profile_strength(resume: Optional[Dict[str, Any]]) -> Dict[str, Any
     elif has_raw_certs:
         certs_score = 40
         certs_notes.append("Confirm certificate issuer and completion date")
-    else:
+    elif not is_senior:
         certs_notes.append("Add industry certifications (e.g., AWS, GCP, CKA, PMP) to boost recruiter match")
 
     certs_score = min(100, certs_score)
 
-    # Calculate overall weighted score
+    # Calculate overall weighted score with transparent weight redistribution
     weights = {
         "skills": 0.25,
         "experience": 0.25,
@@ -283,14 +313,33 @@ def evaluate_profile_strength(resume: Optional[Dict[str, Any]]) -> Dict[str, Any
         "certifications": 0.10,
     }
 
-    overall = (
-        skills_score * weights["skills"]
-        + exp_score * weights["experience"]
-        + edu_score * weights["education"]
-        + basics_score * weights["basics"]
-        + proj_score * weights["projects"]
-        + certs_score * weights["certifications"]
-    )
+    scores = {
+        "skills": skills_score, "experience": exp_score, "education": edu_score,
+        "basics": basics_score, "projects": proj_score, "certifications": certs_score,
+    }
+
+    def weighted(w: Dict[str, float]) -> float:
+        return sum(scores[k] * w[k] for k in w if w[k] > 0)
+
+    def without(w: Dict[str, float], key: str, move_to: tuple) -> Dict[str, float]:
+        moved = dict(w)
+        for target in move_to:
+            moved[target] += moved[key] / len(move_to)
+        moved[key] = 0.0
+        return moved
+
+    # Optional sections only ever help: projects (for senior professionals, 5+ years stated or
+    # shown by full-time role dates). Their weight moves to the core sections whenever that
+    # gives the higher score, so leaving them out - or adding a modest one - never costs points.
+    if is_senior:
+        alt = without(weights, "projects", ("experience", "skills"))
+        if not projects or weighted(alt) > weighted(weights):
+            weights = alt
+    # Certifications are a bonus on top (up to +5 points), never a weighted requirement.
+    weights = without(weights, "certifications", ("experience", "basics"))
+    certs_bonus = round(certs_score * 0.05, 1)
+
+    overall = min(100.0, weighted(weights) + certs_bonus)
     overall_score = max(0, min(100, int(round(overall))))
 
     # Determine Tier & Color
@@ -353,25 +402,59 @@ def evaluate_profile_strength(resume: Optional[Dict[str, Any]]) -> Dict[str, Any
         "projects": {
             "name": "Projects",
             "score": proj_score,
-            "status": status_for(proj_score),
-            "weight": 10,
-            "details": f"{len(projects)} project(s) listed" if projects else ("Projects mentioned" if proj_score > 0 else "No projects added"),
-            "gaps": proj_notes,
+            "status": "optional" if weights["projects"] == 0 else status_for(proj_score),
+            "weight": int(round(weights["projects"] * 100)),
+            "details": "Optional for senior professionals; weight redistributed to Work Experience and Skills." if weights["projects"] == 0 else (f"{len(projects)} project(s) listed" if projects else ("Projects mentioned" if proj_score > 0 else "No projects added")),
+            "gaps": [] if weights["projects"] == 0 else proj_notes,
         },
         "certifications": {
             "name": "Certifications",
             "score": certs_score,
-            "status": status_for(certs_score),
-            "weight": 10,
-            "details": f"{len(certs)} certificate(s)" if certs else ("Certifications mentioned" if certs_score > 0 else "No certifications listed"),
+            "status": status_for(certs_score) if certs_score else "optional",
+            "weight": 0,
+            "bonus_points": certs_bonus,
+            "details": (f"{len(certs)} certificate(s): +{certs_bonus:g} bonus points" if certs else
+                        "Certifications mentioned" if certs_score > 0 else
+                        "Optional bonus (up to +5 points); not having any costs nothing."),
             "gaps": certs_notes,
         },
     }
 
-    # Incomplete sections (score < 75%)
-    incomplete_keys = [k for k, sec in sections.items() if sec["score"] < 75]
-    # Sort incomplete sections by their weight * (100 - score) to prioritize highest impact gaps
+    # Incomplete sections (score < 75% for active weighted sections)
+    incomplete_keys = [k for k, sec in sections.items() if sec["score"] < 75 and weights[k] > 0]
     incomplete_keys.sort(key=lambda k: weights[k] * (100 - sections[k]["score"]), reverse=True)
+
+    # Positive factors & missing info for explainability
+    positive_factors = []
+    if basics_score >= 80:
+        positive_factors.append("Complete contact details and professional summary")
+    if skills_score >= 80:
+        positive_factors.append(f"Broad technical skillset spanning {num_cats} categories")
+    if exp_score >= 80:
+        positive_factors.append(f"Documented work history with measurable impact")
+    elif exp_score >= 60:
+        positive_factors.append("Consistent employment record")
+    if edu_score >= 80:
+        positive_factors.append("Verified degree and academic institution")
+    if proj_score >= 80 and weights["projects"] > 0:
+        positive_factors.append("Practical hands-on project accomplishments")
+    elif weights["projects"] == 0:
+        positive_factors.append("Senior career status: weight focused on verified commercial delivery")
+    if certs_score >= 80 and certs:
+        positive_factors.append("Verified industry certifications")
+
+    missing_information = []
+    for k in incomplete_keys:
+        missing_information.extend(sections[k]["gaps"])
+
+    explanations = {
+        "skills": f"Contributes {int(round(skills_score * weights['skills']))} points ({weights['skills']*100:.0f}% weight) based on {count} skills across {num_cats} categories.",
+        "experience": f"Contributes {int(round(exp_score * weights['experience']))} points ({weights['experience']*100:.0f}% weight) evaluating role progression, bullets, dates, and metrics.",
+        "education": f"Contributes {int(round(edu_score * weights['education']))} points ({weights['education']*100:.0f}% weight) assessing degree, institution, and dates.",
+        "basics": f"Contributes {int(round(basics_score * weights['basics']))} points ({weights['basics']*100:.0f}% weight) reflecting contact info, links, and summary.",
+        "projects": f"Contributes {int(round(proj_score * weights['projects']))} points ({weights['projects']*100:.0f}% weight) for technical project evidence." if weights["projects"] > 0 else "Optional for senior professionals (0% weight); weight redistributed to Work Experience and Technical Skills.",
+        "certifications": f"Optional bonus: adds {certs_bonus:g} of up to 5 points for industry credentials; never a penalty.",
+    }
 
     # Generate prioritized suggestions
     suggestions = []
@@ -467,6 +550,11 @@ def evaluate_profile_strength(resume: Optional[Dict[str, Any]]) -> Dict[str, Any
         "strength_tier": tier,
         "tier_badge_color": badge_color,
         "sections": sections,
+        "category_scores": {k: sec["score"] for k, sec in sections.items()},
+        "positive_factors": positive_factors,
+        "missing_information": missing_information,
+        "recommendations": suggestions,
+        "explanations": explanations,
         "incomplete_sections": incomplete_keys,
         "suggestions": suggestions,
         "total_suggestions_count": len(suggestions),

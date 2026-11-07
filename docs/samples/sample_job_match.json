@@ -1,0 +1,129 @@
+{
+  "job_match_score": 62,
+  "match_tier": "Partial Match",
+  "entry_level_job": true,
+  "score_breakdown": [
+    {
+      "section": "skills",
+      "name": "Skills",
+      "score": 84,
+      "weight": 35,
+      "share_of_total": 36.8,
+      "contribution": 30.9,
+      "applied": true
+    },
+    {
+      "section": "experience",
+      "name": "Relevant Experience",
+      "score": 57,
+      "weight": 20,
+      "share_of_total": 21.1,
+      "contribution": 12.0,
+      "applied": true
+    },
+    {
+      "section": "summary",
+      "name": "Professional Summary",
+      "score": 16,
+      "weight": 10,
+      "share_of_total": 10.5,
+      "contribution": 1.7,
+      "applied": true
+    },
+    {
+      "section": "education",
+      "name": "Education",
+      "score": 75,
+      "weight": 15,
+      "share_of_total": 15.8,
+      "contribution": 11.8,
+      "applied": true
+    },
+    {
+      "section": "projects",
+      "name": "Projects",
+      "score": 38,
+      "weight": 15,
+      "share_of_total": 15.8,
+      "contribution": 6.0,
+      "applied": true
+    },
+    {
+      "section": "certifications",
+      "name": "Certifications",
+      "score": null,
+      "weight": 5,
+      "share_of_total": 0,
+      "contribution": 0,
+      "applied": false
+    }
+  ],
+  "requirements": [
+    {
+      "skill": "Communication",
+      "importance": "mandatory",
+      "status": "matched",
+      "evidence": [
+        {
+          "section": "skills",
+          "source": "Skills list"
+        }
+      ]
+    },
+    {
+      "skill": "Excel",
+      "importance": "mandatory",
+      "status": "matched",
+      "evidence": [
+        {
+          "section": "internships",
+          "source": "Trade Support Intern at Barclays"
+        }
+      ]
+    },
+    {
+      "skill": "Python",
+      "importance": "preferred",
+      "status": "matched",
+      "evidence": [
+        {
+          "section": "projects",
+          "source": "Portfolio Risk Dashboard"
+        }
+      ]
+    },
+    {
+      "skill": "Reconciliation",
+      "importance": "mandatory",
+      "status": "matched",
+      "evidence": [
+        {
+          "section": "experience",
+          "source": "Retail Assistant at Tesco"
+        }
+      ]
+    },
+    {
+      "skill": "SQL",
+      "importance": "mandatory",
+      "status": "matched",
+      "evidence": [
+        {
+          "section": "internships",
+          "source": "Trade Support Intern at Barclays"
+        }
+      ]
+    },
+    {
+      "skill": "VBA",
+      "importance": "preferred",
+      "status": "matched",
+      "evidence": [
+        {
+          "section": "internships",
+          "source": "Trade Support Intern at Barclays"
+        }
+      ]
+    }
+  ]
+}

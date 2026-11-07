@@ -12,27 +12,75 @@ import shutil
 import subprocess
 import tempfile
 import uuid
+from datetime import date
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import docx
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Inches, Pt, RGBColor
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.shared import Mm, Pt, RGBColor
 from jinja2 import Environment, FileSystemLoader, Undefined
 import requests
+
+from .resume_structure import (
+    ENTRY_SECTIONS,
+    dedupe_entries,
+    render_sections,
+    same_record,
+    split_internships,
+    standardize_dates,
+    without_repeats,
+)
 
 logger = logging.getLogger("cafy.resume_generation")
 
 MAX_RESUME_SKILLS = 24
+# Bullets kept per entry when tailoring. Entries themselves are never dropped: a resume that
+# needs a second page gets one instead of losing records.
+MAX_BULLETS_PER_ENTRY = 6
+MAX_SUMMARY_CHARS = 600
 
-
-# Active model; override with GROQ_MODEL.
+GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
+# Active model; override with GROQ_MODEL (it is tried first, then the fallbacks).
 DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
-FALLBACK_GROQ_MODELS = ["openai/gpt-oss-20b", "llama-3.3-70b-versatile", "llama-3.1-8b-instant", "qwen/qwen3.8-27b"]
+# Checked against Groq's GET /openai/v1/models and a JSON-mode chat call on 2026-11-06.
+# llama-3.3-70b-versatile and llama-3.1-8b-instant now return 404 and were removed.
+FALLBACK_GROQ_MODELS = ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen3.8-27b"]
+_THINK_BLOCK = re.compile(r"<think>.*?</think>", re.S | re.I)
 
 
 class ResumeGenerationError(RuntimeError):
     pass
+
+
+def _groq_api_key() -> str:
+    return os.getenv("groq_api_key") or os.getenv("GROQ_API_KEY") or ""
+
+
+def _groq_models() -> List[str]:
+    models: List[str] = []
+    for model in [os.getenv("GROQ_MODEL"), *FALLBACK_GROQ_MODELS]:
+        if model and model not in models:
+            models.append(model)
+    return models
+
+
+def _parse_json_object(content: str) -> Optional[Dict[str, Any]]:
+    """Parse a model reply as one JSON object, tolerating code fences and text around it."""
+    cleaned = _THINK_BLOCK.sub("", content or "").strip()
+    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned.strip())
+    for candidate in (cleaned, cleaned[cleaned.find("{"): cleaned.rfind("}") + 1] if "{" in cleaned else ""):
+        if not candidate:
+            continue
+        try:
+            parsed = json.loads(candidate)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
 
 
 class ResumeGenerationService:
@@ -57,6 +105,7 @@ class ResumeGenerationService:
             comment_end_string="#))",
         )
         self.environment.filters["texescape"] = self._texescape
+        self.environment.filters["urlescape"] = self._urlescape
 
     @staticmethod
     def _provider_error_message(response, api_key: str) -> str:
@@ -72,6 +121,82 @@ class ResumeGenerationService:
         else:
             message = ""
         return message.replace(api_key, "[redacted]")[:300]
+
+    @classmethod
+    def _groq_chat(
+        cls,
+        system: str,
+        user: str,
+        *,
+        json_mode: bool,
+        max_tokens: int,
+        timeout: Tuple[int, int],
+        temperature: float = 0.2,
+        token_field: str = "max_tokens",
+    ) -> Union[str, Dict[str, Any]]:
+        """Call Groq, falling back through every configured model.
+
+        Rate limits (429), server errors, retired or unknown models (400/404), timeouts,
+        network errors, empty replies and invalid JSON all move on to the next model.
+        A rejected API key (401/403) stops at once because no model can succeed.
+        Raises ResumeGenerationError with the last provider message when every model fails.
+        """
+        api_key = _groq_api_key()
+        if not api_key:
+            raise ResumeGenerationError("AI rewriting is not configured. Add GROQ_API_KEY to the environment.")
+
+        last_error: Optional[ResumeGenerationError] = None
+        for model in _groq_models():
+            body: Dict[str, Any] = {
+                "model": model,
+                "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                # Groq's GPT-OSS models only accept temperature=1.
+                "temperature": 1 if model.startswith("openai/gpt-oss") else temperature,
+                token_field: max_tokens,
+            }
+            if json_mode:
+                body["response_format"] = {"type": "json_object"}
+            try:
+                response = requests.post(
+                    GROQ_CHAT_URL,
+                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                    json=body,
+                    timeout=timeout,
+                )
+            except requests.RequestException as err:
+                logger.warning("Groq model %s request failed (%s); trying the next model.", model, type(err).__name__)
+                last_error = ResumeGenerationError("AI rewriting service is temporarily unavailable.")
+                continue
+
+            if response.status_code != 200:
+                provider_error = cls._provider_error_message(response, api_key)
+                logger.warning("Groq model %s returned HTTP %s: %s", model, response.status_code,
+                               provider_error or "no provider detail")
+                detail = f" {provider_error}" if provider_error else ""
+                if response.status_code in (401, 403):
+                    raise ResumeGenerationError(f"AI rewriting failed with status {response.status_code}.{detail}")
+                last_error = ResumeGenerationError(f"AI rewriting failed with status {response.status_code}.{detail}")
+                continue
+
+            try:
+                content = response.json()["choices"][0]["message"]["content"]
+            except (KeyError, IndexError, TypeError, ValueError):
+                logger.warning("Groq model %s returned an unexpected response shape.", model)
+                last_error = ResumeGenerationError("AI rewriting returned an invalid response.")
+                continue
+            if not isinstance(content, str) or not _THINK_BLOCK.sub("", content).strip():
+                last_error = ResumeGenerationError("AI rewriting returned an empty response.")
+                continue
+            if not json_mode:
+                return _THINK_BLOCK.sub("", content).strip()
+            parsed = _parse_json_object(content)
+            if parsed is None:
+                logger.warning("Groq model %s returned text that is not a JSON object.", model)
+                last_error = ResumeGenerationError("AI rewriting returned an invalid structure.")
+                continue
+            return parsed
+
+        raise last_error or ResumeGenerationError("AI rewriting service is temporarily unavailable.")
 
     def generate(
         self, resume: Dict[str, Any], job: Dict[str, Any], skill_extractor=None, instructions: Optional[str] = None
@@ -93,24 +218,63 @@ class ResumeGenerationService:
         job = {**job, "extracted_skills": job_skills}
 
         # Build from verified profile data, then tailor the writable text using only those facts.
+        # Education, employers, dates and certifications are copied from the profile unchanged.
         structured = self._validate_and_normalize({}, resume, job)
+        existing_skills = {str(skill).casefold() for skill in structured["skills"]}
+        added_keywords: List[str] = []
         if skill_extractor is not None:
-            verified_job_skills = self._verified_job_skills(resume, job, skill_extractor)
-            existing_skills = {str(skill).casefold() for skill in structured["skills"]}
-            for skill in verified_job_skills:
+            for skill in self._verified_job_skills(resume, job, skill_extractor):
                 if skill.casefold() not in existing_skills:
                     structured["skills"].append(skill)
                     existing_skills.add(skill.casefold())
-        structured["skills"] = self._rank_skills(structured["skills"], job)
+                    added_keywords.append(skill)
+
+        # The job's own requirements (essential/desirable, read from its description), each with
+        # the resume line that proves it. Only proven ones become keywords; the rest are reported.
+        from .requirement_matching import score_job
+        jd_match = score_job(resume, job)
+        proven = [r for r in jd_match["requirements"]
+                  if r["evidence_type"] in ("direct", "weak") and r.get("exact_evidence")]
+        for row in proven:
+            if row["name"].casefold() not in existing_skills:
+                structured["skills"].append(row["name"])
+                existing_skills.add(row["name"].casefold())
+                added_keywords.append(row["name"])
+        structured["skills"] = self._rank_skills_for_job(structured["skills"], job, jd_match)
+        self._order_by_job_relevance(structured, jd_match)
+
+        source_internships = len(structured.get("internships") or [])
+        rewrite: Dict[str, Any] = {}
+        tailoring_mode = "rules"
+        ai_error = ""
         if skill_extractor is not None:
-            structured = self.rewrite_full(structured, job, skill_extractor, instructions)["resume"]
-        structured = self._ensure_education_descriptions(structured)
+            try:
+                rewrite = self.rewrite_full(structured, job, skill_extractor, instructions)
+                structured = rewrite["resume"]
+                tailoring_mode = "ai"
+            except ResumeGenerationError as error:
+                # Never block on the AI: finish with rule-based tailoring from verified facts and
+                # say so in the response, so it is not presented as an AI rewrite.
+                ai_error = str(error)
+                logger.warning("[ResumeGeneration] AI rewrite unavailable, using rule-based tailoring: %s", error)
+        if tailoring_mode == "rules" or not str(structured.get("professional_summary") or "").strip():
+            structured["professional_summary"] = self._about_me_for_job(resume, structured, job, jd_match)
+        # Education entries without a description stay without one; generic coursework text
+        # would be an unverified claim.
         resume_id = uuid.uuid4().hex
         # The editor renders its own PDF, so the LaTeX PDF is compiled only when it is downloaded.
         artifacts = self.update_artifacts(resume_id, structured, compile_pdf=False)
 
         # Compute real ATS / match scores against the generated resume.
         generation_scores = self._score_generated_resume(structured, job, skill_extractor)
+        tailored_match = score_job(
+            {**structured, "summary": structured.get("professional_summary") or "",
+             "years_of_experience": resume.get("years_of_experience"), "career_level": resume.get("career_level")},
+            job,
+        )
+        generation_scores["jd_match_score"] = tailored_match["score"]
+        generation_scores["jd_top_band_eligible"] = tailored_match["top_band_eligible"]
+        generation_scores["jd_match"] = tailored_match
 
         return {
             "status": "success",
@@ -119,10 +283,22 @@ class ResumeGenerationService:
             **artifacts,
             "generation_scores": generation_scores,
             "validation": {
+                "tailoring_mode": tailoring_mode,
+                "ai_error": ai_error,
+                # Job keywords added to Skills - each one is evidenced in the uploaded resume.
+                "keywords_added": added_keywords,
+                # Essential requirements the resume does not show; never added.
+                "essential_requirements_not_claimed": [
+                    r["name"] for r in jd_match["requirements"]
+                    if r["importance"] == "essential" and r["evidence_type"] in ("missing", "transferable")
+                ],
                 "ats_friendly": True,
+                # Every AI line was checked against the source resume; rejected lines kept the original text.
                 "factual_consistency": True,
-                "page_length": "1 page",
-                "unsupported_claims": [],
+                "rejected_ai_lines": rewrite.get("rejected_lines", 0),
+                "unsupported_claims": rewrite.get("rejection_reasons", []),
+                "internships_preserved": len(structured.get("internships") or []) == source_internships,
+                "sections": [section["key"] for section in render_sections(structured)],
             },
         }
 
@@ -236,6 +412,132 @@ class ResumeGenerationService:
             ]
         }
         return sorted(skills, key=lambda s: s.casefold() not in wanted)
+
+    @staticmethod
+    def _rank_skills_for_job(skills: List[str], job: Dict[str, Any], jd_match: Dict[str, Any]) -> List[str]:
+        """Essential job skills first, then desirable ones, then the rest (original order kept)."""
+        importance = {r["name"].casefold(): r["importance"] for r in jd_match.get("requirements") or []}
+        wanted = {str(s).casefold() for s in (job.get("extracted_skills") or [])}
+
+        def rank(skill: str) -> int:
+            level = importance.get(skill.casefold())
+            if level == "essential":
+                return 0
+            if level == "desirable":
+                return 1
+            return 2 if skill.casefold() in wanted else 3
+
+        return sorted(skills, key=rank)
+
+    @staticmethod
+    def _order_by_job_relevance(structured: Dict[str, Any], jd_match: Dict[str, Any]) -> None:
+        """Most job-relevant bullets first in every role, and most relevant projects first.
+
+        Roles stay in date order and no text changes; only the order does.
+        """
+        from .requirement_matching import _mentions
+
+        weights = [(r["name"], r["weight"]) for r in jd_match.get("requirements") or []]
+
+        def relevance(text: str) -> float:
+            padded = f" {str(text or '').lower()} "
+            return sum(weight for name, weight in weights if _mentions(name, padded))
+
+        for section in ("experience", "internships", "projects"):
+            for entry in structured.get(section) or []:
+                if isinstance(entry, dict) and len(entry.get("bullets") or []) > 1:
+                    entry["bullets"] = sorted(entry["bullets"], key=lambda b: -relevance(b))
+        projects = structured.get("projects") or []
+        if len(projects) > 1:
+            structured["projects"] = sorted(projects, key=lambda p: -relevance(
+                " ".join([str(p.get("title") or p.get("name") or ""), str(p.get("description") or ""),
+                          *map(str, p.get("bullets") or []), *map(str, p.get("technologies") or [])])
+                if isinstance(p, dict) else str(p)))
+
+    @classmethod
+    def _about_me_for_job(cls, resume: Dict[str, Any], structured: Dict[str, Any], job: Dict[str, Any],
+                          jd_match: Dict[str, Any], max_chars: int = 600) -> str:
+        """An About Me aimed at this job, built only from facts the resume states.
+
+        Experience level and years come from the profile (internships are never called
+        full-time work); "hands-on" is said only of skills used in a role, internship, project
+        or certification; listed-only skills are "familiar with". Nothing the resume does not
+        show is claimed.
+        """
+        clean = cls._clean_text
+        experience = [e for e in structured.get("experience") or [] if isinstance(e, dict)]
+        internships = [e for e in structured.get("internships") or [] if isinstance(e, dict)]
+        education = [e for e in structured.get("education") or [] if isinstance(e, dict)]
+        check = (jd_match.get("checks") or {}).get("experience") or {}
+        years = int(check.get("candidate_years") or 0)
+        level = check.get("candidate_level") or ("experienced" if years >= 1 else "fresher")
+
+        sentences: List[str] = []
+        # Lead with a role only when it relates to this job (shares a title word or shows one of
+        # its skills); an unrelated part-time job should not headline a graduate's application.
+        job_words = {w for w in re.findall(r"[a-z]{3,}", str(job.get("title") or "").lower())
+                     if w not in {"senior", "junior", "graduate", "lead", "the", "and"}}
+        direct_names = {r["name"] for r in jd_match.get("requirements") or [] if r["evidence_type"] == "direct"}
+
+        def relevant(entry: Dict[str, Any]) -> bool:
+            text = " ".join([str(entry.get("title") or ""), str(entry.get("description") or ""),
+                             *map(str, entry.get("bullets") or [])]).lower()
+            return bool(job_words & set(re.findall(r"[a-z]{3,}", str(entry.get("title") or "").lower()))) or any(
+                name.lower() in text for name in direct_names)
+
+        role = next((e for e in experience if relevant(e)), None)
+        latest_title = clean(role.get("title")) if role else ""
+        edu = education[0] if education else {}
+        degree = clean(edu.get("degree") or edu.get("title"))
+        school = clean(edu.get("institution") or edu.get("organization"))
+        if level == "experienced" and latest_title and years >= 2:
+            opening = f"{latest_title} with {years} years of full-time experience"
+        elif degree:
+            dates = clean(edu.get("dates") or edu.get("year"))
+            years_in = [int(y) for y in re.findall(r"(?:19|20)\d{2}", dates)]
+            studying = "present" in dates.lower() or (years_in and max(years_in) > date.today().year)
+            opening = f"{degree} {'student at' if studying else 'graduate from'} {school}" if school else degree
+        elif latest_title:
+            opening = latest_title
+        else:
+            opening = "Early-career candidate"
+        if internships:
+            orgs = [clean(e.get("organization") or e.get("company")) for e in internships]
+            orgs = [o for o in orgs if o][:2]
+            opening += f", with {len(internships)} internship{'s' if len(internships) != 1 else ''}"
+            opening += f" at {' and '.join(orgs)}" if orgs else ""
+        sentences.append(opening + ".")
+
+        rows = jd_match.get("requirements") or []
+        # Only skills whose own wording is on the resume are named.
+        hands_on = [r["name"] for r in rows if r["evidence_type"] == "direct" and r.get("exact_evidence")]
+        familiar = [r["name"] for r in rows if r["evidence_type"] == "weak" and r.get("exact_evidence")]
+
+        def listing(names: List[str]) -> str:
+            names = names[:5]
+            return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+        if hands_on:
+            sentences.append(f"Hands-on experience with {listing(hands_on)}.")
+        if familiar:
+            sentences.append(f"Also familiar with {listing(familiar)}.")
+        # One concrete, verbatim result from the most relevant work/project line.
+        best = next((r["resume_evidence"][0] for r in rows
+                     if r["evidence_type"] == "direct" and r.get("exact_evidence") and r.get("resume_evidence")
+                     and r["resume_evidence"][0]["section"] in ("experience", "internships", "projects")), None)
+        if best and len(best["text"]) <= 160:
+            sentences.append(f"Recently: {best['text'].rstrip('.')}.")
+        title = clean(job.get("title"))
+        company = clean(job.get("company"))
+        if title:
+            sentences.append(f"Looking to bring these strengths to the {title} role{f' at {company}' if company else ''}.")
+
+        summary = ""
+        for sentence in sentences:
+            if len(summary) + len(sentence) + 1 > max_chars:
+                break
+            summary = f"{summary} {sentence}".strip()
+        return summary
 
     @staticmethod
     def _verified_job_skills(
@@ -357,42 +659,14 @@ class ResumeGenerationService:
             "score_improvement_goals": goals,
             "original_text_to_improve": content,
         }
-        model = os.getenv("GROQ_MODEL") or DEFAULT_GROQ_MODEL
-        try:
-            response = requests.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": json.dumps(job_context, ensure_ascii=True)},
-                    ],
-                    # Groq's GPT-OSS models only accept temperature=1.
-                    "temperature": 1 if model.startswith("openai/gpt-oss") else 0.2,
-                    "max_completion_tokens": 1000,
-                },
-                timeout=(5, 20),
-            )
-        except requests.RequestException as err:
-            raise ResumeGenerationError("AI rewriting service is temporarily unavailable.") from err
-
-        if response.status_code != 200:
-            provider_error = self._provider_error_message(response, api_key)
-            logger.warning(
-                "Groq section rewrite returned HTTP %s: %s",
-                response.status_code,
-                provider_error or "No provider error detail",
-            )
-            detail = f" {provider_error}" if provider_error else ""
-            raise ResumeGenerationError(f"AI rewriting failed with status {response.status_code}.{detail}")
-
-        try:
-            rewritten = response.json()["choices"][0]["message"]["content"].strip()
-        except (KeyError, IndexError, TypeError, ValueError) as err:
-            raise ResumeGenerationError("AI rewriting returned an invalid response.") from err
-        if not rewritten:
-            raise ResumeGenerationError("AI rewriting returned empty response.")
+        rewritten = self._groq_chat(
+            system,
+            json.dumps(job_context, ensure_ascii=True),
+            json_mode=False,
+            max_tokens=1000,
+            token_field="max_completion_tokens",
+            timeout=(5, 20),
+        )
         return self._clean_text(rewritten)
 
     @staticmethod
@@ -484,6 +758,51 @@ class ResumeGenerationService:
     # Tokens that would indicate a new factual claim: numbers (metrics, years, counts).
     _NUMBER_PATTERN = re.compile(r"\d+(?:[.,]\d+)?")
 
+    VOCABULARY_WORDS = {
+        "analysis", "analytics", "architecture", "collaboration", "collaborated", "collaborating",
+        "coordination", "coordinated", "delivery", "delivering", "design", "designed", "designing",
+        "development", "developing", "documentation", "documenting", "engineering", "engineer",
+        "integration", "integrated", "integrating", "leadership", "led", "management", "managed",
+        "mentoring", "mentored", "monitoring", "monitored", "optimization", "optimized", "optimizing",
+        "performance", "planning", "planned", "problem solving", "quality", "reliability",
+        "reporting", "reported", "research", "researched", "scalability", "scalable", "security",
+        "strategy", "strategic", "support", "supported", "supporting", "testing", "tested",
+        "troubleshooting", "troubleshot", "agile", "scrum", "cross-functional", "best practices",
+        "clean code", "high-performance", "full-stack", "front-end", "back-end", "api", "apis", "rest api",
+        "automation", "automated", "streamlined", "accelerated", "refactored", "spearheaded",
+        "achieved", "executed", "oversaw", "established", "implemented", "implementing"
+    }
+
+    @classmethod
+    def _is_mathematically_equivalent_metric(cls, new_num_str: str, old_numbers: Set[str]) -> bool:
+        """Check if a new metric (e.g. 50%) is mathematically derivable from original numbers (e.g. 500 and 250)."""
+        try:
+            val = float(new_num_str.replace(",", ""))
+        except ValueError:
+            return False
+
+        float_olds = []
+        for s in old_numbers:
+            try:
+                float_olds.append(float(s.replace(",", "")))
+            except ValueError:
+                pass
+
+        if len(float_olds) >= 2:
+            for i in range(len(float_olds)):
+                for j in range(len(float_olds)):
+                    if i != j:
+                        a, b = float_olds[i], float_olds[j]
+                        if max(a, b) > 0:
+                            pct_change = round((abs(a - b) / max(a, b)) * 100)
+                            if abs(val - pct_change) < 1.0:
+                                return True
+                        if b > 0:
+                            ratio = round(a / b, 1)
+                            if abs(val - ratio) < 0.1:
+                                return True
+        return False
+
     def rewrite_full(
         self, tailored: Dict[str, Any], job: Dict[str, Any], skill_extractor, instructions: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -523,41 +842,33 @@ class ResumeGenerationService:
                 "verified_summary_facts": self._summary_facts(tailored),
                 "verified_job_keywords": self._verified_job_skills(tailored, job, skill_extractor),
                 "experience": entry_payload(tailored.get("experience")),
+                "internships": entry_payload(tailored.get("internships")),
                 "projects": entry_payload(tailored.get("projects")),
-                "education": [
-                    {
-                        "index": i,
-                        "degree": entry.get("degree") or entry.get("title") or "",
-                        "institution": entry.get("institution") or entry.get("organization") or "",
-                        "dates": entry.get("dates") or "",
-                        "location": entry.get("location") or "",
-                        "bullets": list(entry.get("bullets") or []),
-                    }
-                    for i, entry in enumerate(tailored.get("education") or [])
-                    if isinstance(entry, dict) and not entry.get("description")
-                ],
             },
         }
         system = (
-            "You are an expert resume writer. Write or rewrite the candidate's professional_summary and every experience and "
-            "project description and bullet to optimize the resume for the target role. Use the exact priority keywords "
+            "You are an expert resume writer. Write or rewrite the candidate's professional_summary and every experience, "
+            "internship and project description and bullet to optimize the resume for the target role. Use the exact priority keywords "
             "where they accurately describe the supplied experience. Put verified_job_keywords into the skills list "
             "through the pre-verified profile data and naturally emphasize them in relevant summary and work/project text. "
             "Aim for a concise 2-4 sentence summary of 250-600 characters when the supplied facts support it. "
+            "The summary must state the candidate's real experience level: internships are internships and academic "
+            "projects are projects; never describe them as full-time or professional employment, and never claim "
+            "years of experience the resume does not state. "
             "STRICT RULES: use ONLY facts already present in the resume. Never add numbers, metrics, percentages, dates, "
             "employers, tools, technologies, skills or achievements that are not already in the resume. Do not claim "
             "a priority keyword unless it is in verified_job_keywords or already supported by the resume text. "
             "If professional_summary is empty, draft 2-3 concise sentences using only verified_summary_facts; do not "
             "leave it empty when those facts provide enough information. "
-            "For supplied education entries, write a concise description relevant to the stated degree, using only "
-            "their supplied degree, institution, dates, location and bullets. Do not invent modules, grades, awards "
-            "or other facts. "
             "Never add new bullets beyond the original count for an entry. Keep each entry's index. "
+            "A description must add something the bullets do not already say; if it would only repeat or summarise "
+            "the bullets or the role line, return an empty string for it. Never repeat a bullet. "
+            "Write plain text: no markdown, no headings, no bold markers. "
             "Return one valid JSON object only, with this exact structure and JSON value types: "
             "{\"professional_summary\":\"text\","
             "\"experience\":[{\"index\":0,\"description\":\"text\",\"bullets\":[\"text\"]}],"
-            "\"projects\":[{\"index\":0,\"description\":\"text\",\"bullets\":[\"text\"]}],"
-            "\"education\":[{\"index\":0,\"description\":\"text\"}]}. "
+            "\"internships\":[{\"index\":0,\"description\":\"text\",\"bullets\":[\"text\"]}],"
+            "\"projects\":[{\"index\":0,\"description\":\"text\",\"bullets\":[\"text\"]}]}. "
             "Use empty arrays when a section has no entries and an empty string when no rewrite is appropriate. "
             "Do not include markdown fences or any text outside the JSON object."
         )
@@ -567,41 +878,14 @@ class ResumeGenerationService:
                 " The candidate also asked: \"" + steer + "\". Use this only to choose which existing facts to "
                 "emphasise and how to phrase them; it never permits adding facts that are not in the resume."
             )
-        model = os.getenv("GROQ_MODEL") or DEFAULT_GROQ_MODEL
-        try:
-            response = requests.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": json.dumps(payload, ensure_ascii=True)},
-                    ],
-                    "temperature": 1 if model.startswith("openai/gpt-oss") else 0.2,
-                    # Room for every bullet; a truncated reply is invalid JSON and the rewrite is lost.
-                    "max_tokens": 3000,
-                    "response_format": {"type": "json_object"},
-                },
-                timeout=(5, 45),
-            )
-        except requests.RequestException as err:
-            raise ResumeGenerationError("AI rewriting service is temporarily unavailable.") from err
-        if response.status_code != 200:
-            provider_error = self._provider_error_message(response, api_key)
-            logger.warning(
-                "Groq full resume rewrite returned HTTP %s: %s",
-                response.status_code,
-                provider_error or "No provider error detail",
-            )
-            detail = f" {provider_error}" if provider_error else ""
-            raise ResumeGenerationError(
-                f"AI rewriting failed with status {response.status_code}.{detail}"
-            )
-        try:
-            rewritten = json.loads(response.json()["choices"][0]["message"]["content"])
-        except (KeyError, IndexError, TypeError, ValueError) as err:
-            raise ResumeGenerationError("AI rewriting returned an invalid structure.") from err
+        rewritten = self._groq_chat(
+            system,
+            json.dumps(payload, ensure_ascii=True),
+            json_mode=True,
+            # Room for every bullet; a truncated reply is invalid JSON and moves to the next model.
+            max_tokens=4000,
+            timeout=(5, 45),
+        )
 
         result = self.merge_rewrite(tailored, rewritten, skill_extractor)
         if (
@@ -613,32 +897,81 @@ class ResumeGenerationService:
 
     @classmethod
     def merge_rewrite(cls, tailored: Dict[str, Any], rewritten: Dict[str, Any], skill_extractor) -> Dict[str, Any]:
-        """Apply AI-rewritten text onto ``tailored``, keeping the original wherever a line adds facts."""
+        """Apply AI-rewritten text onto ``tailored``, keeping the original wherever a line adds unverified facts."""
         original_text = json.dumps(tailored, ensure_ascii=False).lower()
         original_numbers = set(cls._NUMBER_PATTERN.findall(original_text))
         original_skills = {s.lower() for s in skill_extractor.extract_skills(original_text)}
-        rejected = 0
+        for s in tailored.get("skills") or []:
+            if isinstance(s, str):
+                original_skills.add(s.lower())
 
-        def accept(new: Any, old: str) -> str:
-            nonlocal rejected
-            candidate = cls._clean_text(new)
+        rejected = 0
+        total_bullets = 0
+        accepted_bullets = 0
+        rejection_reasons: List[str] = []
+        diagnostics: List[Dict[str, Any]] = []
+
+        def accept(new: Any, old: str, context: str = "") -> str:
+            nonlocal rejected, total_bullets, accepted_bullets
+            # Plain text only: drop markdown bold/heading markers the model sometimes adds.
+            candidate = cls._clean_text(re.sub(r"\*\*|__|^#+\s*", "", str(new or "")))
             if not candidate:
                 return old
+
+            total_bullets += 1
             lowered = candidate.lower()
-            new_numbers = set(cls._NUMBER_PATTERN.findall(lowered)) - original_numbers
-            new_skills = {s.lower() for s in skill_extractor.extract_skills(lowered)} - original_skills
-            if new_numbers or new_skills:
+
+            # Check numbers / metrics
+            candidate_numbers = set(cls._NUMBER_PATTERN.findall(lowered))
+            new_numbers = candidate_numbers - original_numbers
+            unverified_numbers = set()
+            for num_str in new_numbers:
+                if not cls._is_mathematically_equivalent_metric(num_str, original_numbers):
+                    if num_str not in {"1", "2", "3"} or num_str not in original_text:
+                        unverified_numbers.add(num_str)
+
+            # Check skills / technologies
+            candidate_skills = {s.lower() for s in skill_extractor.extract_skills(lowered)}
+            unverified_skills = set()
+            for s in candidate_skills:
+                if s not in original_skills and s not in cls.VOCABULARY_WORDS:
+                    unverified_skills.add(s)
+
+            if unverified_numbers or unverified_skills:
                 rejected += 1
+                reasons = []
+                if unverified_skills:
+                    reasons.append(f"Unverified technologies claimed: {', '.join(sorted(unverified_skills))}")
+                if unverified_numbers:
+                    reasons.append(f"Unverified numerical claims: {', '.join(sorted(unverified_numbers))}")
+                reason_str = "; ".join(reasons)
+                rejection_reasons.append(f"{context}: {reason_str}" if context else reason_str)
+                diagnostics.append({
+                    "context": context,
+                    "original": old,
+                    "rewritten": candidate,
+                    "accepted": False,
+                    "reason": reason_str,
+                })
                 return old
+
+            accepted_bullets += 1
+            diagnostics.append({
+                "context": context,
+                "original": old,
+                "rewritten": candidate,
+                "accepted": True,
+                "reason": "Accepted: factual and supported by resume evidence",
+            })
             return candidate
 
         result = json.loads(json.dumps(tailored))  # deep copy
         if not isinstance(rewritten, dict):
             rewritten = {}
         result["professional_summary"] = accept(
-            rewritten.get("professional_summary"), tailored.get("professional_summary") or ""
+            rewritten.get("professional_summary"), tailored.get("professional_summary") or "", context="Summary"
         )
-        for section in ("experience", "projects"):
+        for section in ("experience", "projects", "internships"):
             entries = result.get(section) or []
             by_index = {
                 item.get("index"): item for item in (rewritten.get(section) or [])
@@ -649,106 +982,27 @@ class ResumeGenerationService:
                 if not isinstance(entry, dict) or not new:
                     continue
                 if entry.get("description"):
-                    entry["description"] = accept(new.get("description"), entry["description"])
+                    entry["description"] = accept(new.get("description"), entry["description"], context=f"{section}[{i}].description")
                 old_bullets = list(entry.get("bullets") or [])
                 new_bullets = cls._normalize_bullets(new.get("bullets"))
                 # Same number of bullets as before; each one checked against the original facts.
                 entry["bullets"] = [
-                    accept(new_bullets[j] if j < len(new_bullets) else "", old)
+                    accept(new_bullets[j] if j < len(new_bullets) else "", old, context=f"{section}[{i}].bullet[{j+1}]")
                     for j, old in enumerate(old_bullets)
                 ]
-        education_by_index = {
-            item.get("index"): item for item in (rewritten.get("education") or [])
-            if isinstance(item, dict) and isinstance(item.get("index"), int)
+        # Education is never rewritten by the AI (a description would only restate the degree line).
+        # A rewritten description that just repeats the role line or bullets is dropped.
+        for section in ("experience", "projects", "internships"):
+            result[section] = [without_repeats(e) if isinstance(e, dict) else e for e in (result.get(section) or [])]
+        return {
+            "resume": result,
+            "rejected_lines": rejected,
+            "total_bullets_processed": total_bullets,
+            "successfully_rewritten_bullets": accepted_bullets,
+            "rejected_bullets": rejected,
+            "rejection_reasons": rejection_reasons,
+            "diagnostics": diagnostics,
         }
-        for i, entry in enumerate(result.get("education") or []):
-            new = education_by_index.get(i)
-            if isinstance(entry, dict) and not entry.get("description") and new:
-                entry["description"] = accept(new.get("description"), "")
-        return {"resume": result, "rejected_lines": rejected}
-
-    def _tailor_with_groq(self, resume: Dict[str, Any], job: Dict[str, Any], source_text: str) -> Dict[str, Any]:
-        api_key = os.getenv("groq_api_key") or os.getenv("GROQ_API_KEY")
-        if not api_key:
-            raise ResumeGenerationError("GROQ_API_KEY not set")
-
-        prompt = {
-            "resume": {
-                "candidate_name": resume.get("candidate_name"),
-                "email": resume.get("email"),
-                "phone": resume.get("phone"),
-                "linkedin": resume.get("linkedin"),
-                "github": resume.get("github"),
-                "skills": resume.get("skills", []),
-                "summary": resume.get("summary", ""),
-                "experience": resume.get("experience") or [],
-                "education": resume.get("education") or [],
-                "projects": resume.get("projects") or [],
-                "internships": resume.get("internships") or [],
-                "publications": resume.get("publications") or [],
-                "certifications": resume.get("certifications") or [],
-                "achievements": resume.get("achievements") or [],
-                "full_resume_text": source_text[:12000],
-            },
-            "job": {
-                "title": job.get("title"),
-                "company": job.get("company"),
-                "location": job.get("location"),
-                "description": job.get("description", "")[:4000],
-                "matched_skills": job.get("matched_skills", []),
-                "missing_skills": job.get("missing_skills", []),
-            },
-        }
-        system = (
-            "You tailor UK-style resumes with STRICT FACTUAL TRUTH AND ZERO HALLUCINATION. "
-            "Use ONLY the genuine facts, real project names, real company names, real dates, real degrees, and verified skills from the candidate's resume. "
-            "Never invent employers, dates, degrees, achievements, metrics, skills, links, or qualifications not present in the original resume. "
-            "Preserve the candidate's real personal information, contact links (LinkedIn, GitHub, portfolio), education, and projects exactly as stated. "
-            "The structured fields (summary, skills, experience, internships, education, projects, publications, achievements, certifications) are the candidate's latest approved edits; "
-            "where they differ from full_resume_text, the structured fields take precedence. "
-            "STRICT 1-PAGE A4 REQUIREMENT: The tailored resume MUST fit on exactly one single A4 page with balanced vertical proportion. "
-            "Return JSON only with keys: personal_info, professional_summary, education, experience, internships, projects, publications, achievements, certifications, skills. "
-            "Limit professional_summary to 2-3 concise, high-impact sentences. "
-            "Include only the top 2-3 most relevant work experiences with at most 2-3 bullet points each. "
-            "Include only the top 2-3 most relevant projects with at most 2-3 bullet points each. Preserve publication and achievement entries as separate sections; never move them into projects. "
-            "Include genuine degrees and top 12-16 relevant skills. "
-            "education, experience, projects, and certifications must be arrays of objects. "
-            "Each experience object must have: title, organization (or company), dates, location, description, and bullets (a JSON array of concise bullet strings). "
-            "Each project object must have: title, organization, dates, description, and bullets (a JSON array of strings). "
-            "Each internship and publication object must have: title, organization, dates, description, and bullets (a JSON array of strings). "
-            "Each achievement object must have: title, dates, and description. "
-            "Each education object must have: degree, institution, dates, location, description, bullets. "
-            "Each certification object must have: name, issuer, dates. "
-            "skills must be a JSON array of strings. "
-            "Never return bullets as Python list representations like \"['...']\". Always use true JSON arrays."
-        )
-        try:
-            response = requests.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={
-                    "model": os.getenv("GROQ_MODEL") or DEFAULT_GROQ_MODEL,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": json.dumps(prompt, ensure_ascii=True)},
-                    ],
-                    "temperature": 0.1,
-                    "max_tokens": 4096,
-                    "response_format": {"type": "json_object"},
-                },
-                timeout=(5, 30),
-            )
-        except requests.RequestException as error:
-            raise ResumeGenerationError("Groq resume generation is temporarily unavailable.") from error
-
-        if response.status_code != 200:
-            logger.warning("Groq returned HTTP %s: %s", response.status_code, response.text[:500])
-            raise ResumeGenerationError("Resume generation failed.")
-        try:
-            content = response.json()["choices"][0]["message"]["content"]
-            return json.loads(content)
-        except (KeyError, IndexError, TypeError, ValueError) as error:
-            raise ResumeGenerationError("Groq returned an invalid resume structure.") from error
 
 
     @classmethod
@@ -826,7 +1080,7 @@ class ResumeGenerationService:
                 entry.get("organization") or entry.get("company") or entry.get("institution") or entry.get("school")
                 or entry.get("venue") or entry.get("publisher") or entry.get("conference") or entry.get("issuer") or ""
             )
-            dates = self._clean_text(entry.get("dates") or entry.get("date") or entry.get("period") or entry.get("year") or "")
+            dates = standardize_dates(entry.get("dates") or entry.get("date") or entry.get("period") or entry.get("year") or "")
             location = self._clean_text(entry.get("location") or "")
             description = self._clean_text(entry.get("description") or entry.get("summary") or "")
             bullets = self._normalize_bullets(entry.get("bullets"))
@@ -845,7 +1099,8 @@ class ResumeGenerationService:
             }
             if title or org or bullets or description:
                 normalized.append(item)
-        return normalized
+        # Repeated records are merged, and text that only repeats the entry is dropped.
+        return [without_repeats(e) for e in dedupe_entries(normalized, section)]
 
     def _validate_and_normalize(
         self, generated: Dict[str, Any], resume: Dict[str, Any], job: Dict[str, Any], keep_edits: bool = False
@@ -939,11 +1194,7 @@ class ResumeGenerationService:
                 )
             ),
             "education": self._normalize_entries(pick("education", resume.get("education")), section="education"),
-            # With no work history, internships stand in as Work Experience (the template has no internship section).
-            "experience": self._normalize_entries(
-                pick("experience", resume.get("experience"), generated.get("internships"), resume.get("internships")),
-                section="experience"
-            ),
+            "experience": self._normalize_entries(pick("experience", resume.get("experience")), section="experience"),
             "projects": self._normalize_entries(pick("projects", resume.get("projects")), section="projects"),
             "internships": self._normalize_entries(pick("internships", resume.get("internships")), section="internships"),
             "publications": self._normalize_entries(pick("publications", resume.get("publications")), section="publications"),
@@ -954,65 +1205,41 @@ class ResumeGenerationService:
             "awards": resume.get("awards", generated.get("awards", [])),
             "skills": deduped_skills,
         }
-        return res if keep_edits else self._enforce_single_page_limits(res)
+        if keep_edits:
+            # The user's own edits decide which section an entry is in; only exact copies of an
+            # internship that also sit under Work Experience are removed.
+            res["experience"] = [
+                e for e in res["experience"]
+                if not any(same_record(i, e, "internships") for i in res["internships"])
+            ]
+            return res
+        # Generated from the profile: an internship listed under Experience moves to Internships,
+        # and an empty AI reply for internships has already fallen back to the profile above.
+        res["experience"], res["internships"] = split_internships(res["experience"], res["internships"])
+        return self._enforce_length_limits(res)
 
     @classmethod
-    def _enforce_single_page_limits(cls, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Ensures the tailored resume fits cleanly on 1 A4 page with balanced vertical proportion."""
+    def _enforce_length_limits(cls, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Keep a tailored resume concise without dropping any record.
+
+        Every experience, internship, education, project, certification, publication and
+        achievement entry is kept; a long resume runs onto a second page instead. Only the
+        summary length, the bullets per entry and the size of the skills list are capped.
+        """
         summary = data.get("professional_summary", "")
-        if len(summary) > 450:
-            sentences = re.split(r"(?<=[.!?])\s+", summary)
-            data["professional_summary"] = " ".join(sentences[:3]) if len(sentences) >= 3 else summary[:420]
-
-        exp = data.get("experience", [])
-        if len(exp) > 3:
-            exp = exp[:3]
-        for item in exp:
-            bullets = item.get("bullets") or []
-            if len(bullets) > 3:
-                item["bullets"] = bullets[:3]
-        data["experience"] = exp
-
-        proj = data.get("projects", [])
-        for item in proj:
-            bullets = item.get("bullets") or []
-            if len(bullets) > 3:
-                item["bullets"] = bullets[:3]
-        data["projects"] = proj
-        data["internships"] = data.get("internships", [])
-        data["publications"] = data.get("publications", [])
-        data["achievements"] = data.get("achievements", [])
-
-        # Balanced bullet budget across exp + proj to fill 1 A4 page without spill
-        total_bullets = sum(len(e.get("bullets", [])) for e in exp) + sum(len(p.get("bullets", [])) for p in proj)
-        if total_bullets > 12:
-            for p in reversed(proj):
-                if total_bullets <= 12:
+        if len(summary) > MAX_SUMMARY_CHARS:
+            kept = ""
+            for sentence in re.split(r"(?<=[.!?])\s+", summary):
+                if len(kept) + len(sentence) + 1 > MAX_SUMMARY_CHARS:
                     break
-                p_b = p.get("bullets", [])
-                if len(p_b) > 2:
-                    p["bullets"] = p_b[:2]
-                    total_bullets -= (len(p_b) - 2)
-            for e in reversed(exp):
-                if total_bullets <= 12:
-                    break
-                e_b = e.get("bullets", [])
-                if len(e_b) > 2:
-                    e["bullets"] = e_b[:2]
-                    total_bullets -= (len(e_b) - 2)
+                kept = f"{kept} {sentence}".strip()
+            data["professional_summary"] = kept or summary[:MAX_SUMMARY_CHARS].rsplit(" ", 1)[0]
 
-        edu = data.get("education", [])
-        if len(edu) > 3:
-            edu = edu[:3]
-        for item in edu:
-            bullets = item.get("bullets") or []
-            if len(bullets) > 2:
-                item["bullets"] = bullets[:2]
-        data["education"] = edu
-
-        certs = data.get("certifications", [])
-        if len(certs) > 4:
-            data["certifications"] = certs[:4]
+        for section in ENTRY_SECTIONS:
+            for item in data.get(section) or []:
+                bullets = item.get("bullets") or []
+                if len(bullets) > MAX_BULLETS_PER_ENTRY:
+                    item["bullets"] = bullets[:MAX_BULLETS_PER_ENTRY]
 
         skills = data.get("skills", [])
         if len(skills) > MAX_RESUME_SKILLS:
@@ -1020,240 +1247,125 @@ class ResumeGenerationService:
 
         return data
 
-    @classmethod
-    def _ensure_education_descriptions(cls, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Fill missing education descriptions with degree-relevant context."""
-        result = json.loads(json.dumps(data))
-        for item in result.get("education") or []:
-            if not isinstance(item, dict) or cls._clean_text(item.get("description")):
-                continue
-            degree = cls._clean_text(item.get("degree") or item.get("title"))
-            institution = cls._clean_text(item.get("institution") or item.get("organization"))
-            degree_lower = degree.casefold()
-            if any(term in degree_lower for term in ("information technology", "it ", "it-", "software")):
-                focus = "software development, databases, networking, systems analysis, and information technology applications"
-            elif any(term in degree_lower for term in ("computer science", "computing", "informatics")):
-                focus = "algorithms, programming, data structures, databases, software engineering, and computing systems"
-            elif any(term in degree_lower for term in ("data science", "analytics", "artificial intelligence", "machine learning")):
-                focus = "data analysis, statistical methods, programming, machine learning, and practical data-driven problem solving"
-            elif any(term in degree_lower for term in ("business", "management", "commerce", "mba")):
-                focus = "business principles, analytical decision-making, organisational practice, and commercial problem solving"
-            elif any(term in degree_lower for term in ("engineering", "technology")):
-                focus = "engineering principles, technical analysis, design methods, and practical problem solving"
-            else:
-                focus = "the core theory, practical application, analytical thinking, and subject-specific problem solving of the discipline"
-            label = degree or "the qualification"
-            description = f"Studied {focus} through the {label}"
-            if institution:
-                description += f" at {institution}"
-            item["description"] = description + "."
-        return result
-
     def _export_docx(self, structured: Dict[str, Any], docx_path: Path) -> Path:
-        """Exports ATS-friendly clean single-column DOCX format."""
-        structured = {
-            **structured,
-            "internships": [],
-            "publications": [],
-            "achievements": [],
-        }
+        """Export an ATS-friendly, single-column A4 DOCX.
+
+        Built from ``render_sections`` - the same section order, headings and entry lines as
+        the LaTeX PDF and the in-app preview - so every format shows the same content.
+        Headings and entry title lines are kept with the text that follows them, and a long
+        resume simply continues onto a second page.
+        """
         doc = docx.Document()
+        for section in doc.sections:
+            section.page_width = Mm(210)
+            section.page_height = Mm(297)
+            section.top_margin = section.bottom_margin = Mm(16)
+            section.left_margin = section.right_margin = Mm(18)
 
-        # Set standard margins (0.75 in / 1.9 cm)
-        sections = doc.sections
-        for section in sections:
-            section.top_margin = Inches(0.6)
-            section.bottom_margin = Inches(0.6)
-            section.left_margin = Inches(0.7)
-            section.right_margin = Inches(0.7)
+        normal = doc.styles["Normal"]
+        normal.font.name = "Calibri"
+        normal.font.size = Pt(10.5)
+        normal.paragraph_format.space_after = Pt(0)
+        normal.paragraph_format.line_spacing = 1.1
 
-        p_info = structured.get("personal_info", {})
-        name = p_info.get("name") or ""
-        target_role = structured.get("target_role") or ""
+        ink = RGBColor(17, 24, 39)
 
-        # Title / Name (omitted when the résumé has no name; never a placeholder)
-        if name:
-            p_name = doc.add_paragraph()
-            p_name.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            run_name = p_name.add_run(name)
-            run_name.bold = True
-            run_name.font.size = Pt(20)
-            run_name.font.name = "Calibri"
-            run_name.font.color.rgb = RGBColor(15, 23, 42)
+        def paragraph(before: float = 0, after: float = 0, keep_next: bool = False, center: bool = False, style=None):
+            p = doc.add_paragraph(style=style) if style else doc.add_paragraph()
+            fmt = p.paragraph_format
+            fmt.space_before = Pt(before)
+            fmt.space_after = Pt(after)
+            fmt.keep_with_next = keep_next
+            if center:
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            return p
 
-        if target_role:
-            p_role = doc.add_paragraph()
-            p_role.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            run_role = p_role.add_run(target_role)
-            run_role.font.size = Pt(12)
-            run_role.font.name = "Calibri"
-            run_role.font.color.rgb = RGBColor(71, 85, 105)
+        def add_run(p, text: str, size: float = 10.5, bold: bool = False, italic: bool = False, color=ink):
+            r = p.add_run(text)
+            r.bold = bold
+            r.italic = italic
+            r.font.name = "Calibri"
+            r.font.size = Pt(size)
+            r.font.color.rgb = color
+            return r
 
-        # Contact Info Line
-        contacts = []
-        if p_info.get("email"):
-            contacts.append(p_info["email"])
-        if p_info.get("phone"):
-            contacts.append(p_info["phone"])
-        if p_info.get("location"):
-            contacts.append(p_info["location"])
-        if p_info.get("linkedin"):
-            contacts.append(p_info["linkedin"])
-        if p_info.get("github"):
-            contacts.append(p_info["github"])
+        def top_rule(p) -> None:
+            """Full-width rule above a section heading, as in the UK template."""
+            borders = OxmlElement("w:pBdr")
+            top = OxmlElement("w:top")
+            for key, value in (("w:val", "single"), ("w:sz", "8"), ("w:space", "8"), ("w:color", "111111")):
+                top.set(qn(key), value)
+            borders.append(top)
+            p._p.get_or_add_pPr().append(borders)
 
+        info = structured.get("personal_info") or {}
+        if info.get("name"):
+            add_run(paragraph(center=True), info["name"].upper(), size=24, bold=True)
+        if structured.get("target_role"):
+            add_run(paragraph(before=2, center=True), structured["target_role"], size=14)
+        contacts = [c["text"] for c in self._contact_items(info)]
         if contacts:
-            p_contact = doc.add_paragraph()
-            p_contact.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            run_contact = p_contact.add_run(" | ".join(contacts))
-            run_contact.font.size = Pt(9.5)
-            run_contact.font.name = "Calibri"
-            run_contact.font.color.rgb = RGBColor(100, 116, 139)
+            add_run(paragraph(before=4, after=2, center=True), "   |   ".join(contacts), size=10.5)
 
-        def add_section_heading(title: str):
-            p = doc.add_paragraph()
-            p.paragraph_format.space_before = Pt(10)
-            p.paragraph_format.space_after = Pt(3)
-            run = p.add_run(title.upper())
-            run.bold = True
-            run.font.size = Pt(11)
-            run.font.name = "Calibri"
-            run.font.color.rgb = RGBColor(30, 41, 59)
-
-        # About Me
-        summary = structured.get("professional_summary")
-        if summary:
-            add_section_heading("About Me")
-            p_sum = doc.add_paragraph(summary)
-            p_sum.paragraph_format.space_after = Pt(6)
-            for r in p_sum.runs:
-                r.font.size = Pt(10)
-                r.font.name = "Calibri"
-
-        # Experience
-        experience = structured.get("experience") or []
-        if experience:
-            add_section_heading("Work Experience")
-            for item in experience:
-                p_item = doc.add_paragraph()
-                p_item.paragraph_format.space_before = Pt(4)
-                p_item.paragraph_format.space_after = Pt(1)
-                r_title = p_item.add_run(item.get("title") or "")
-                r_title.bold = True
-                r_title.font.name = "Calibri"
-                r_title.font.size = Pt(10.5)
-
-                org = item.get("organization") or item.get("company")
-                if org:
-                    r_org = p_item.add_run(f" | {org}" if item.get("title") else org)
-                    r_org.font.name = "Calibri"
-                    r_org.font.size = Pt(10)
-
-                dates = item.get("dates")
-                if dates:
-                    r_dates = p_item.add_run(f" ({dates})")
-                    r_dates.font.name = "Calibri"
-                    r_dates.font.size = Pt(9.5)
-                    r_dates.font.italic = True
-
-                if item.get("description"):
-                    p_desc = doc.add_paragraph(item["description"])
-                    p_desc.paragraph_format.space_after = Pt(2)
-                    for r in p_desc.runs:
-                        r.font.size = Pt(9.5)
-                        r.font.name = "Calibri"
-
-                for bullet in item.get("bullets") or []:
-                    p_b = doc.add_paragraph(bullet, style="List Bullet")
-                    p_b.paragraph_format.space_after = Pt(1.5)
-                    for r in p_b.runs:
-                        r.font.size = Pt(9.5)
-                        r.font.name = "Calibri"
-
-        # Projects
-        projects = structured.get("projects") or []
-        if projects:
-            add_section_heading("Projects")
-            for item in projects:
-                p_item = doc.add_paragraph()
-                p_item.paragraph_format.space_before = Pt(4)
-                p_item.paragraph_format.space_after = Pt(1)
-                r_title = p_item.add_run(item.get("title") or item.get("name") or "")
-                r_title.bold = True
-                r_title.font.name = "Calibri"
-                r_title.font.size = Pt(10.5)
-
-                dates = item.get("dates")
-                if dates:
-                    r_dates = p_item.add_run(f" ({dates})")
-                    r_dates.font.name = "Calibri"
-                    r_dates.font.size = Pt(9.5)
-                    r_dates.font.italic = True
-
-                if item.get("description"):
-                    p_desc = doc.add_paragraph(item["description"])
-                    p_desc.paragraph_format.space_after = Pt(2)
-                    for r in p_desc.runs:
-                        r.font.size = Pt(9.5)
-                        r.font.name = "Calibri"
-
-                for bullet in item.get("bullets") or []:
-                    p_b = doc.add_paragraph(bullet, style="List Bullet")
-                    p_b.paragraph_format.space_after = Pt(1.5)
-                    for r in p_b.runs:
-                        r.font.size = Pt(9.5)
-                        r.font.name = "Calibri"
-
-        # Education
-        education = structured.get("education") or []
-        if education:
-            add_section_heading("Education")
-            for item in education:
-                p_item = doc.add_paragraph()
-                p_item.paragraph_format.space_before = Pt(3)
-                p_item.paragraph_format.space_after = Pt(1)
-                r_deg = p_item.add_run(item.get("degree") or item.get("title") or "")
-                r_deg.bold = True
-                r_deg.font.name = "Calibri"
-                r_deg.font.size = Pt(10)
-
-                inst = item.get("institution") or item.get("organization") or item.get("school")
-                if inst:
-                    r_inst = p_item.add_run(f" | {inst}" if (item.get("degree") or item.get("title")) else inst)
-                    r_inst.font.name = "Calibri"
-                    r_inst.font.size = Pt(10)
-
-                if item.get("dates"):
-                    r_d = p_item.add_run(f" ({item['dates']})")
-                    r_d.font.name = "Calibri"
-                    r_d.font.size = Pt(9.5)
-                    r_d.font.italic = True
-
-                if item.get("description"):
-                    p_desc = doc.add_paragraph(item["description"])
-                    p_desc.paragraph_format.space_after = Pt(2)
-                    for r in p_desc.runs:
-                        r.font.size = Pt(9.5)
-                        r.font.name = "Calibri"
-
-                for bullet in item.get("bullets") or []:
-                    p_b = doc.add_paragraph(bullet, style="List Bullet")
-                    for r in p_b.runs:
-                        r.font.size = Pt(9.5)
-                        r.font.name = "Calibri"
-
-        # Skills
-        skills = structured.get("skills") or []
-        if skills:
-            add_section_heading("Skills")
-            p_sk = doc.add_paragraph(" • ".join(skills))
-            p_sk.paragraph_format.space_after = Pt(6)
-            for r in p_sk.runs:
-                r.font.size = Pt(9.5)
-                r.font.name = "Calibri"
+        for section in render_sections(structured):
+            heading = paragraph(before=10, after=4, keep_next=True)
+            add_run(heading, section["title"].upper(), size=14, bold=True)
+            top_rule(heading)
+            if section["kind"] == "text":
+                add_run(paragraph(after=2), section["text"])
+                continue
+            if section["kind"] == "skills":
+                # Three columns of bullets as plain tab-separated rows (no table, so ATS parsers
+                # read every skill), filled top-to-bottom like the template.
+                skills = section["skills"]
+                rows = -(-len(skills) // 3)
+                columns = [skills[c * rows:(c + 1) * rows] for c in range(3)]
+                for r in range(rows):
+                    p = paragraph(after=1)
+                    for stop in (1, 2):
+                        p.paragraph_format.tab_stops.add_tab_stop(Mm((210 - 36) * stop / 3))
+                    cells = [col[r] if r < len(col) else "" for col in columns]
+                    add_run(p, "	".join(f"•  {c}" if c else "" for c in cells).rstrip("	"))
+                continue
+            for index, entry in enumerate(section["entries"]):
+                has_body = bool(entry["description"] or entry["bullets"])
+                before = 0 if index == 0 else 7
+                if entry["meta"]:
+                    add_run(paragraph(before=before, keep_next=bool(entry["heading"]) or has_body), entry["meta"])
+                    before = 0
+                if entry["heading"]:
+                    add_run(paragraph(before=before, keep_next=has_body), entry["heading"], bold=True)
+                if entry["description"]:
+                    add_run(paragraph(before=1, after=1, keep_next=bool(entry["bullets"])), entry["description"])
+                for bullet in entry["bullets"]:
+                    p = paragraph(after=1, style="List Bullet")
+                    add_run(p, bullet)
 
         doc.save(str(docx_path))
         return docx_path
+
+    @staticmethod
+    def _contact_items(info: Dict[str, Any]) -> List[Dict[str, str]]:
+        """Contact line items (display text + link) shared by the DOCX and LaTeX exports."""
+        clean = lambda v: re.sub(r"\s+", " ", str(v or "")).strip()  # noqa: E731
+        items: List[Dict[str, str]] = []
+        # Template order: phone | email | location, then profile links.
+        if clean(info.get("phone")):
+            items.append({"text": clean(info["phone"]), "href": "tel:" + re.sub(r"[^\d+]", "", info["phone"])})
+        if clean(info.get("email")):
+            items.append({"text": clean(info["email"]), "href": f"mailto:{clean(info['email'])}"})
+        if clean(info.get("location")):
+            items.append({"text": clean(info["location"]), "href": ""})
+        linkedin = re.sub(r"^(?:https?://)?(?:www\.)?(?:linkedin\.com/(?:in/)?)?", "", clean(info.get("linkedin")), flags=re.I).strip("/")
+        if linkedin:
+            items.append({"text": f"linkedin.com/in/{linkedin}", "href": f"https://linkedin.com/in/{linkedin}"})
+        github = re.sub(r"^(?:https?://)?(?:www\.)?(?:github\.com/)?", "", clean(info.get("github")), flags=re.I).strip("/")
+        if github:
+            items.append({"text": f"github.com/{github}", "href": f"https://github.com/{github}"})
+        site = re.sub(r"^https?://", "", clean(info.get("portfolio") or info.get("website")), flags=re.I).strip("/")
+        if site:
+            items.append({"text": site, "href": f"https://{site}"})
+        return items
 
     @staticmethod
     def _clean_text(value: Any) -> str:
@@ -1272,12 +1384,29 @@ class ResumeGenerationService:
             "}": r"\}",
             "~": r"\textasciitilde{}",
             "^": r"\textasciicircum{}",
+            "—": "---",
+            "–": "--",
+            "“": "``",
+            "”": "''",
+            "’": "'",
+            "‘": "'",
+            "•": r"\textbullet{}",
         }
         return "".join(replacements.get(char, char) for char in str(value or ""))
 
+    @staticmethod
+    def _urlescape(value: Any) -> str:
+        """Escape the few characters that break ``\\href`` targets."""
+        return str(value or "").replace("\\", "").replace("%", r"\%").replace("#", r"\#").replace("{", "").replace("}", "")
+
     def _render_latex(self, data: Dict[str, Any]) -> str:
         template = self.environment.get_template("uk_standard_resume.tex.j2")
-        return template.render(**data)
+        return template.render(
+            personal_info=data.get("personal_info") or {},
+            target_role=data.get("target_role") or "",
+            contacts=self._contact_items(data.get("personal_info") or {}),
+            sections=render_sections(data),
+        )
 
     def _compile_pdf(self, tex_path: Path) -> Optional[Path]:
         compiler = shutil.which("pdflatex") or shutil.which("xelatex")

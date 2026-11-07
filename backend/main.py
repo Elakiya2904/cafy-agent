@@ -40,7 +40,7 @@ from .context import current_candidate
 from .user_store import MAX_RESUME_BYTES, UserSession, UserStore
 from .scheduler import ScrapingScheduler
 from .resume_service import ResumeService
-from .recommendation_service import RecommendationService
+from .recommendation_service import MIN_MATCH_SCORE, RecommendationService
 from .sponsor_service import VisaSponsorRegistry
 from .career_chat_service import CareerChatError, CareerChatService, build_career_context
 from .company_profiles import enrich_jobs_with_company_profiles
@@ -175,7 +175,7 @@ scraper_mgr = ScraperManager()
 scheduler = ScrapingScheduler(
     scraper_manager=scraper_mgr,
     database=db,
-    schedule_hour=int(os.getenv("SCRAPE_HOUR", "8")),
+    schedule_hour=int(os.getenv("SCRAPE_HOUR", "10")),
     schedule_minute=int(os.getenv("SCRAPE_MINUTE", "0")),
     schedule_timezone=os.getenv("SCRAPE_TIMEZONE", "Europe/London"),
 )
@@ -189,10 +189,11 @@ career_chat_svc = CareerChatService()
 resume_generation_svc = ResumeGenerationService(PROJECT_ROOT)
 auth_svc = AuthService(db)
 app.include_router(build_auth_router(auth_svc))
-email_agent_svc = EmailAgentService(db)
+nango_svc = NangoService()
+# Nango-connected mailboxes are read by the email agent with tokens from Nango.
+email_agent_svc = EmailAgentService(db, nango=nango_svc)
 email_monitor = EmailMonitor(email_agent_svc)
 app.include_router(build_email_agent_router(email_agent_svc, email_monitor))
-nango_svc = NangoService()
 app.include_router(build_nango_router(nango_svc))
 app.include_router(build_guest_router())
 
@@ -463,7 +464,7 @@ async def upload_resume(file: UploadFile = File(...)):
 
         # Query database across all platforms (up to 3000 jobs)
         stored_jobs = db.get_jobs(limit=3000)
-        recommendations = rec_svc.recommend_jobs(parsed, stored_jobs, min_score=0)
+        recommendations = rec_svc.recommend_jobs(parsed, stored_jobs, min_score=MIN_MATCH_SCORE)
         recommendations = enrich_jobs_with_company_profiles(sponsor_registry.annotate_jobs(recommendations))
         recommendations = _annotate_job_location_scope(recommendations)
         ACTIVE_SESSION["last_matched_jobs"] = recommendations
@@ -481,6 +482,13 @@ async def upload_resume(file: UploadFile = File(...)):
         logger.error(f"[API] Resume parsing error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to process résumé: {str(e)}")
 
+@app.get("/api/matching/config")
+def get_matching_config():
+    """The job-match scoring method and the multipliers/credits/gates in use (explainability)."""
+    from .requirement_matching import MATCH_CONFIG, METHOD
+    return {"method": METHOD, "listing_threshold": MIN_MATCH_SCORE, "config": MATCH_CONFIG}
+
+
 @app.get("/api/resume/current")
 def get_current_resume():
     resume = ACTIVE_SESSION["resume"]
@@ -491,9 +499,11 @@ def get_current_resume():
     matched = ACTIVE_SESSION["last_matched_jobs"]
     if not matched:
         stored_jobs = db.get_jobs(limit=3000)
-        matched = rec_svc.recommend_jobs(resume, stored_jobs, min_score=0)
+        matched = rec_svc.recommend_jobs(resume, stored_jobs, min_score=MIN_MATCH_SCORE)
         matched = enrich_jobs_with_company_profiles(sponsor_registry.annotate_jobs(matched))
         ACTIVE_SESSION["last_matched_jobs"] = matched
+    # A list cached before the threshold applied (or by another path) never shows low matches.
+    matched = [job for job in matched if (job.get("match_score") or 0) >= MIN_MATCH_SCORE]
     matched = enrich_jobs_with_company_profiles(matched)
     return {"resume": resume, "profile_strength": strength, "matched_jobs": _annotate_job_location_scope(matched)}
 
@@ -552,62 +562,6 @@ def pre_generation_analysis(request: PreGenerationAnalysisRequest):
     if not job:
         raise HTTPException(status_code=404, detail="The selected job could not be found.")
     return analyze_profile_for_job(profile, job, job_description=request.job_description)
-
-
-@app.post("/api/resume/update")
-def update_resume_profile(request: ProfileUpdateRequest):
-    """Update candidate profile fields and immediately re-evaluate profile completeness."""
-    curr = ACTIVE_SESSION.get("resume")
-    if not curr:
-        raise HTTPException(status_code=400, detail="Upload a résumé first.")
-    data = request.dict(exclude_unset=True)
-    for k, v in data.items():
-        if v is not None:
-            curr[k] = v
-
-    if "skills" in data and curr.get("skills"):
-        from .resume_service import SKILL_TAXONOMY
-        categorized = {}
-        for cat, cat_skills in SKILL_TAXONOMY.items():
-            cat_lower = {s.lower() for s in cat_skills}
-            matches = [s for s in curr["skills"] if s.lower() in cat_lower]
-            if matches:
-                categorized[cat] = matches
-        curr["categorized_skills"] = categorized
-        curr["total_skills"] = len(curr["skills"])
-
-    strength = evaluate_profile_strength(curr)
-    curr["profile_strength"] = strength
-    ACTIVE_SESSION["resume"] = curr
-
-    return {
-        "status": "success",
-        "resume": curr,
-        "profile_strength": strength
-    }
-
-
-@app.post("/api/profile/strength")
-def get_profile_strength(resume_data: Optional[Dict[str, Any]] = None):
-    """Evaluate profile completeness score and suggestions for given or active resume."""
-    target = resume_data or ACTIVE_SESSION.get("resume")
-    return evaluate_profile_strength(target)
-
-
-@app.post("/api/resumes/pre-analysis")
-def pre_generation_analysis(request: PreGenerationAnalysisRequest):
-    """Score a (possibly job-specific, unsaved) profile against a job before generating a resume.
-
-    ``resume_data`` lets the client send its working copy so edits that have not been
-    synced to the Master Profile are still reflected in the scores.
-    """
-    profile = request.resume_data or ACTIVE_SESSION.get("resume")
-    if not profile:
-        raise HTTPException(status_code=400, detail="Upload a résumé before analysing a job match.")
-    job = db.get_job(request.job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="The selected job could not be found.")
-    return analyze_profile_for_job(profile, job)
 
 
 @app.post("/api/resumes/generate")
@@ -852,7 +806,7 @@ def download_resume_pdf(resume_id: str):
 
 @app.post("/api/jobs/match")
 @app.post("/api/recommend")
-def recommend_filtered(platform: str = "all", min_score: int = 0):
+def recommend_filtered(platform: str = "all", min_score: int = MIN_MATCH_SCORE):
     if not ACTIVE_SESSION["resume"]:
         raise HTTPException(status_code=400, detail="No résumé uploaded yet.")
     stored_jobs = db.get_jobs(platform=platform, limit=3000)
@@ -930,7 +884,7 @@ def career_chat(request: CareerChatRequest):
             matched_jobs = rec_svc.recommend_jobs(
                 resume,
                 [dict(job) for job in jobs],
-                min_score=0,
+                min_score=MIN_MATCH_SCORE,
             )
             matched_jobs = enrich_jobs_with_company_profiles(sponsor_registry.annotate_jobs(matched_jobs))
             matched_jobs = _annotate_job_location_scope(matched_jobs)

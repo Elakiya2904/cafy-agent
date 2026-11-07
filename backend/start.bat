@@ -8,6 +8,15 @@ echo ================================================================
 echo   Cafy Agent - Starting Backend + Frontend
 echo ================================================================
 
+:: Python packages come from uv.lock (macOS/Linux: backend/start.sh)
+where uv >nul 2>&1 || (
+    echo uv is not installed. Install it with:  winget install astral-sh.uv
+    pause
+    exit /b 1
+)
+uv sync --quiet
+if not exist "frontend\node_modules" call npm --prefix frontend install
+
 :: Kill anything on port 8000 first
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8000" ^| findstr "LISTENING"') do (
     taskkill /F /PID %%a >nul 2>&1
@@ -15,7 +24,7 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8000" ^| findstr "LISTENING
 
 :: Start Backend (FastAPI on port 8000)
 echo [1/2] Starting Backend on http://127.0.0.1:8000 ...
-start "Cafy Backend" cmd /k "cd /d "%~dp0.." && py -3.13 backend\run.py"
+start "Cafy Backend" cmd /k "cd /d "%~dp0.." && uv run backend\run.py"
 
 :: Wait for backend to be ready
 timeout /t 4 /nobreak >nul

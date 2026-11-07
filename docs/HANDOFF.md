@@ -19,10 +19,10 @@ Where the work stands and what to pick up next. Nothing in this file has been co
 
 ```bash
 cd cafy-agent
-pip install -r requirements.txt        # argon2-cffi is new
+uv sync                                # Python 3.13 + packages from uv.lock (macOS and Windows)
 npm --prefix frontend install
 
-python backend/run.py                  # API + built UI on http://127.0.0.1:8000
+uv run backend/run.py                  # API + built UI on http://127.0.0.1:8000
 npm --prefix frontend run dev          # dev UI on http://127.0.0.1:5173 (proxies /api to :8000)
 ```
 
@@ -35,11 +35,12 @@ Settings in `.env` (see `.env.example`):
 Tests:
 
 ```bash
-python -m pytest backend/tests           # 331 pass, 5 known failures (section 6)
+uv run pytest                            # 331 pass, 5 known failures (section 6)
 npm --prefix frontend test               # 60 pass
 ```
 
 ---
+
 
 ## 3. Done this session
 
@@ -113,7 +114,7 @@ npm --prefix frontend test               # 60 pass
 1. **Spot-check new employers** in Find Jobs (Monzo, SumUp, Wayve, Lendable, Shawbrook). A Harvey AI job was checked end to end in the browser: sponsor badge, UK location, real description, structured insights, and an apply link that opens the live advert.
 2. **Closed postings never expire.** `JobDatabase.save_or_update_jobs` only adds or updates. A job removed from a board stays `active` forever. Add "mark inactive if not seen in this platform's latest successful run". This matters more now that there are 10× more jobs.
 3. **More coverage (discovery):**
-   - **Lever brand pass:** stopped at 8,601 of 11,297 because Lever throttled it. Resume with `python backend/scripts/discover_employers.py --platforms lever --only-brand --rate 8 --concurrency 8 --no-merge --out <dir>`.
+   - **Lever brand pass:** stopped at 8,601 of 11,297 because Lever throttled it. Resume with `uv run backend/scripts/discover_employers.py --platforms lever --only-brand --rate 8 --concurrency 8 --no-merge --out <dir>`.
    - **SmartRecruiters full-name pass** (~118k slugs) has never run. It takes about 1.5 hours at `--rate 20`. Review brand hits before `--include-brand`.
    - **Workday** hosts most big UK employers (banks, pharma, retail) but can't be discovered by guessing. It needs a curated tenant list (host + site).
    - **Never run the script at its default `--rate 1000`** from a personal IP.

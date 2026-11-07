@@ -105,21 +105,24 @@ class TestResumeGeneration(unittest.TestCase):
         latex = self.service._render_latex(normalized)
         self.assertEqual(
             re.findall(r"\\section\*\{([^}]+)\}", latex),
+            # UK template: five printed sections; internships print under Work Experience.
             ["About Me", "Education", "Work Experience", "Projects", "Skills"],
         )
+        # Certifications/publications/achievements stay in the data (checked above), not the print.
         self.assertTrue(latex.lstrip().startswith(r"\documentclass"))
         self.assertIn("First complete sentence. Second complete sentence.", latex)
         self.assertIn("Distributed systems", latex)
-        for excluded in (
-            "Research Intern", "Paper One", "Finalist, Data Challenge", "Student Society",
-            "Club President", "Research Prize",
-        ):
-            self.assertNotIn(excluded, latex)
+        self.assertIn("Research Intern", latex)
+        self.assertNotIn("Paper One", latex)
+        self.assertNotIn("Finalist, Data Challenge", latex)
+        self.assertNotIn("Private Certification", latex)
         self.assertIn("Project One", latex)
         self.assertIn("Project Two", latex)
-        self.assertNotIn("Private Certification", latex)
+        for excluded in ("Student Society", "Club President", "Research Prize"):
+            self.assertNotIn(excluded, latex)
 
-    def test_missing_education_description_uses_only_supplied_facts(self):
+    def test_ai_never_writes_education_descriptions(self):
+        """An AI education description only restated the degree line, so it is not requested or applied."""
         class SkillExtractor:
             @staticmethod
             def extract_skills(text):
@@ -151,13 +154,10 @@ class TestResumeGeneration(unittest.TestCase):
              mock.patch("backend.resume_generation_service.requests.post", return_value=response) as post:
             result = self.service.rewrite_full(tailored, {"title": "Engineer"}, SkillExtractor())
 
-        sent = post.call_args.kwargs["json"]["messages"][1]["content"]
+        sent = json.loads(post.call_args.kwargs["json"]["messages"][1]["content"])
         self.assertEqual(post.call_args.kwargs["json"]["temperature"], 1)
-        self.assertIn('"degree": "BSc Computer Science"', sent)
-        self.assertEqual(
-            result["resume"]["education"][0]["description"],
-            rewritten["education"][0]["description"],
-        )
+        self.assertNotIn("education", sent["resume"])
+        self.assertEqual(result["resume"]["education"][0]["description"], "")
         self.assertEqual(result["resume"]["education"][1]["description"], "Existing description.")
 
     def test_rewrite_full_surfaces_provider_error_for_bad_request(self):
@@ -254,7 +254,8 @@ class TestResumeGeneration(unittest.TestCase):
         self.assertIn("Built internal tools with Python.", summary)
         self.assertNotIn("Salesforce", summary)
 
-    def test_generation_surfaces_tailoring_failures_instead_of_returning_untailored_resume(self):
+    def test_generation_falls_back_to_rule_based_tailoring_and_says_so(self):
+        """An AI failure never blocks generation; the result is labelled as rule-based."""
         class SkillExtractor:
             @staticmethod
             def extract_skills(_text):
@@ -263,12 +264,14 @@ class TestResumeGeneration(unittest.TestCase):
         with mock.patch.object(
             self.service, "rewrite_full", side_effect=ResumeGenerationError("AI rewriting is unavailable.")
         ):
-            with self.assertRaisesRegex(ResumeGenerationError, "AI rewriting is unavailable"):
-                self.service.generate(
-                    {"summary": "Engineer", "experience": [{"title": "Engineer", "company": "Example"}]},
-                    {"title": "Software Engineer"},
-                    skill_extractor=SkillExtractor(),
-                )
+            result = self.service.generate(
+                {"summary": "Engineer", "experience": [{"title": "Engineer", "company": "Example"}]},
+                {"title": "Software Engineer"},
+                skill_extractor=SkillExtractor(),
+            )
+        self.assertEqual(result["validation"]["tailoring_mode"], "rules")
+        self.assertIn("AI rewriting is unavailable", result["validation"]["ai_error"])
+        self.assertIn("Software Engineer role", result["resume"]["professional_summary"])
 
     def test_generation_automatically_adds_only_job_skills_evidenced_in_source_resume(self):
         class SkillExtractor:
@@ -411,7 +414,7 @@ class TestResumeGeneration(unittest.TestCase):
         self.assertEqual(education["institution"], "Example University")
         self.assertEqual(education["description"], "")
 
-    def test_docx_includes_projects_and_excludes_certifications(self):
+    def test_docx_renders_all_canonical_sections(self):
         data = {
             "personal_info": {"name": "Test Candidate"},
             "professional_summary": "Experienced engineer.",
@@ -423,10 +426,10 @@ class TestResumeGeneration(unittest.TestCase):
             "experience": [{"title": "Engineer", "company": "Example Ltd"}],
             "skills": ["Python"],
             "projects": [{"title": "Included Project"}],
-            "internships": [{"title": "Hidden Internship"}],
-            "publications": [{"title": "Hidden Publication"}],
+            "internships": [{"title": "Included Internship"}],
+            "publications": [{"title": "Included Publication"}],
             "certifications": [{"name": "Included Certification"}],
-            "achievements": [{"title": "Hidden Award"}],
+            "achievements": [{"title": "Included Award"}],
         }
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "resume.docx"
@@ -435,11 +438,15 @@ class TestResumeGeneration(unittest.TestCase):
 
         text = "\n".join(paragraphs)
         self.assertIn("ABOUT ME", text)
+        self.assertIn("WORK EXPERIENCE", text)
         self.assertIn("Focused on software engineering and distributed systems.", text)
         self.assertIn("Included Project", text)
+        self.assertIn("Included Internship", text)  # under Work Experience
+        self.assertIn("Python", text)  # skills grid is plain text, not a table
+        # Only the five template sections print.
         self.assertNotIn("Included Certification", text)
-        for excluded in ("Hidden Internship", "Hidden Publication", "Hidden Award"):
-            self.assertNotIn(excluded, text)
+        self.assertNotIn("Included Publication", text)
+        self.assertNotIn("Included Award", text)
 
     def test_database_persistence(self):
         job_id = "test-job-persist-123"

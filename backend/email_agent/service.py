@@ -14,6 +14,7 @@ import json
 import os
 import secrets
 import sqlite3
+import threading
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, time as dtime, timedelta, timezone
@@ -25,6 +26,8 @@ from .crypto import CryptoConfigError, decrypt, encrypt
 from .providers import BaseProvider, ProviderAuthError, ProviderError, build_providers
 
 DEFAULT_TZ = "Europe/London"
+# connected_email_accounts.scopes for a mailbox whose tokens Nango holds: "nango:<integration>:<connection>"
+NANGO_MARKER = "nango:"
 OAUTH_STATE_TTL = 600
 _TZ_ABBR = {"UTC": "UTC", "GMT": "Europe/London", "BST": "Europe/London", "CET": "Europe/Paris",
             "CEST": "Europe/Paris", "EST": "America/New_York", "EDT": "America/New_York",
@@ -60,9 +63,12 @@ def _dt(value: str) -> datetime:
 
 class EmailAgentService:
     def __init__(self, database, providers: Optional[Dict[str, BaseProvider]] = None,
-                 secret: Optional[str] = None, now: Callable[[], datetime] = _now):
+                 secret: Optional[str] = None, now: Callable[[], datetime] = _now, nango=None):
         self.db = database
         self.providers = providers if providers is not None else build_providers()
+        # Mailboxes connected through Nango (NangoConnectPanel) are read with tokens Nango
+        # supplies; see link_nango_accounts.
+        self.nango = nango
         configured = secret or os.getenv("EMAIL_AGENT_SECRET")
         temporary_vercel_guest = (
             bool(os.getenv("VERCEL"))
@@ -239,8 +245,87 @@ class EmailAgentService:
         self._account(candidate, account_id)
         self._update("connected_email_accounts", account_id, timezone=tz)
 
+    # ------------------------------------------------------------- nango
+    @staticmethod
+    def _nango_ref(acc: Dict[str, Any]) -> Optional[tuple]:
+        """(integration_id, connection_id) when the account's tokens come from Nango."""
+        scopes = str(acc.get("scopes") or "")
+        if not scopes.startswith(NANGO_MARKER):
+            return None
+        _, integration_id, connection_id = scopes.split(":", 2)
+        return integration_id, connection_id
+
+    @staticmethod
+    def _nango_mail_provider(conn: Dict[str, Any]) -> Optional[str]:
+        text = f"{conn.get('provider') or ''} {conn.get('integration_id') or ''}".lower()
+        if "outlook" in text or "microsoft" in text:
+            return "outlook"
+        if "gmail" in text or "google-mail" in text or ("google" in text and "calendar" not in text):
+            return "gmail"
+        return None
+
+    def link_nango_accounts(self, candidate: str) -> List[str]:
+        """Make each Nango mail connection of ``candidate`` a syncable account.
+
+        Without this a mailbox connected through Nango is never read: the monitor and
+        "Sync now" only see rows in connected_email_accounts. Returns newly linked ids.
+        """
+        if not self.nango or not getattr(self.nango, "configured", False):
+            return []
+        try:
+            connections = self.nango.list_connections(candidate)
+        except Exception as err:  # Nango down: keep the dashboard working
+            self.log(candidate, "nango_link", None, "error", str(err))
+            return []
+        linked: List[str] = []
+        for conn in connections:
+            if conn.get("end_user_id") and conn["end_user_id"] != candidate:
+                continue
+            provider = self._nango_mail_provider(conn)
+            if not provider or provider not in self.providers or not conn.get("connection_id"):
+                continue
+            marker = f"{NANGO_MARKER}{conn.get('integration_id') or ''}:{conn['connection_id']}"
+            existing = self._one("SELECT * FROM connected_email_accounts WHERE candidate_id=? AND scopes=?",
+                                 (candidate, marker))
+            if existing:
+                if existing["status"] == "expired":  # Nango refreshed it; try again
+                    self._update("connected_email_accounts", existing["id"], status="connected", last_error=None)
+                continue
+            try:
+                token = self.nango.get_access_token(conn["connection_id"], conn.get("integration_id") or "")
+                profile = self._provider(provider).fetch_profile(token)
+            except Exception as err:
+                self.log(candidate, "nango_link", conn["connection_id"], "error", str(err))
+                continue
+            email = (profile.get("email") or conn["connection_id"]).lower()
+            now = self.now().isoformat()
+            same = self._one("SELECT * FROM connected_email_accounts WHERE candidate_id=? AND provider=? AND email=?",
+                             (candidate, provider, email))
+            if same and same["status"] == "connected" and not self._nango_ref(same):
+                continue  # already read through the app's own OAuth connection
+            if same:
+                self._update("connected_email_accounts", same["id"], scopes=marker, status="connected",
+                             access_token=None, refresh_token=None, token_expires_at=None,
+                             last_error=None, disconnected_at=None)
+                acc_id = same["id"]
+            else:
+                acc_id = _uid()
+                self._exec("INSERT INTO connected_email_accounts (id,candidate_id,provider,email,display_name,scopes,"
+                           "timezone,status,connected_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                           (acc_id, candidate, provider, email, profile.get("display_name"), marker,
+                            DEFAULT_TZ, "connected", now))
+            self.log(candidate, "nango_link", acc_id, "ok", f"{provider}:{email}")
+            linked.append(acc_id)
+        return linked
+
     def disconnect_account(self, candidate: str, account_id: str) -> Dict[str, Any]:
         acc = self._account(candidate, account_id)
+        if self._nango_ref(acc):
+            # Nango holds this token; disconnect it from the Nango panel. Here we only stop reading.
+            self._update("connected_email_accounts", account_id, status="disconnected",
+                         disconnected_at=self.now().isoformat())
+            self.log(candidate, "account_disconnect", account_id, "ok", {"source": "nango"})
+            return {"disconnected": True, "remote_revoked": False}
         revoked = True
         try:
             token = self._unseal(acc.get("refresh_token")) or self._unseal(acc.get("access_token"))
@@ -254,9 +339,44 @@ class EmailAgentService:
         self.log(candidate, "account_disconnect", account_id, "ok", {"remote_revoked": revoked})
         return {"disconnected": True, "remote_revoked": revoked}
 
+    def _calendar_token(self, candidate: str, acc: Dict[str, Any]) -> str:
+        """Token for calendar calls (free/busy, interview events, reminders).
+
+        A Gmail mailbox can be paired with a separate Google Calendar connection made in the
+        Nango panel; when one exists its token is used, so calendar access does not depend on
+        the mail integration's scopes. Otherwise the mailbox's own token is used, as before.
+        """
+        if acc.get("provider") == "gmail" and self.nango and getattr(self.nango, "configured", False):
+            try:
+                connections = self.nango.list_connections(candidate)
+            except Exception as err:
+                self.log(candidate, "calendar_token", acc["id"], "error", str(err))
+                connections = []
+            for conn in connections:
+                if conn.get("end_user_id") and conn["end_user_id"] != candidate:
+                    continue
+                text = f"{conn.get('provider') or ''} {conn.get('integration_id') or ''}".lower()
+                if "calendar" in text and conn.get("connection_id"):
+                    try:
+                        return self.nango.get_access_token(conn["connection_id"], conn.get("integration_id") or "")
+                    except Exception as err:
+                        self.log(candidate, "calendar_token", acc["id"], "error", str(err))
+                        raise AgentError(f"Could not get Google Calendar access from Nango: {err}", 502) from err
+        return self._token(candidate, acc)
+
     def _token(self, candidate: str, acc: Dict[str, Any]) -> str:
         if acc["status"] == "disconnected":
             raise AgentError("This email account is disconnected. Reconnect it to continue.", 409)
+        ref = self._nango_ref(acc)
+        if ref:
+            if not self.nango:
+                raise AgentError("This mailbox was connected through Nango, which is not configured.", 503)
+            try:
+                return self.nango.get_access_token(ref[1], ref[0])  # Nango refreshes as needed
+            except Exception as err:
+                self._update("connected_email_accounts", acc["id"], last_error=str(err))
+                self.log(candidate, "token_refresh", acc["id"], "error", str(err))
+                raise AgentError(f"Could not get mailbox access from Nango: {err}", 502) from err
         expires = acc.get("token_expires_at")
         if acc.get("access_token") and expires and _dt(expires) - self.now() > timedelta(seconds=60):
             return self._unseal(acc["access_token"])
@@ -465,7 +585,7 @@ class EmailAgentService:
     def _calendar_busy(self, candidate: str, acc: Dict[str, Any], start: datetime, end: datetime) -> Optional[List[Dict[str, datetime]]]:
         """Busy intervals, or ``None`` when the calendar could not be read (never assume free)."""
         try:
-            token = self._token(candidate, acc)
+            token = self._calendar_token(candidate, acc)
             return self._provider(acc["provider"]).busy_intervals(token, start, end, acc["email"])
         except (AgentError, ProviderError) as err:
             self.log(candidate, "calendar_check", acc["id"], "error", str(err))
@@ -770,7 +890,7 @@ class EmailAgentService:
                  "start": local.replace(tzinfo=None).isoformat(), "end": local_end.replace(tzinfo=None).isoformat(),
                  "timezone": local.tzinfo.key, "reminder_minutes": [1440, 60]}
         try:
-            event_id = self._provider(acc["provider"]).create_event(self._token(candidate, acc), event)
+            event_id = self._provider(acc["provider"]).create_event(self._calendar_token(candidate, acc), event)
         except (AgentError, ProviderError) as err:
             self._update("interviews", interview_id, **upd, scheduling_status="calendar_failed", calendar_error=str(err))
             self.log(candidate, "calendar_event", interview_id, "error", str(err))
@@ -881,7 +1001,7 @@ class EmailAgentService:
                  "end": (start + timedelta(minutes=15)).replace(tzinfo=None).isoformat(),
                  "timezone": zone.key, "reminder_minutes": [30]}
         try:
-            event_id = self._provider(acc["provider"]).create_event(self._token(candidate, acc), event)
+            event_id = self._provider(acc["provider"]).create_event(self._calendar_token(candidate, acc), event)
         except (AgentError, ProviderError) as err:
             self._update("follow_up_records", record_id, calendar_error=str(err))
             self.log(candidate, "follow_up_calendar", record_id, "error", str(err))
@@ -899,7 +1019,7 @@ class EmailAgentService:
         try:
             draft = self._one("SELECT account_id FROM email_drafts WHERE id=?", (draft_id,))
             acc = self._account(candidate, draft["account_id"])
-            self._provider(acc["provider"]).delete_event(self._token(candidate, acc), rec["calendar_event_id"])
+            self._provider(acc["provider"]).delete_event(self._calendar_token(candidate, acc), rec["calendar_event_id"])
         except (AgentError, ProviderError, NotImplementedError) as err:
             self.log(candidate, "follow_up_calendar_cleanup", rec["id"], "error", str(err))
             return
@@ -907,7 +1027,20 @@ class EmailAgentService:
         self.log(candidate, "follow_up_calendar_cleanup", rec["id"], "ok")
 
     # ------------------------------------------------------------- dashboard
+    def _first_sync(self, candidate: str, account_ids: List[str]) -> None:
+        for account_id in account_ids:
+            try:
+                self.sync_account(candidate, account_id)
+            except Exception as err:  # recorded on the account; the monitor retries
+                self.log(candidate, "sync", account_id, "error", str(err))
+
     def dashboard(self, candidate: str) -> Dict[str, Any]:
+        # A mailbox connected through Nango since the last visit becomes readable now, and its
+        # first sync (default 14-day lookback) runs in the background so the page stays fast.
+        new_ids = self.link_nango_accounts(candidate)
+        if new_ids:
+            threading.Thread(target=self._first_sync, args=(candidate, new_ids), daemon=True,
+                             name="EmailFirstSync").start()
         msgs = self._all(
             "SELECT m.id, m.subject, m.sender, m.sender_email, m.received_at, m.category, m.match_status, m.processing_status, m.direction, "
             "m.application_id, m.thread_id, a.company, a.job_title, a.status AS application_status, c.confidence, c.extracted "

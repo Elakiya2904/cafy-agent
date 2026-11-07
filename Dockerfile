@@ -11,22 +11,24 @@ ARG PYTHON_VERSION=3.13
 # ---------------------------------------------------------------- builder: install Python dependencies
 FROM python:${PYTHON_VERSION}-slim-bookworm AS builder
 
-ENV PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PIP_CERT=/etc/ssl/certs/ca-certificates.crt
+# uv installs exactly what uv.lock pins, into /opt/venv, using this image's Python (no download).
+COPY --from=ghcr.io/astral-sh/uv:0.11.21 /uv /usr/local/bin/uv
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    UV_PYTHON_DOWNLOADS=never \
+    UV_LINK_MODE=copy \
+    UV_NO_CACHE=1 \
+    UV_SYSTEM_CERTS=1
 
 # Extra root CAs (docker/certs/*.crt), e.g. an antivirus or corporate proxy that re-signs HTTPS traffic.
 # The folder may be empty; public certificates only, never private keys.
 COPY docker/certs/ /usr/local/share/ca-certificates/extra/
 RUN update-ca-certificates
 
-RUN python -m venv /opt/venv
-ENV PATH=/opt/venv/bin:$PATH
-
-COPY requirements.txt /tmp/requirements.txt
-RUN pip install --upgrade pip \
- && pip install -r /tmp/requirements.txt
+WORKDIR /build
+COPY pyproject.toml uv.lock .python-version ./
+RUN uv sync --locked --no-dev --no-install-project --python /usr/local/bin/python
 
 # ---------------------------------------------------------------- runtime
 FROM python:${PYTHON_VERSION}-slim-bookworm AS runtime
