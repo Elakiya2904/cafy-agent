@@ -40,7 +40,7 @@ from .context import current_candidate
 from .user_store import MAX_RESUME_BYTES, UserSession, UserStore
 from .scheduler import ScrapingScheduler
 from .resume_service import ResumeService
-from .recommendation_service import MIN_MATCH_SCORE, RecommendationService
+from .recommendation_service import MIN_MATCH_SCORE, NEAR_MATCH_SCORE, RecommendationService
 from .sponsor_service import VisaSponsorRegistry
 from .career_chat_service import CareerChatError, CareerChatService, build_career_context
 from .company_profiles import enrich_jobs_with_company_profiles
@@ -464,7 +464,7 @@ async def upload_resume(file: UploadFile = File(...)):
 
         # Query database across all platforms (up to 3000 jobs)
         stored_jobs = db.get_jobs(limit=3000)
-        recommendations = rec_svc.recommend_jobs(parsed, stored_jobs, min_score=MIN_MATCH_SCORE)
+        recommendations = rec_svc.recommend_jobs(parsed, stored_jobs, min_score=NEAR_MATCH_SCORE)
         recommendations = enrich_jobs_with_company_profiles(sponsor_registry.annotate_jobs(recommendations))
         recommendations = _annotate_job_location_scope(recommendations)
         ACTIVE_SESSION["last_matched_jobs"] = recommendations
@@ -486,7 +486,7 @@ async def upload_resume(file: UploadFile = File(...)):
 def get_matching_config():
     """The job-match scoring method and the multipliers/credits/gates in use (explainability)."""
     from .requirement_matching import MATCH_CONFIG, METHOD
-    return {"method": METHOD, "listing_threshold": MIN_MATCH_SCORE, "config": MATCH_CONFIG}
+    return {"method": METHOD, "listing_threshold": MIN_MATCH_SCORE, "near_match_threshold": NEAR_MATCH_SCORE, "config": MATCH_CONFIG}
 
 
 @app.get("/api/resume/current")
@@ -499,11 +499,11 @@ def get_current_resume():
     matched = ACTIVE_SESSION["last_matched_jobs"]
     if not matched:
         stored_jobs = db.get_jobs(limit=3000)
-        matched = rec_svc.recommend_jobs(resume, stored_jobs, min_score=MIN_MATCH_SCORE)
+        matched = rec_svc.recommend_jobs(resume, stored_jobs, min_score=NEAR_MATCH_SCORE)
         matched = enrich_jobs_with_company_profiles(sponsor_registry.annotate_jobs(matched))
         ACTIVE_SESSION["last_matched_jobs"] = matched
     # A list cached before the threshold applied (or by another path) never shows low matches.
-    matched = [job for job in matched if (job.get("match_score") or 0) >= MIN_MATCH_SCORE]
+    matched = [job for job in matched if (job.get("match_score") or 0) >= NEAR_MATCH_SCORE]
     matched = enrich_jobs_with_company_profiles(matched)
     return {"resume": resume, "profile_strength": strength, "matched_jobs": _annotate_job_location_scope(matched)}
 
@@ -806,7 +806,7 @@ def download_resume_pdf(resume_id: str):
 
 @app.post("/api/jobs/match")
 @app.post("/api/recommend")
-def recommend_filtered(platform: str = "all", min_score: int = MIN_MATCH_SCORE):
+def recommend_filtered(platform: str = "all", min_score: int = NEAR_MATCH_SCORE):
     if not ACTIVE_SESSION["resume"]:
         raise HTTPException(status_code=400, detail="No résumé uploaded yet.")
     stored_jobs = db.get_jobs(platform=platform, limit=3000)
@@ -884,7 +884,7 @@ def career_chat(request: CareerChatRequest):
             matched_jobs = rec_svc.recommend_jobs(
                 resume,
                 [dict(job) for job in jobs],
-                min_score=MIN_MATCH_SCORE,
+                min_score=NEAR_MATCH_SCORE,
             )
             matched_jobs = enrich_jobs_with_company_profiles(sponsor_registry.annotate_jobs(matched_jobs))
             matched_jobs = _annotate_job_location_scope(matched_jobs)

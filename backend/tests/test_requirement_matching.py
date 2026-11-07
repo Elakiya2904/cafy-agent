@@ -172,6 +172,15 @@ class TestRecommendationList(unittest.TestCase):
         self.assertIn("match_breakdown", recs[0])
         self.assertEqual(service.recommend_jobs(PROFILE, [UK_LISTING], min_score=85), [])
 
+    def test_near_matches_are_labelled_with_the_reason(self):
+        service = RecommendationService()
+        strong = service.recommend_jobs(TestTopBandGates.STRONG, [UK_LISTING], min_score=60)[0]
+        self.assertEqual((strong["match_band"], strong["match_shortfall"]), ("strong", ""))
+        near = service.recommend_jobs(PROFILE, [UK_LISTING], min_score=0)[0]
+        self.assertEqual(near["match_band"], "near")
+        self.assertLess(near["match_score"], 85)
+        self.assertTrue(near["match_shortfall"])
+
     def test_fresher_never_sees_experienced_roles(self):
         fresher = copy.deepcopy(TestTopBandGates.STRONG)
         fresher.update(years_of_experience=0, career_level="fresher")

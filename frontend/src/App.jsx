@@ -1734,6 +1734,9 @@ const JobListItem = React.memo(function JobListItem({ job, selected, inPipeline,
             {job.location && <span>{job.location}</span>}
             {job.visa_sponsored && <span className="visa">Visa Sponsorship</span>}
           </div>
+          {job.match_band === "near" && job.match_shortfall && (
+            <p className="jd-item-shortfall">Why below 85%: {job.match_shortfall}</p>
+          )}
         </div>
       </div>
       <button
@@ -3266,6 +3269,9 @@ function DirectoryView({
     } else if (sortBy === "best") {
       list.sort((a, b) => (Number(b.match_score) || 0) - (Number(a.match_score) || 0));
     }
+    // Strong matches (85%+, all checks met) always come before near matches; the chosen sort
+    // applies within each group. Stable sort keeps that order.
+    list.sort((a, b) => (a.match_band === "near") - (b.match_band === "near"));
     return list;
   }, [filtered, sortBy]);
 
@@ -3348,16 +3354,30 @@ function DirectoryView({
               </div>
             ) : (
               <ul className="jd-list">
-                {visibleJobs.slice(0, renderLimit).map((job) => (
-                  <JobListItem
-                    key={job.id}
-                    job={job}
-                    selected={activeJob?.id === job.id}
-                    inPipeline={pipelineJobIds.has(job.id)}
-                    onSelect={setActiveJobId}
-                    onTogglePipeline={onTogglePipeline}
-                  />
-                ))}
+                {visibleJobs.slice(0, renderLimit).map((job, index, shown) => {
+                  const band = job.match_band;
+                  const startsGroup = resume && band && (index === 0 || shown[index - 1].match_band !== band);
+                  const strongCount = startsGroup ? visibleJobs.filter((j) => j.match_band === "strong").length : 0;
+                  const nearCount = startsGroup ? visibleJobs.length - strongCount : 0;
+                  return (
+                    <React.Fragment key={job.id}>
+                      {startsGroup && (
+                        <li className={`jd-band-head ${band}`}>
+                          {band === "strong"
+                            ? <><strong>Strong matches · {strongCount}</strong><span>85%+ with 4+ matching skills and essential qualifications met.</span></>
+                            : <><strong>Good matches — below 85% · {nearCount}</strong><span>{strongCount ? "Worth a look; each shows what it is missing." : "No job meets every strong-match condition yet. These are your closest fits; each shows what it is missing."}</span></>}
+                        </li>
+                      )}
+                      <JobListItem
+                        job={job}
+                        selected={activeJob?.id === job.id}
+                        inPipeline={pipelineJobIds.has(job.id)}
+                        onSelect={setActiveJobId}
+                        onTogglePipeline={onTogglePipeline}
+                      />
+                    </React.Fragment>
+                  );
+                })}
                 {renderLimit < visibleJobs.length && <li ref={moreRef} className="jd-list-more" aria-hidden="true" />}
               </ul>
             )}

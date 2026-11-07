@@ -13,8 +13,11 @@ from .skill_catalog import role_matches_title
 # Minimum number of strong skill matches required to surface a recommendation.
 _MIN_SKILL_MATCHES = 2
 
-# Jobs below this match score are not listed for a candidate (uploads, chat, alerts).
+# "Strong match": 85%+ with every top-band check passed (4+ skills, essential qualifications).
 MIN_MATCH_SCORE = 85
+# Find Jobs also lists "near matches" from this score up, labelled as below 85% with the reason,
+# so a candidate is never left with an empty list. Alerts still use MIN_MATCH_SCORE only.
+NEAR_MATCH_SCORE = 60
 
 _FRESHER_TITLE_TERMS = ("intern", "graduate", "new grad", "fresher", "trainee", "apprentice",
                         "junior", "entry-level", "entry level")
@@ -175,8 +178,17 @@ class RecommendationService:
             if job.get("is_remote"):
                 reasons.append("Remote-friendly opportunity")
 
+            strong = score >= MIN_MATCH_SCORE and result["top_band_eligible"]
+            if strong:
+                shortfall = ""
+            elif result["cap_reasons"]:
+                shortfall = result["cap_reasons"][0]
+            else:
+                shortfall = f"Covers {score}% of this job's requirements; {MIN_MATCH_SCORE}% is a strong match."
             recommendations.append({
                 **job,
+                "match_band": "strong" if strong else "near",
+                "match_shortfall": shortfall,
                 "match_score": score,
                 "fit_level": fit_level,
                 "job_level": level,
